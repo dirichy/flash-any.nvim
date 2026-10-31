@@ -1,0 +1,4 @@
+.dev/
+nvim.log
+__pycache__/
+*.pyc

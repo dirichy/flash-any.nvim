@@ -1,0 +1,232 @@
+*flash-any.txt*  用拼音、形码和自定义编码进行 Flash 跳转
+
+===============================================================================
+目录                                          *flash-any* *flash-any-contents*
+
+1. 概述                                      |flash-any-intro|
+2. 配置                                      |flash-any-setup|
+3. source                                    |flash-any-sources|
+4. matcher                                   |flash-any-matchers|
+5. 自定义码表                                |flash-any-custom-table|
+6. 健康检查                                  |flash-any-health|
+7. 码表生成                                  |flash-any-build-table|
+
+===============================================================================
+1. 概述                                                    *flash-any-intro*
+
+flash-any.nvim 为 flash.nvim 提供按字符的自定义匹配。需要 Neovim 0.11+ 和
+folke/flash.nvim。ASCII 字面匹配默认启用，其他字符由配置的 source 处理。
+
+仓库：https://github.com/dirichy/flash-any.nvim
+
+===============================================================================
+2. 配置                                                    *flash-any-setup*
+
+lazy.nvim 安装示例： >lua
+    {
+      "dirichy/flash-any.nvim",
+      dependencies = { "folke/flash.nvim" },
+      opts = {
+        sources = { { name = "pinyin", scheme = "flypy" }, "tiger" },
+      },
+      keys = {
+        {
+          "s",
+          mode = { "n", "x", "o" },
+          function() require("flash-any").jump() end,
+          desc = "Flash any",
+        },
+      },
+    }
+<
+手动配置： >lua
+    require("flash-any").setup({ sources = { "pinyin" } })
+    vim.keymap.set({ "n", "x", "o" }, "s", function()
+      require("flash-any").jump()
+    end)
+<
+setup(opts) 校验并保存完整默认配置。sources 必须是列表，可以是空列表；配置层
+默认将普通 ASCII literal source 放到最前面，因此空列表仍匹配 ASCII 字符。
+Unicode 名称匹配只有显式配置 unicode source 才启用。
+
+跳转：                                                       *flash-any-jump*
+
+    require("flash-any").jump()        使用 setup 保存的配置及码表缓存。
+    require("flash-any").jump(nil)     同上。
+    require("flash-any").jump(opts)    使用独立完整配置，不继承 setup 的字段。
+
+jump 返回 Flash 的跳转 state。传入 opts 时 sources 必须提供。例如： >lua
+    require("flash-any").jump({
+      sources = { { name = "pinyin", scheme = "natural" } },
+      labels = "asdfghjkl",
+    })
+<
+其他 Flash 选项直接传递。插件管理顶层 matcher 和 labeler；匹配规则通过 source
+的 matcher 设置。labels 等字段由 Flash 自身提供默认值，不由本插件补齐。
+
+===============================================================================
+3. source                                                  *flash-any-sources*
+
+source 可写成名称字符串或配置对象： >lua
+    sources = {
+      { name = "pinyin", scheme = "flypy", matcher = "prefix" },
+      "tiger",
+      "unicode",
+    }
+<
+内置 source：
+                                                            *flash-any-literal*
+literal    普通 ASCII 字面 source，配置层默认前置，用户无需传入。
+           ASCII 未匹配返回 {}；非 ASCII 返回 nil，不认识该字符。
+                                                            *flash-any-pinyin*
+pinyin     全拼或双拼。省略 scheme 使用全拼，默认 initial；双拼默认 full_code。
+           同一次配置只允许一个 pinyin source。
+                                                             *flash-any-tiger*
+tiger      虎码，默认 full_code。来源：https://www.tiger-code.com/
+                                                            *flash-any-wubi86*
+wubi86     五笔 86，默认 full_code。来源：rime/rime-wubi。
+                                                           *flash-any-unicode*
+unicode    Unicode 英文短名称，默认 prefix 和 fallback = true。
+                                                          *flash-any-nerdfont*
+nerdfont   Nerd Fonts 图标的英文短名称，默认 prefix。
+
+码表包含常用 Lua 表和按需查询的完整 TSV。首次查询生僻字时读取 TSV，命中和
+未命中都会缓存。ASCII 和编码可混合输入：全拼 source 下 ag 可匹配 a国。
+全拼 zg、小鹤双拼 vsgo 均可匹配“中国”。
+
+拼音 scheme 选项（属于 pinyin source，不是顶层配置）：
+                                                             *flash-any-flypy*
+flypy      小鹤双拼。
+                                                              *flash-any-pyjj*
+pyjj       拼音加加双拼。
+                                                           *flash-any-natural*
+natural    自然码双拼。
+                                                               *flash-any-abc*
+abc        智能 ABC 双拼。
+                                                              *flash-any-mspy*
+mspy       微软双拼。
+                                                                *flash-any-st*
+st         四通双拼。
+
+模糊音：
+
+全拼和双拼均支持 fuzzy = true，默认分组为 zh/z、ch/c、sh/s、ang/an、eng/en、
+ing/in。也可自定义： >lua
+    sources = {
+      {
+        name = "pinyin",
+        scheme = "flypy",
+        fuzzy = {
+          initials = { { "zh", "z" }, { "ch", "c" } },
+          finals = { { "ang", "an" } },
+        },
+      },
+    }
+<
+重叠时采用第一个包含该声母或韵母的分组。双拼的完整音节特例优先于模糊音。
+
+fallback：
+
+普通 source 都参与匹配。fallback = true 的 source 只在前面的 source 全都返回
+nil（不认识字符）时参与。前项返回 {} 表示认识但输入不匹配，也会阻止 fallback。
+unicode 默认使用此策略，可显式 fallback = false。默认字面 source 认识所有
+ASCII，因此后续 fallback source 不处理 ASCII 字符。
+
+顶功策略：                                              *flash-any-top-force*
+>lua
+    { name = "tiger", strategy = "top_force", max_length = 4 }
+<
+短于 max_length 的编码追加一个空格，全码不追加。max_length 必须是正整数。
+
+===============================================================================
+4. matcher                                                *flash-any-matchers*
+
+码表编码必须为 ASCII；buffer 文本可为 UTF-8。码表提供三个 matcher：
+
+full_code   前缀可显示候选，完整编码才进入下一个文本字符。普通码表的默认模式。
+initial     完整编码或首个 ASCII 字母都可进入下一个字符。全拼默认模式。
+prefix      任意非空编码前缀都可进入下一个字符。名称表默认模式。
+
+自定义 matcher 接收 (char, stream, args)。char 是当前 buffer 的一个 UTF-8
+码点，stream 是尚未消费的输入字节串；args.source 是运行时 source，只包含
+name、data、matcher、fallback，不含 scheme 等配置属性。
+
+不用码表也可定义 matcher，例如用 x 匹配“中”： >lua
+    sources = {
+      {
+        matcher = function(char, stream)
+          if char ~= "中" then return nil end
+          if stream == "" then return { { next = { x = true } } } end
+          if stream:sub(1, 1) == "x" then return { { consumed = 1 } } end
+          return {}
+        end,
+      },
+    }
+<
+返回值：
+
+nil                             不认识字符。
+{}                              认识字符，但输入没有匹配分支。
+{ { consumed = n }, ... }        消费 n 字节后进入下一个文本字符。
+{ { next = { a = true } }, ... } 剩余输入全部匹配，a 是可能的后续 ASCII 键。
+
+每个成功分支只有 consumed 或 next 之一。consumed 必须是 1..#stream 的整数。
+next 可以是空集合，仍代表成功。多个分支可以表示不同消费边界；next 的 key 只
+允许单字节 ASCII 字符。空 stream 仅用于查询起始 next，不能再消费字节。
+
+恰好消费完全部输入时，扫描器查询后一个字符的起始 next，不扩大可见匹配范围。
+是否认识字符只取决于 char，不随 stream 改变；长输入成功则其字符前缀也必须
+成功。追加输入只继续未结束的分支，失败分支不会重新尝试。动态返回值由实现者
+保证，运行路径不逐分支校验。
+
+相同终点的显示结果在扫描中合并，只保留最早起点并合并 next。位置采用 Neovim
+字节列；默认按码点处理文本，不合并 ZWJ emoji 等完整 grapheme cluster。
+
+===============================================================================
+5. 自定义码表                                        *flash-any-custom-table*
+
+字符必须是单个 UTF-8 码点，编码是 ASCII 字符串或字符串数组： >lua
+    sources = {
+      {
+        data = { ["中"] = { "vs", "ds" }, ["国"] = "go" },
+        matcher = "full_code",
+      },
+    }
+<
+从文件读取： >lua
+    sources = {
+      { lua = "/path/to/common.lua", tsv = "/path/to/full.tsv" },
+    }
+<
+Lua 文件返回与 data 相同结构的表。tsv 可省略；提供时须按 UTF-8 字节序排序，
+每个字符一行，支持 LF/CRLF，行内是“字符<Tab>编码1,编码2”。TSV 编码不能含逗号、Tab 或换行。
+路径可以相对当前目录，或为绝对路径、~ 路径。
+
+loader 可按字符返回编码数组或 nil。当前表未命中时才调用，命中及未命中都缓存。
+自定义 loader 会替换该 source 的 TSV 未命中加载器，不会逐层调用多个 loader。
+
+===============================================================================
+6. 健康检查                                               *flash-any-health*
+
+    :checkhealth flash-any
+
+检查 Neovim 版本、flash.nvim、可用 source 和帮助标签。
+
+===============================================================================
+7. 码表生成                                          *flash-any-build-table*
+
+    :FlashAnyBuildTable source.dict common.lua full.tsv [common-from.lua|-] [format] [encoding]
+
+前三个参数是输入文件、Lua 输出、完整 TSV 输出。输入支持单字符表格，不收录词条；
+同字编码合并、去重。format 支持 auto（默认）、rime、tsv、tab、csv、space，encoding
+默认为 utf-8，也可指定 cp936、big5 等由 iconv 支持的输入编码。输出统一 UTF-8。
+
+第四个参数可指定已有 Lua 字表，用其字符集合筛选 Lua 常用表；省略时 Lua 输出
+全部字符。TSV 始终包含完整字集。需要 format/encoding 而不筛选常用字时填 -：
+
+    :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
+
+输出编码必须是 ASCII，不能含逗号、Tab 或换行。输出路径会被覆盖，不应与输入
+文件相同。插件代码采用 MIT，码表来源和上游说明见仓库 THIRD_PARTY.md。
+
+vim:tw=78:ts=8:ft=help:norl:

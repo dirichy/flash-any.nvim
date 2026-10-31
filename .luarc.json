@@ -1,0 +1,16 @@
+{
+  "runtime": {
+    "version": "LuaJIT",
+    "path": ["lua/?.lua", "lua/?/init.lua"]
+  },
+  "workspace": {
+    "library": [
+      "/usr/share/nvim/runtime/lua",
+      ".dev/flash.nvim/lua"
+    ],
+    "checkThirdParty": false
+  },
+  "diagnostics": {
+    "globals": ["vim"]
+  }
+}
