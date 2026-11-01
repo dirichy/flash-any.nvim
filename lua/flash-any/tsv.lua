@@ -33,28 +33,40 @@ function M.loader(path, opts)
 	end
 	local file = assert(io.open(vim.fn.expand(path), "rb"))
 	local size = file:seek("end")
+	-- Heap indices 1..63 cover the first six binary-search levels.
+	---@type table<integer, { key?: string, position: number, after: number }>
+	local nodes = {}
 
 	return function(char)
 		-- Keys are UTF-8 sorted by bytes; decoded code-table values are ASCII.
-		local low, high = 0, size
+		local low, high, index = 0, size, 1
 		local found
-		while low < high do
+		while high - low > 64 do
 			local middle = math.floor((low + high) / 2)
-			local position, line = read_at(file, middle, false)
-			if not line then
-				high = middle
+			local node = nodes[index]
+			local position, key, after
+			if node then
+				position, key, after = node.position, node.key, node.after
 			else
-				local key = split(line, separator)
-				if key == char then
-					found = position
-					break
-				elseif key and key < char then
-					low = file:seek()
-				else
-					-- read_at may skip the row containing middle. Shrink by the
-					-- byte midpoint so that row remains a possible candidate.
-					high = middle
+				local line
+				position, line = read_at(file, middle, false)
+				key = line and split(line, separator)
+				after = file:seek()
+				if index < 64 then
+					nodes[index] = { key = key, position = position, after = after }
 				end
+			end
+			if key == char then
+				found = position
+				break
+			elseif key and key < char then
+				low = after
+				index = index * 2 + 1
+			else
+				-- read_at may skip the row containing middle. Shrink by the
+				-- byte midpoint so that row remains a possible candidate.
+				high = middle
+				index = index * 2
 			end
 		end
 
@@ -62,11 +74,12 @@ function M.loader(path, opts)
 		local result = {}
 		while line do
 			local key, value = split(line, separator)
-			if key ~= char then
+			if not key or key > char then
 				break
-			end
-			for _, item in ipairs(decode(value)) do
-				result[#result + 1] = item
+			elseif key == char then
+				for _, item in ipairs(decode(value)) do
+					result[#result + 1] = item
+				end
 			end
 			line = file:read("*l")
 		end

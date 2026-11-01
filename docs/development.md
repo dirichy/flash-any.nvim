@@ -117,12 +117,19 @@ and retains only byte positions for matches and incremental continuation.
 
 `require("flash-any.tsv").loader(path, opts)` 创建按字符查询的加载函数，可配置
 separator 和 decode。它打开并持有文件句柄，返回编码数组或 nil，不缓存查询结果；
-命中与未命中缓存由 `table.lazy` 统一管理。模块级 `read_at(file, position, aligned)`
+命中与未命中缓存由 `table.lazy` 统一管理。loader 按需缓存二分树前 6 层的
+比较键、行起点和下一行位置，最多 63 个节点，与文件句柄同生命周期。
+剩余区间不超过 64 字节时，从已对齐的下界顺序扫描，避免按字节二分反复跳到同一行。
+模块级 `read_at(file, position, aligned)`
 接收文件句柄，不为每个 loader 额外创建辅助闭包。
 
 `flash-any.tsv.loader(path, opts)` replaces the former `open` factory. It returns
 a character lookup function that owns an open file handle, not the handle itself.
 The loader does not cache results; `table.lazy` owns positive and negative caches.
+It lazily caches comparison keys, row starts and next-row offsets for the first
+six binary-search levels (at most 63 nodes), with the same lifetime as its file
+handle. Remaining intervals of at most 64 bytes are scanned from the aligned
+lower bound, avoiding repeated reads of the same row near the end of a search.
 The shared `read_at` helper takes the file explicitly instead of capturing it.
 
 `require` 返回的原始码表、方案规则以及 `load(name)` 的默认缓存均可能共享。

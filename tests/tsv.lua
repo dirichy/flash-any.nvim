@@ -29,4 +29,27 @@ local lookup = tsv.loader(fixture(table.concat(rows, "\n")))
 for cp = 0x4E00, 0x4E00 + 511 do
   assert(vim.deep_equal(lookup(vim.fn.nr2char(cp)), { tostring(cp) }))
 end
+-- Alternate distant branches after warming the cached binary-search nodes.
+for _ = 1, 2 do
+  for i = 0, 511 do
+    local cp = 0x4E00 + (i * 137) % 512
+    local char = vim.fn.nr2char(cp)
+    assert(vim.deep_equal(lookup(char), { tostring(cp) }))
+    assert(lookup(char .. "!") == nil)
+  end
+end
+-- The upper byte bound can lie inside a row; scanning starts at aligned low.
+for _, length in ipairs({ 60, 61, 62, 63, 64, 65, 4096 }) do
+  for _, newline in ipairs({ "\n", "\r\n" }) do
+    local value = string.rep("x", length)
+    local scan = tsv.loader(fixture("a\t" .. value .. newline .. "z\tlast"))
+    for _ = 1, 2 do
+      assert(vim.deep_equal(scan("a"), { value }))
+      assert(scan("0") == nil)
+      assert(scan("b") == nil)
+      assert(vim.deep_equal(scan("z"), { "last" }))
+      assert(scan("zz") == nil)
+    end
+  end
+end
 print("all TSV lookup tests passed")
