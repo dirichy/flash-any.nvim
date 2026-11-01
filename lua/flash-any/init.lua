@@ -32,8 +32,7 @@ end, {
 ---@field lua? string
 ---@field tsv? string
 ---@field loader? fun(char: string): string[]?
----@field strategy? "top_force"
----@field max_length? integer
+---@field append_space_below? integer
 
 ---@alias FlashAnySourceSpec string|FlashAnySourceConfig|table<string, string|string[]>
 
@@ -86,9 +85,9 @@ local function load_sources(values)
       if fallback == nil then fallback = value.name == "unicode" end
       local data
       if value.lua then
-        data = tables.apply_strategy(tables.from_files(value.lua, value.tsv), value)
+        data = tables.append_space(tables.from_files(value.lua, value.tsv), value.append_space_below)
       elseif value.data then
-        data = tables.apply_strategy(tables.normalize(value.data), value)
+        data = tables.append_space(tables.normalize(value.data), value.append_space_below)
       elseif value.name and value.name ~= "literal" then
         data = tables.load(value.name, value)
       end

@@ -18,40 +18,38 @@ function M.lazy(data, loader)
 	})
 end
 
----为短于 max_length 的编码追加空格，实现短码按空格顶出；返回新数组。
+---为短于 below 的编码追加一个空格；返回新数组。
 ---@param codes string[]?
----@param max_length integer
+---@param below integer
 ---@return string[]?
-local function pad_codes(codes, max_length)
+local function space_codes(codes, below)
 	if not codes then
 		return nil
 	end
 	local ret = {}
 	for _, code in ipairs(codes) do
-		ret[#ret + 1] = #code < max_length and code .. " " or code
+		ret[#ret + 1] = #code < below and code .. " " or code
 	end
 	return ret
 end
 
----应用顶功策略；未启用时返回原表，启用时创建独立码表并保留懒加载。
+---短码补空格；未指定阈值时返回原表，否则创建独立码表并保留懒加载。
 ---@param data FlashAnyTable
----@param opts table?
+---@param below? integer
 ---@return FlashAnyTable
-function M.apply_strategy(data, opts)
-	if not opts or opts.strategy == nil then
+function M.append_space(data, below)
+	if below == nil then
 		return data
 	end
 	-- data may be a shared default cache; keep transformed arrays separate.
-	assert(opts.strategy == "top_force", "unknown code-table strategy: " .. tostring(opts.strategy))
-	local max_length = opts.max_length
-	assert(type(max_length) == "number" and max_length > 0 and max_length % 1 == 0,
-		"top_force requires a positive integer max_length")
+	assert(type(below) == "number" and below > 0 and below % 1 == 0,
+		"append_space_below must be a positive integer")
 	local ret = {}
 	for char, codes in pairs(data) do
-		ret[char] = pad_codes(codes, max_length)
+		ret[char] = space_codes(codes, below)
 	end
 	return M.lazy(ret, function(char)
-		return pad_codes(data[char], max_length)
+		return space_codes(data[char], below)
 	end)
 end
 
@@ -241,7 +239,7 @@ local cache = {}
 
 ---按 source 名称加载码表，默认 pinyin；无 opts 时复用缓存，有 opts 时独立构建并应用策略。
 ---@param name? string
----@param opts? table scheme、fuzzy、strategy、max_length 等加载选项。
+---@param opts? table scheme、fuzzy、append_space_below 等加载选项。
 ---@return FlashAnyTable
 function M.load(name, opts)
 	name = name or "pinyin"
@@ -250,7 +248,7 @@ function M.load(name, opts)
 	end
 	if opts then
 		assert(not opts.scheme or name == "pinyin", "scheme is only supported by the pinyin source")
-		return M.apply_strategy(loaders[name](opts), opts)
+		return M.append_space(loaders[name](opts), opts.append_space_below)
 	end
 	cache[name] = cache[name] or loaders[name]()
 	return cache[name]
