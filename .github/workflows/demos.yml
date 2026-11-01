@@ -5,89 +5,114 @@ on:
   push:
     branches: [master]
     paths:
-      - "demos/**"
-      - "lua/**"
-      - ".github/workflows/demos.yml"
-
-concurrency:
-  group: demos-release
-  cancel-in-progress: true
+      - .github/workflows/demos.yml
+      - docs/demos/**
+      - tests/**
+      - ftdetect/**
+      - README.md
+      - README.zh-CN.md
+      - lua/**
+      - queries/**
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: demos-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   record:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 45
+    env:
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.demo-deps/config
+      XDG_DATA_HOME: ${{ github.workspace }}/.demo-deps/data
+      XDG_STATE_HOME: ${{ github.workspace }}/.demo-deps/state
+      XDG_CACHE_HOME: ${{ github.workspace }}/.demo-deps/cache
+      TOKYONIGHT_PATH: ${{ github.workspace }}/.demo-deps/tokyonight.nvim
+      FLASH_NVIM_PATH: ${{ github.workspace }}/.demo-deps/flash.nvim
+      NVIM_LOG_FILE: ${{ github.workspace }}/.demo-deps/nvim.log
     steps:
       - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Check out Flash
-        uses: actions/checkout@v4
-        with:
-          repository: folke/flash.nvim
-          ref: 5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a
-          path: .dev/flash.nvim
-          persist-credentials: false
-
-      - name: Check out Tokyo Night
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: folke/tokyonight.nvim
           ref: cdc07ac78467a233fd62c493de29a17e0cf2b2b6
-          path: .dev/tokyonight.nvim
-          persist-credentials: false
-
-      - name: Install recording tools and fonts
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji unzip
-          mkdir -p .dev/tools .dev/fonts "$HOME/.local/share/fonts"
-          curl -fLsS --retry 3 https://github.com/neovim/neovim/releases/download/v0.12.6/nvim-linux-x86_64.tar.gz -o .dev/tools/nvim.tar.gz
-          tar -xzf .dev/tools/nvim.tar.gz -C .dev/tools
-          curl -fLsS --retry 3 https://github.com/charmbracelet/vhs/releases/download/v0.12.1/vhs_0.12.1_Linux_x86_64.tar.gz -o .dev/tools/vhs.tar.gz
-          tar -xzf .dev/tools/vhs.tar.gz -C .dev/tools
-          curl -fLsS --retry 3 https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 -o .dev/tools/ttyd
-          chmod +x .dev/tools/ttyd
-          printf '%s\n' "$PWD/.dev/tools/nvim-linux-x86_64/bin" "$PWD/.dev/tools" >> "$GITHUB_PATH"
-          curl -fLsS --retry 3 https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/JetBrainsMono.zip -o .dev/fonts/JetBrainsMono.zip
-          unzip -j .dev/fonts/JetBrainsMono.zip 'JetBrainsMonoNerdFontMono-Regular.ttf' -d "$HOME/.local/share/fonts"
-          fc-cache -f
-          fc-match 'JetBrainsMono Nerd Font Mono'
-
-      - name: Record and verify
-        run: sh demos/record.sh
-
-      - name: Keep recording evidence
-        if: always()
-        uses: actions/upload-artifact@v4
+          path: .demo-deps/tokyonight.nvim
+      - uses: actions/checkout@v4
         with:
-          name: demo-recording
-          retention-days: 7
-          path: |
-            demos/output/demo.gif
-            demos/output/demo.mp4
-            demos/output/poster.png
-            demos/output/verification.json
-            demos/output/media.json
-            demos/output/nvim.log
-
-      - name: Publish demo assets
+          repository: folke/flash.nvim
+          ref: 5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a
+          path: .demo-deps/flash.nvim
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: v0.12.6
+      - uses: charmbracelet/vhs-action@v2
+        with:
+          version: v0.12.1
+      - name: Install and check Nerd Font
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
         run: |
-          printf 'Recorded from commit `%s`.\n\nTokyo Night / JetBrainsMono Nerd Font Mono.\n' "$GITHUB_SHA" > demos/output/release-notes.md
-          if gh release view demos --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload demos demos/output/demo.gif demos/output/demo.mp4 demos/output/poster.png --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit demos --prerelease --latest=false --notes-file demos/output/release-notes.md --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create demos demos/output/demo.gif demos/output/demo.mp4 demos/output/poster.png --title "Demos" --prerelease --latest=false --target "$GITHUB_SHA" --notes-file demos/output/release-notes.md --repo "$GITHUB_REPOSITORY"
+          mkdir -p "$XDG_DATA_HOME/fonts" "$RUNNER_TEMP/demo-fonts"
+          gh release download v3.4.0 --repo ryanoasis/nerd-fonts \
+            --pattern JetBrainsMono.zip --dir "$RUNNER_TEMP/demo-fonts"
+          unzip -j "$RUNNER_TEMP/demo-fonts/JetBrainsMono.zip" \
+            JetBrainsMonoNerdFontMono-Regular.ttf JetBrainsMonoNerdFontMono-Bold.ttf \
+            JetBrainsMonoNerdFontMono-Italic.ttf JetBrainsMonoNerdFontMono-BoldItalic.ttf \
+            -d "$XDG_DATA_HOME/fonts"
+          fc-cache -f
+          fc-match -f 'Family: %{family}\nStyle: %{style}\nFile: %{file}\n' 'JetBrainsMono Nerd Font Mono'
+          test "$(fc-match -f '%{family}' 'JetBrainsMono Nerd Font Mono' | cut -d, -f1)" = 'JetBrainsMono Nerd Font Mono'
+      - name: Install Lua checker
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: record
+        run: demos/record.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demos
+          path: |
+            demos/output/*.gif
+            demos/output/*.png
+            demos/output/*.mp4
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: record
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: demos
+          path: demos
+      - name: Replace demo release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/demo-notes.md" <<EOF
+          Automatically recorded demos for commit $GITHUB_SHA.
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          These assets are replaced on each successful recording. This is not a plugin release.
+          EOF
+          if ! gh release view demos --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create demos --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title 'Demo recordings' --prerelease --latest=false \
+              --notes-file "$RUNNER_TEMP/demo-notes.md"
           fi
-          for asset in demo.gif demo.mp4 poster.png; do
-            curl -fLsS --retry 5 --retry-all-errors --retry-delay 2 --max-time 30 --output /dev/null "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/demos/$asset"
+          gh release upload demos demos/*.gif demos/*.png demos/*.mp4 --clobber --repo "$GITHUB_REPOSITORY"
+          gh release edit demos --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/demo-notes.md"
+
+      - name: Check published README media
+        run: |
+          for media in demos/*.gif demos/*.mp4; do
+            curl --fail --silent --show-error --location --head --retry 3 \
+              "https://github.com/$GITHUB_REPOSITORY/releases/download/demos/${media##*/}" >/dev/null
           done
