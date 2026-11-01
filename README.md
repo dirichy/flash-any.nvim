@@ -5,6 +5,8 @@
 使用全拼、双拼、形码或自定义编码，在 [flash.nvim](https://github.com/folke/flash.nvim) 中跳转。
 
 需要 Neovim 0.11+ 和 `folke/flash.nvim`。默认支持 ASCII 字面匹配；中文、emoji 等字符通过配置的 source 匹配。
+内置中文全拼和常见的双拼，虎码，五笔。90000字大码表，支持生僻字。可自定义双拼方案，支持模糊音。
+可自定义码表，也可以直接把 `rime` dict，tsv，csv等格式自动转换。
 
 ![小鹤双拼与 Unicode 名称跳转演示](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
@@ -164,6 +166,8 @@ Lua 文件返回与 `data` 相同结构的表；TSV 按 UTF-8 字节序排序，
 
 `loader = function(char) ... end` 可按字符返回编码数组或 `nil`。它只在当前表未命中时调用，结果及未命中都会缓存；它会替换该 source 原有的 TSV 未命中加载器。
 
+使用 `matcher` 逐字符扫描，不需要拼接巨大正则，因此获得了极好的性能和可扩展性。这是能支持unicode这种巨大码表的重要前提。
+
 自定义 `matcher` 可以没有码表。回调接收 `char, stream, args`，其中 `args.source` 是运行时 source。例如用 `x` 匹配“中”：
 
 ```lua
@@ -192,7 +196,9 @@ matcher 必须满足：长输入能成功，则其字符前缀也能成功；失
 
 输入支持 Rime、TSV、CSV 或空白分隔文本。`format` 可为 `auto`（默认）、`rime`、`tsv`、`tab`、`csv`、`space`；`encoding` 默认为 `utf-8`。只收录单字符条目，同一字符的编码会合并、去重。
 
+`common-from.lua` 用来分级是否是常用字，应返回一个table。可使用内置的 `table/tiger.lua` 作为常用字集，约 3500 字。
 省略第四个参数时 Lua 输出包含全部字符；提供已有 Lua 字表时只把其中的字符写入 Lua 常用表，完整 TSV 始终包含全部字符。需要指定 format/encoding 而不筛选常用字时，第四个参数填 `-`：
+因为`lua table` 很大时，load会很慢，所以不建议把大字集全部编译成 `lua` 部分，应保留 `tsv` 部分。
 
 ```vim
 :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
