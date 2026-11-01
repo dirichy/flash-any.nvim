@@ -51,6 +51,7 @@ GIF 从 MP4 两遍转换，保留 1920×1080、20fps，变化区域调色板与�
 输入速度为 120ms/键，语义分段后停留 0.8 秒，跳转后停留 1.8 秒。
 
 同一次 TUI 回放记录中间查询候选、实际标签和最终落点，确认样例未修改且没有 Neovim 错误。
+预期行列在启动时根据样例中的唯一目标文本定位，使用字节列，不依赖固定缩进或行号。
 每轮清空旧验证文件，异常写入本轮 JSON；验证成功才转换 GIF、检查 codec/尺寸/实际帧率并提取封面。
 生成后仍须目视检查关键帧的字体、emoji、裁切和标签。
 
@@ -59,13 +60,16 @@ and `media.json`. Live TUI assertions check intermediate matches, the selected l
 all three final queries and cursor positions, and the unchanged fixture. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
+Expected byte positions come from unique target text in the original fixture,
+so indentation and comment placement do not invalidate the assertions.
 
 ## CI 与发布 / CI and publishing
 
 [工作流](../.github/workflows/demos.yml) 在 `master` 的插件、录制素材、README 和相关测试变化时
 自动运行，也可手动运行。工具与插件版本固定在工作流中，字体包括 CJK 和 emoji fallback。
-验证成功后保存 GIF、MP4、PNG 和 JSON artifact，再更新独立 `demos` prerelease 的同名媒体附件，
+录制后保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体附件，
 最后检查附件 URL。不提交生成媒体，不将 demo Release 标为 latest。
+验证失败时也保存已生成的媒体和 JSON，便于检查实际查询、落点及预期位置；失败不发布。
 
 README 引用 `releases/download/demos/demo.gif` 和 `demo.mp4`；
 本地录制不更新远端附件，提交后 CI 才会发布新版演示。
@@ -74,3 +78,4 @@ The workflow records the continuous demo, verifies playback and media, saves art
 and updates the `demos` prerelease on the default branch. README media URLs become
 available after the updated workflow publishes them. Local files and release assets
 are separate; no generated media enters Git history.
+Failed runs also save available media and verification JSON for diagnosis; they do not publish.

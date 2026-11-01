@@ -27,11 +27,23 @@ plugin.setup({
 
 local demo = { seen = {}, jumps = {} }
 local stages = {
-  { title = "Full pinyin", pattern = "quanpin", target = { 6, 3 }, checkpoints = { "quan", "quanpin" } },
-  { title = "Initials", pattern = "jp", target = { 10, 3 }, checkpoints = { "j", "jp" } },
-  { title = "Mixed input", pattern = "hunsasciigrin", target = { 13, 3 },
+  { title = "Full pinyin", pattern = "quanpin", text = "全拼", checkpoints = { "quan", "quanpin" } },
+  { title = "Initials", pattern = "jp", text = "简拼", checkpoints = { "j", "jp" } },
+  { title = "Mixed input", pattern = "hunsasciigrin", text = "混输ascii😀",
     checkpoints = { "hun", "huns", "hunsascii", "hunsasciigrin" } },
 }
+-- Resolve expected byte positions from the original fixture, before any interaction.
+local lines = vim.fn.readfile(root .. "/demos/sample.lua")
+for _, stage in ipairs(stages) do
+  for row, line in ipairs(lines) do
+    local col = line:find(stage.text, 1, true)
+    if col then
+      assert(not stage.target and not line:find(stage.text, col + 1, true), "duplicate target: " .. stage.text)
+      stage.target = { row, col - 1 }
+    end
+  end
+  assert(stage.target, "missing target: " .. stage.text)
+end
 vim.opt.statusline = "  Full pinyin  >  Initials  >  Mixed input%=%l:%c  "
 
 vim.keymap.set("n", "s", function()
@@ -68,7 +80,9 @@ function demo.verify()
         assert(demo.seen[pattern] and #demo.seen[pattern] > 0, "missing live candidates: " .. pattern)
       end
       assert(demo.jumps[i].pattern == stage.pattern, "unexpected jump pattern")
-      assert(vim.deep_equal(demo.jumps[i].cursor, stage.target), "unexpected cursor position")
+      assert(vim.deep_equal(demo.jumps[i].cursor, stage.target),
+        stage.title .. ": expected cursor " .. vim.inspect(stage.target)
+          .. ", got " .. vim.inspect(demo.jumps[i].cursor))
       local matches = demo.seen[stage.pattern]
       assert(#matches == 1, "final pattern must select exactly one target")
       assert(matches[1].label == "a", "the displayed a label must select the target")
@@ -78,7 +92,7 @@ function demo.verify()
     assert(vim.v.errmsg == "", vim.v.errmsg)
   end)
   vim.fn.writefile({ vim.json.encode({ verified = ok, error = not ok and tostring(err) or nil,
-    seen = demo.seen, jumps = demo.jumps }) }, root .. "/demos/output/verification.json")
+    seen = demo.seen, jumps = demo.jumps, expected = stages }) }, root .. "/demos/output/verification.json")
   if not ok then error(err) end
 end
 
