@@ -146,6 +146,14 @@ assert(not pcall(plugin.setup, { sources = { "pinyin", "pinyin" } }))
 assert(not pcall(plugin.setup, { sources = { name = "pinyin" } }))
 print("ok - invalid configuration fails before reaching Flash")
 
+local spaced = { { data = { ["甲"] = "a", ["乙"] = "bbbb" }, append_space_below = 4 } }
+matches = run("甲乙", "a bbbb", spaced)
+assert(#matches == 1 and matches[1].end_pos[2] == 3)
+assert(#run("甲乙", "abbbb", spaced) == 0)
+assert(not pcall(plugin.setup, { sources = { { data = {}, append_space_below = 0 } } }))
+print("ok - custom source short codes require a trailing space; threshold-length codes do not")
+
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
 local calls = 0
 plugin.setup({ sources = { { loader = function(char)
   calls = calls + 1

@@ -17,6 +17,17 @@
 flash-any.nvim 为 flash.nvim 提供按字符的自定义匹配。需要 Neovim 0.11+ 和
 folke/flash.nvim。ASCII 字面匹配默认启用，其他字符由配置的 source 处理。
 
+按 s 开始搜索，输入编码，再按候选旁的标签跳转。使用 sources = { "pinyin",
+"unicode" } 时，全拼、简拼、ASCII 和 Unicode 名称可以连续混输：
+
+    输入              匹配文本       拆分
+    quanpin           全拼           quan + pin
+    jp                简拼           j + p
+    hunsasciigrin      混输ascii😀    hun + s + ascii + grin
+
+简拼只取音节的首字母，因此“输”用 s，不是 sh。ascii 按字面匹配，grin 是
+😀 的 Unicode 名称前缀。全拼和简拼可同时使用，无需切换搜索配置。
+
 仓库：https://github.com/dirichy/flash-any.nvim
 
 ===============================================================================
@@ -27,7 +38,18 @@ lazy.nvim 安装示例： >lua
       "dirichy/flash-any.nvim",
       dependencies = { "folke/flash.nvim" },
       opts = {
-        sources = { { name = "pinyin", scheme = "flypy" }, "tiger" },
+        sources = {
+          "pinyin", -- 全拼与简拼
+          -- 使用双拼时，将上面的 "pinyin" 替换为：
+          -- { name = "pinyin", scheme = "flypy" }, -- 小鹤双拼
+          -- 使用形码时，将上面的 "pinyin" 替换为：
+          -- { name = "tiger", append_space_below = 4 },
+          -- 短于 4 码的编码追加一个空格；省略此项不补空格。
+          "nerdfont", -- 图标名称（显示图标需要 Nerd Font）
+          "unicode", -- Unicode 名称 fallback
+        },
+        -- 其他 Flash 跳转选项也可放在这里：
+        -- labels = "asdfghjkl", -- 使用这些字母作为跳转标签
       },
       keys = {
         {
@@ -47,7 +69,8 @@ lazy.nvim 安装示例： >lua
 <
 setup(opts) 校验并保存完整默认配置。sources 必须是列表，可以是空列表；配置层
 默认将普通 ASCII literal source 放到最前面，因此空列表仍匹配 ASCII 字符。
-Unicode 名称匹配只有显式配置 unicode source 才启用。
+其他普通 source 仍参与匹配。Unicode 名称匹配只有显式配置 unicode source
+才启用。
 
 跳转：                                                       *flash-any-jump*
 
@@ -132,11 +155,13 @@ nil（不认识字符）时参与。前项返回 {} 表示认识但输入不匹�
 unicode 默认使用此策略，可显式 fallback = false。默认字面 source 认识所有
 ASCII，因此后续 fallback source 不处理 ASCII 字符。
 
-顶功策略：                                              *flash-any-top-force*
+短码补空格：                                          *flash-any-append-space*
 >lua
-    { name = "tiger", strategy = "top_force", max_length = 4 }
+    { name = "tiger", append_space_below = 4 }
 <
-短于 max_length 的编码追加一个空格，全码不追加。max_length 必须是正整数。
+短于 append_space_below 的编码在末尾追加一个空格，达到或超过阈值时保持不变。
+阈值必须是正整数；省略此项不追加空格。此选项也适用于其他码表。
+这适合习惯用空格确认短码的形码单字输入用户。
 
 ===============================================================================
 4. matcher                                                *flash-any-matchers*
@@ -146,6 +171,16 @@ ASCII，因此后续 fallback source 不处理 ASCII 字符。
 full_code   前缀可显示候选，完整编码才进入下一个文本字符。普通码表的默认模式。
 initial     完整编码或首个 ASCII 字母都可进入下一个字符。全拼默认模式。
 prefix      任意非空编码前缀都可进入下一个字符。名称表默认模式。
+
+以全拼码表中的“中国”为例，比较哪些输入能完整匹配两个字（yes 表示可以）：
+
+    输入          full_code    initial    prefix
+    zhongguo      yes          yes        yes
+    zguo          no           yes        yes
+    zhguo         no           no         yes
+
+z 是“中”的首字母，zh 是它的编码前缀。三种 matcher 都能在单字编码尚未
+输完时显示候选；区别在于何时可以进入下一个字符。
 
 自定义 matcher 接收 (char, stream, args)。char 是当前 buffer 的一个 UTF-8
 码点，stream 是尚未消费的输入字节串；args.source 是运行时 source，只包含
@@ -195,7 +230,11 @@ next 可以是空集合，仍代表成功。多个分支可以表示不同消费
 <
 从文件读取： >lua
     sources = {
-      { lua = "/path/to/common.lua", tsv = "/path/to/full.tsv" },
+      {
+        lua = "/path/to/common.lua",
+        tsv = "/path/to/full.tsv", -- 可省略
+        matcher = "prefix",
+      },
     }
 <
 Lua 文件返回与 data 相同结构的表。tsv 可省略；提供时须按 UTF-8 字节序排序，
@@ -222,7 +261,11 @@ loader 可按字符返回编码数组或 nil。当前表未命中时才调用，
 默认为 utf-8，也可指定 cp936、big5 等由 iconv 支持的输入编码。输出统一 UTF-8。
 
 第四个参数可指定已有 Lua 字表，用其字符集合筛选 Lua 常用表；省略时 Lua 输出
-全部字符。TSV 始终包含完整字集。需要 format/encoding 而不筛选常用字时填 -：
+全部字符。TSV 始终包含完整字集。可使用内置的 lua/flash-any/table/tiger.lua
+作为常用字集，约 3500 字。大 Lua 码表加载较慢，建议将大字符集保留在 TSV 中，
+Lua 只存常用字。
+
+需要 format/encoding 而不筛选常用字时，第四个参数填 -：
 
     :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
 

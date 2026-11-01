@@ -17,24 +17,26 @@ vim.opt.showcmd = false
 vim.opt.ruler = false
 vim.opt.shortmess:append("I")
 vim.cmd.colorscheme("tokyonight-night")
-vim.opt.winbar = "  flash-any.nvim   /   Double pinyin + Unicode names"
-vim.opt.statusline = "  Press s to search%=%l:%c  "
+vim.opt.winbar = "  flash-any.nvim   /   Full pinyin + initials + ascii + Unicode"
 
 local plugin = require("flash-any")
 plugin.setup({
-  sources = { { name = "pinyin", scheme = "flypy" }, "unicode" },
+  sources = { "pinyin", "unicode" },
   label = { style = "inline" },
 })
 
 local demo = { seen = {}, jumps = {} }
 local stages = {
-  "Double pinyin   |   s  >  vsgo  >  a",
-  "Unicode letter  |   s  >  alpha  >  a",
-  "Emoji by name   |   s  >  grin  >  a",
+  { title = "Full pinyin", pattern = "quanpin", target = { 6, 3 }, checkpoints = { "quan", "quanpin" } },
+  { title = "Initials", pattern = "jp", target = { 10, 3 }, checkpoints = { "j", "jp" } },
+  { title = "Mixed input", pattern = "hunsasciigrin", target = { 13, 3 },
+    checkpoints = { "hun", "huns", "hunsascii", "hunsasciigrin" } },
 }
+vim.opt.statusline = "  Full pinyin  >  Initials  >  Mixed input%=%l:%c  "
 
 vim.keymap.set("n", "s", function()
-  vim.opt.statusline = "  " .. stages[#demo.jumps + 1] .. "%=%l:%c  "
+  local stage = assert(stages[#demo.jumps + 1], "unexpected extra search")
+  vim.opt.statusline = "  " .. stage.title .. "   |   s > " .. stage.pattern .. " > a%=%l:%c  "
   local state = plugin.jump()
   demo.jumps[#demo.jumps + 1] = {
     pattern = state.pattern(),
@@ -60,20 +62,17 @@ function demo.verify()
   timer:stop()
   timer:close()
   local ok, err = pcall(function()
-    assert(#demo.seen.vs == 4, "vs must find 中 and the zhong reading of 重")
-    assert(#demo.seen.vsgo == 1, "vsgo must narrow to 中国")
-    assert(#demo.seen.alpha == 1, "alpha must find α")
-    assert(#demo.seen.grin == 1, "grin must find 😀")
-    local expected = {
-      { "vsgo", { 6, 3 } },
-      { "alpha", { 14, 3 } },
-      { "grin", { 16, 3 } },
-    }
-    assert(#demo.jumps == #expected, "all three jumps must finish")
-    for i, item in ipairs(expected) do
-      assert(demo.jumps[i].pattern == item[1], "unexpected jump pattern")
-      assert(vim.deep_equal(demo.jumps[i].cursor, item[2]), "unexpected cursor position")
-      assert(demo.seen[item[1]][1].label == "a", "the displayed a label must select the target")
+    assert(#demo.jumps == #stages, "all three jumps must finish")
+    for i, stage in ipairs(stages) do
+      for _, pattern in ipairs(stage.checkpoints) do
+        assert(demo.seen[pattern] and #demo.seen[pattern] > 0, "missing live candidates: " .. pattern)
+      end
+      assert(demo.jumps[i].pattern == stage.pattern, "unexpected jump pattern")
+      assert(vim.deep_equal(demo.jumps[i].cursor, stage.target), "unexpected cursor position")
+      local matches = demo.seen[stage.pattern]
+      assert(#matches == 1, "final pattern must select exactly one target")
+      assert(matches[1].label == "a", "the displayed a label must select the target")
+      assert(vim.deep_equal(matches[1].pos, stage.target), "unexpected match position")
     end
     assert(not vim.bo.modified, "demo must leave the fixture unchanged")
     assert(vim.v.errmsg == "", vim.v.errmsg)

@@ -1,5 +1,6 @@
 flash-any	flash-any.txt	/*flash-any*
 flash-any-abc	flash-any.txt	/*flash-any-abc*
+flash-any-append-space	flash-any.txt	/*flash-any-append-space*
 flash-any-build-table	flash-any.txt	/*flash-any-build-table*
 flash-any-contents	flash-any.txt	/*flash-any-contents*
 flash-any-custom-table	flash-any.txt	/*flash-any-custom-table*
@@ -18,7 +19,6 @@ flash-any-setup	flash-any.txt	/*flash-any-setup*
 flash-any-sources	flash-any.txt	/*flash-any-sources*
 flash-any-st	flash-any.txt	/*flash-any-st*
 flash-any-tiger	flash-any.txt	/*flash-any-tiger*
-flash-any-top-force	flash-any.txt	/*flash-any-top-force*
 flash-any-unicode	flash-any.txt	/*flash-any-unicode*
 flash-any-wubi86	flash-any.txt	/*flash-any-wubi86*
 flash-any.txt	flash-any.txt	/*flash-any.txt*

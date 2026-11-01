@@ -1,14 +1,17 @@
-# Run from the repository root: vhs demos/demo.tape
 Output demos/output/demo.mp4
-Output demos/output/demo.gif
-
+Require nvim
 Set Shell "bash"
 Set FontFamily "JetBrainsMono Nerd Font Mono"
-Set FontSize 24
-Set Width 1280
-Set Height 800
-Set Framerate 25
-Set TypingSpeed 160ms
+Set FontSize 36
+Set Width 1920
+Set Height 1080
+Set Framerate 30
+Set TypingSpeed 120ms
+Set Margin 56
+Set MarginFill "demos/common/backdrop.png"
+Set WindowBar Colorful
+Set WindowBarSize 40
+Set BorderRadius 24
 Set Padding 16
 Set Theme "TokyoNight"
 Set CursorBlink false
@@ -22,26 +25,34 @@ Sleep 1s
 
 Type "s"
 Sleep 300ms
-Type "vs"
-Sleep 1s
-Type "go"
-Sleep 1s
+Type "quan"
+Sleep 800ms
+Type "pin"
+Sleep 800ms
 Type "a"
-Sleep 1.5s
+Sleep 1.8s
 
 Type "s"
 Sleep 300ms
-Type "alpha"
-Sleep 1.2s
+Type "j"
+Sleep 800ms
+Type "p"
+Sleep 800ms
 Type "a"
-Sleep 1.5s
+Sleep 1.8s
 
 Type "s"
 Sleep 300ms
+Type "hun"
+Sleep 800ms
+Type "s"
+Sleep 800ms
+Type "ascii"
+Sleep 800ms
 Type "grin"
-Sleep 1.2s
+Sleep 800ms
 Type "a"
-Sleep 2s
+Sleep 1.8s
 
 Hide
 Type@1ms ":lua FlashAnyDemo.verify()"

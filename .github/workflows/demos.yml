@@ -6,13 +6,11 @@ on:
     branches: [master]
     paths:
       - .github/workflows/demos.yml
-      - docs/demos/**
+      - demos/**
       - tests/**
-      - ftdetect/**
       - README.md
       - README.zh-CN.md
       - lua/**
-      - queries/**
 
 permissions:
   contents: read
@@ -69,7 +67,7 @@ jobs:
       - name: Install and check CJK Font
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-color-emoji
 
           fc-cache -f
           fc-match -f 'Family: %{family}\nStyle: %{style}\nFile: %{file}\n' 'Noto Sans CJK SC'
@@ -86,6 +84,7 @@ jobs:
             demos/output/*.gif
             demos/output/*.png
             demos/output/*.mp4
+            demos/output/*.json
           if-no-files-found: error
           retention-days: 7
 

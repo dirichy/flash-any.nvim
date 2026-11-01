@@ -29,3 +29,12 @@ Chen, Yu Yuwei, Chen Xing, and original table author Wozy.
 生成脚本位于 `scripts/`：拼音去声调并转为 ASCII；Lua 保存常用子集，TSV 保存按
 UTF-8 字节序排序的完整数据；Unicode 与图标名称转换为短别名。五笔保留单字编码并
 合并多个编码，原始 Rime 词典及作者说明见上游链接。
+
+## Demo artwork / 演示素材
+
+`demos/common/backdrop.png` is copied from
+[dpezto/chezmoi-template.nvim](https://github.com/dpezto/chezmoi-template.nvim/tree/670ba83095ba6571f3125a5e5fd4118505a2c3c6/assets/tapes),
+via vimoi.nvim. Copyright © 2026 Dai López, distributed under the
+[MIT license](demos/common/backdrop.LICENSE).
+
+演示渐变背景保留上游版权与 MIT 许可，见上面的来源与许可文件。

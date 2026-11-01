@@ -1,20 +1,17 @@
 -- flash-any.nvim
 -- Jump with the encodings you already know.
 
--- Double pinyin: narrow the matches as you type.
-local words = {
-  "中国",
-  "中华",
-  "中文",
-  "重庆",
+-- Full pinyin: quan + pin
+local full = {
+	"全拼",
 }
-
--- Unicode names: letters, symbols, and emoji.
-local symbols = {
-  "α", "β", "γ",
-  "→", "∞", "≠",
-  "😀", "🎉", "🚀",
+-- Initials: j + p
+local initials = {
+	"简拼",
 }
-
--- ASCII and encoded characters can share a search.
-return { words = words, symbols = symbols }
+-- hun + s + ascii + grin
+local mixed = {
+	"混输ascii😀",
+}
+-- Full pinyin + initial + literal + Unicode name
+return { full = full, initials = initials, mixed = mixed }

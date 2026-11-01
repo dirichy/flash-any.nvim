@@ -126,8 +126,8 @@ The loader does not cache results; `table.lazy` owns positive and negative cache
 The shared `read_at` helper takes the file explicitly instead of capturing it.
 
 `require` 返回的原始码表、方案规则以及 `load(name)` 的默认缓存均可能共享。
-`normalize` 复制输入 map 和编码数组，建立私有边界；`apply_strategy` 生成独立
-编码数组与派生缓存，防止顶功的空格污染调用方或默认方案。
+`normalize` 复制输入 map 和编码数组，建立私有边界；`append_space` 生成独立
+编码数组与派生缓存，防止追加的空格污染调用方或默认方案。
 
 全拼模糊音与双拼转换共用 `from_pinyin`：全拼直接拼接展开的声母、韵母，
 双拼按方案转换；不启用模糊音的全拼直接加载原表。
@@ -138,7 +138,7 @@ The shared `read_at` helper takes the file explicitly instead of capturing it.
 
 Raw module tables and default caches may be shared. Normalize at the ownership
 boundary, transform the private source map in place, and cache converted TSV
-entries directly. Scheme rules remain read-only; strategy results stay isolated
+entries directly. Scheme rules remain read-only; space-appending results stay isolated
 from their input tables.
 
 ## 双拼规则

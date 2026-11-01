@@ -1,20 +1,31 @@
-# flash-any.nvim
+# ⚡ flash-any.nvim
 
-[English](README.en.md)
+[简体中文](README.zh-CN.md)
 
-使用全拼、双拼、形码或自定义编码，在 [flash.nvim](https://github.com/folke/flash.nvim) 中跳转。
+Jump to Chinese, symbols, emoji, and other characters with familiar encodings.
+`flash-any.nvim` adds common Chinese input-method codes, Nerd Fonts icon names,
+Unicode names, and custom encodings to [flash.nvim](https://github.com/folke/flash.nvim).
 
-需要 Neovim 0.11+ 和 `folke/flash.nvim`。默认支持 ASCII 字面匹配；中文、emoji 等字符通过配置的 source 匹配。
-内置中文全拼和常见的双拼，虎码，五笔。90000字大码表，支持生僻字。可自定义双拼方案，支持模糊音。
-可自定义码表，也可以直接把 `rime` dict，tsv，csv等格式自动转换。
+![Full pinyin, initials, and mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
-![小鹤双拼与 Unicode 名称跳转演示](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+[HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [Record the demo](demos/README.md)
 
-[高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [重新录制](demos/README.md)
+## ✨ Features
 
-## 安装
+- **Common Chinese encodings**: full pinyin, initials, six double-pinyin schemes, Tiger, and Wubi 86.
+- **Mix inputs freely**: full pinyin, initials, ASCII, icon names, and Unicode names in one search.
+- **Large character sets**: uncommon characters load on demand.
+- **Fuzzy pinyin**: built-in fuzzy sounds and custom initial/final groups.
+- **Bring your own codes**: custom tables and matchers; convert Rime, TSV, CSV, or whitespace-separated dictionaries.
 
-使用 lazy.nvim：
+## 📋 Requirements
+
+- Neovim **0.11+**
+- [folke/flash.nvim](https://github.com/folke/flash.nvim)
+
+## 📦 Installation
+
+With lazy.nvim:
 
 ```lua
 {
@@ -22,15 +33,18 @@
   dependencies = { "folke/flash.nvim" },
   opts = {
     sources = {
-      { name = "pinyin" },
-      -- 使用双拼时，在 pinyin source 中加上双拼方案。 
-      -- { name = "pinyin", scheme = "flypy" },
-      -- 使用形码时，将上面的拼音 source 替换为对应形码：
-      -- { name = "tiger", strategy = "top_force", max_length = 4 },
-      -- 其中 top_force 和 max_length 可以把码长不足 max_length 的编码后加一个空格，更接近输入法打单的真实体验。 
-      "nerdfont", -- 用来显示图标的字体，nvim 用户应该都需要这个 
-      "unicode", -- Unicode 名称 fallback，不需要时可删除这一行
+      "pinyin", -- Full pinyin and initials
+      -- For double pinyin, replace "pinyin" above with:
+      -- { name = "pinyin", scheme = "flypy" }, -- Xiaohe / Flypy
+      -- For shape codes, replace "pinyin" above with:
+      -- { name = "tiger", append_space_below = 4 },
+      -- Append one space to codes shorter than 4, matching short-code input habits.
+      -- Omit append_space_below to use the original codes.
+      "nerdfont", -- Icon names (requires a Nerd Font to display icons)
+      "unicode", -- Unicode name fallback
     },
+    -- Other Flash jump options can go here:
+    -- labels = "asdfghjkl", -- Use these letters as jump labels
   },
   keys = {
     {
@@ -43,7 +57,7 @@
 }
 ```
 
-不使用 lazy.nvim 时，在加载依赖后调用：
+Without lazy.nvim, load the dependency and call:
 
 ```lua
 require("flash-any").setup({ sources = { "pinyin" } })
@@ -52,65 +66,49 @@ vim.keymap.set({ "n", "x", "o" }, "s", function()
 end)
 ```
 
-## 特性和功能
-  - 支持多种中文编码，包括全拼，各种双拼，以及五笔，虎码。
-  - 大字符集，懒加载，采用字符扫描而非正则匹配，所用时间与字符集大小几乎无关。
-  - 内置模糊拼音策略，也可自定义模糊音。
-  - 可以很方使地添加码表，也可以使用非码表的 `matcher` ，自带 `builder` 可以读取常见格式码表。
-  - 天然支持混输，可以同时匹配 `ascii` 字符，中文，`nerdfont`, `unicode`, 以及其他自定义 `matcher`, 匹配多字符可以来自不同码表。
-  
-## 配置与跳转
+## 🚀 Usage
 
-`setup(opts)` 校验并保存整份默认配置。`jump()` / `jump(nil)` 使用它，复用码表及懒加载缓存。
+Press `s`, type a search, then press the label beside a match. Full pinyin and
+initials work together by default; no search configuration changes are needed.
 
-`jump` 返回 Flash 的跳转 state。`jump(opts)` 使用完整的独立配置，不继承 `setup` 的任何字段；`sources` 必须提供：
+| Input | Matches | How |
+| --- | --- | --- |
+| `quanpin` | 全拼 | `quan` + `pin` |
+| `jp` | 简拼 | First letter of each syllable: `j` + `p` |
+| `hunsasciigrin` | 混输ascii😀 | `hun` + `s` + `ascii` + `grin` |
 
-```lua
-require("flash-any").jump({
-  sources = { { name = "pinyin", scheme = "natural" } },
-  labels = "asdfghjkl",
-})
-```
+The mixed example uses `sources = { "pinyin", "unicode" }`. ASCII matches
+literally, and `grin` is a prefix of the emoji's Unicode name.
+An initial is the **first letter**, so 输 uses `s`, not `sh`.
 
-其余 Flash 选项直接传递；匹配规则由 source 的 `matcher` 决定，Flash 的顶层 `matcher` 和 `labeler` 由插件管理。`labels` 等选项由 Flash 自身提供默认值。
+## Built-in sources
 
-配置层会在所有 source 前面加入普通的 ASCII `literal` source，用户无需传入。它只认识 ASCII 字符，匹配失败仍算认识；非 ASCII 返回“不认识”。`sources = {}` 因此只匹配 ASCII。Unicode 名称匹配不自动启用。
+Use a name string or a configuration object with `name`:
 
-## 内置 source
-
-source 可写成名称字符串或带 `name` 的配置对象：
-
-| 名称 | 用途 | 默认 matcher |
+| Name | Purpose | Default matcher |
 |---|---|---|
-| `pinyin` | 全拼或指定双拼方案 | 全拼 `initial`，双拼 `full_code` |
-| `tiger` | 虎码 | `full_code` |
-| `wubi86` | 五笔 86 | `full_code` |
-| `unicode` | Unicode 字符的英文短名称 | `prefix`，默认 `fallback = true` |
-| `nerdfont` | Nerd Fonts 图标的英文短名称 | `prefix` |
+| `pinyin` | Full or double pinyin | `initial` for full, `full_code` for double |
+| `tiger` | Tiger shape codes | `full_code` |
+| `wubi86` | Wubi 86 codes | `full_code` |
+| `unicode` | Short English Unicode names | `prefix`, with `fallback = true` |
+| `nerdfont` | Short English Nerd Fonts icon names | `prefix` |
 
-例如全拼输入 `zg` 可以匹配“中国”；小鹤双拼输入 `vsgo` 可以匹配“中国”。ASCII 可以和编码混输，`sources = { "pinyin" }` 时，`ag` 可以匹配 `a国`。
+For 中国, full pinyin accepts `zg`, and Flypy accepts `vsgo`. ASCII and encodings
+can mix: with `sources = { "pinyin" }`, `ag` matches `a国`.
 
-### 拼音与模糊音
+Configuration automatically prepends ASCII literal matching before all sources;
+you do not need to add it manually. Other ordinary sources still participate.
+The plugin manages Flash's top-level `matcher` and `labeler`; configure character
+matching through each source's `matcher`.
 
-全拼和六种双拼是同一个 `pinyin` source 的不同编码方式，同一次配置只允许一个拼音 source。省略 `scheme` 使用全拼：
-
-| scheme | 方案 |
-|---|---|
-| `flypy` | 小鹤双拼 |
-| `pyjj` | 拼音加加 |
-| `natural` | 自然码 |
-| `abc` | 智能 ABC |
-| `mspy` | 微软双拼 |
-| `st` | 四通双拼 |
-
-`scheme` 是 source 属性，不是顶层配置。全拼和双拼都支持 `fuzzy = true`，默认混淆 `zh/z`、`ch/c`、`sh/s`、`ang/an`、`eng/en`、`ing/in`；也可指定等价分组：
+### Pinyin and fuzzy spelling
 
 ```lua
 sources = {
   {
     name = "pinyin",
-    scheme = "flypy", -- 省略则使用全拼
-    fuzzy = {
+    scheme = "flypy", -- Double-pinyin scheme; omit for full pinyin
+    fuzzy = { -- Custom groups; use fuzzy = true for the defaults
       initials = { { "zh", "z" }, { "ch", "c" } },
       finals = { { "ang", "an" } },
     },
@@ -118,15 +116,42 @@ sources = {
 }
 ```
 
-重叠分组采用第一个包含该声母或韵母的分组。双拼方案的完整音节特例（如零声母规则）优先于模糊音转换。
+Full pinyin and six double-pinyin schemes share one `pinyin` source. Configure
+at most one pinyin source. Omit `scheme` for full pinyin:
 
-### matcher 与 fallback
+| scheme | Layout |
+|---|---|
+| `flypy` | Xiaohe / Flypy |
+| `pyjj` | Pinyin Jiajia |
+| `natural` | Natural Code |
+| `abc` | Intelligent ABC |
+| `mspy` | Microsoft |
+| `st` | Stone |
 
-码表支持三个 matcher：
+Both full and double pinyin support fuzzy spelling. `fuzzy = true` enables the
+default groups: `zh/z`, `ch/c`, `sh/s`, `ang/an`, `eng/en`, and `ing/in`.
+If groups overlap, the first containing an initial or final wins.
 
-- `full_code`：输入前缀可显示候选，完整编码才进入下一个文本字符。
-- `initial`：完整编码或首个 ASCII 字母都可进入下一个字符。
-- `prefix`：任意非空编码前缀都可进入下一个字符。
+### Matchers and fallback
+
+Code-table matchers support three modes:
+
+- `full_code`: prefixes show candidates; only a complete code advances to the next text character.
+- `initial`: either a full code or its first ASCII letter can advance.
+- `prefix`: any nonempty code prefix can advance.
+
+Using the full-pinyin codes for 中国, compare which inputs match both characters
+completely:
+
+| Input | `full_code` | `initial` | `prefix` |
+| --- | --- | --- | --- |
+| `zhongguo` | ✓ | ✓ | ✓ |
+| `zguo` | — | ✓ | ✓ |
+| `zhguo` | — | — | ✓ |
+
+`z` is the first letter of 中's code; `zh` is a prefix. All three matchers can
+show candidates before a character's code is complete. They differ in when input
+can advance to the next character.
 
 ```lua
 sources = {
@@ -135,23 +160,30 @@ sources = {
 }
 ```
 
-普通 source 都参与匹配；`fallback = true` 的 source 只在前面的 source 全都不认识当前字符时参与，即使前面的 source 认识字符但输入不匹配，它也不会运行。`unicode` 默认开启 fallback，可显式设为 `false`。
+Ordinary sources all participate. A source with `fallback = true` runs only if
+all earlier sources returned "unknown" for the character. A recognized character
+blocks fallback even when its input failed. Unicode defaults to fallback; set
+`fallback = false` explicitly to disable that policy.
 
-默认前置的字面 source 也遵守这条规则，所以后面的 fallback source 不处理 ASCII 字符。
+The prepended literal source follows the same rule, so later fallback sources
+do not process ASCII characters.
 
-### 顶功
+### Spaces after short codes
 
 ```lua
 sources = {
-  { name = "tiger", strategy = "top_force", max_length = 4 },
+  { name = "tiger", append_space_below = 4 },
 }
 ```
 
-虎码通过 `strategy = "top_force", max_length = 4` 开启顶功；不需要顶功时只写 `"tiger"` 即可。短于 `max_length` 的编码追加一个空格，达到最大码长的不追加。`max_length` 必须是正整数。
+Codes shorter than `append_space_below` gain exactly one trailing space; codes
+at or above the threshold stay unchanged. The threshold must be a positive integer.
+Omit it to leave codes unchanged. This option also works with other code tables.
+It suits shape-code users accustomed to confirming short codes with a space.
 
-## 自定义 source
+## 💡 Custom sources
 
-`data` 是“单个 UTF-8 字符 → ASCII 编码或编码数组”，支持一字多码：
+`data` maps a single UTF-8 character to an ASCII encoding or array of encodings:
 
 ```lua
 sources = {
@@ -162,24 +194,24 @@ sources = {
 }
 ```
 
-也可从 Lua 常用字表和完整 TSV 加载：
+A Lua common-character table can be paired with a complete TSV:
 
 ```lua
 sources = {
   {
     lua = "/path/to/common.lua",
-    tsv = "/path/to/full.tsv", -- 可省略
+    tsv = "/path/to/full.tsv", -- optional
+    matcher = "prefix",
   },
 }
 ```
 
-Lua 文件返回与 `data` 相同结构的表；TSV 按 UTF-8 字节序排序，每个字符一行，编码用逗号分隔，支持 LF 和 CRLF。路径相对于当前工作目录，也可使用绝对路径或 `~`。
+Lua files return the same structure as `data`. Sort TSV rows by UTF-8 bytes,
+with one character per row and comma-separated codes; LF and CRLF are supported. Paths may be relative to
+the current directory, absolute, or start with `~`.
 
-`loader = function(char) ... end` 可按字符返回编码数组或 `nil`。它只在当前表未命中时调用，结果及未命中都会缓存；它会替换该 source 原有的 TSV 未命中加载器。
-
-使用 `matcher` 逐字符扫描，不需要拼接巨大正则，因此获得了极好的性能和可扩展性。这是能支持unicode这种巨大码表的重要前提。
-
-自定义 `matcher` 可以没有码表。回调接收 `char, stream, args`，其中 `args.source` 是运行时 source。例如用 `x` 匹配“中”：
+A custom matcher does not need a table. It receives `char, stream, args`, where
+`args.source` is the runtime source. For example, match 中 with `x`:
 
 ```lua
 sources = {
@@ -194,31 +226,50 @@ sources = {
 }
 ```
 
-`nil` 表示不认识字符，`{}` 表示认识但没有匹配分支。成功时返回分支列表，每个分支只有 `consumed`（消费字节数）或 `next`（剩余输入已全部匹配，可继续输入的 ASCII 键集合）之一。空 stream 只查询起始 next。
+Nil means unknown character; `{}` means recognized without a matching branch.
+Successful results are branch arrays. Each branch has either `consumed` (a byte
+count) or `next` (all remaining input matched; a set of possible next ASCII keys).
+An empty stream queries starting keys only.
 
-matcher 必须满足：长输入能成功，则其字符前缀也能成功；失败分支不会在追加输入后重试。动态返回值由实现者保证，详见 `:help flash-any-matchers` 和[开发文档](docs/development.md)。
+Every character prefix of a successful input must also succeed. Failed branches
+are not retried after appends. Implementations own the dynamic return contract;
+see `:help flash-any-matchers` and the [development notes](docs/development.md).
 
-## 生成码表与检查
+## 🛠️ Building tables and checking installation
 
 ```vim
 :FlashAnyBuildTable source.dict common.lua full.tsv [common-from.lua|-] [format] [encoding]
 :checkhealth flash-any
 ```
 
-输入支持 Rime、TSV、CSV 或空白分隔文本。`format` 可为 `auto`（默认）、`rime`、`tsv`、`tab`、`csv`、`space`；`encoding` 默认为 `utf-8`。只收录单字符条目，同一字符的编码会合并、去重。
+Input supports Rime, TSV, CSV, and whitespace-separated text. `format` accepts
+`auto` (default), `rime`, `tsv`, `tab`, `csv`, or `space`; `encoding` defaults to
+`utf-8`. Only single-character entries are included; duplicate codes are merged.
 
-`common-from.lua` 用来分级是否是常用字，应返回一个table。可使用内置的 `table/tiger.lua` 作为常用字集，约 3500 字。
-省略第四个参数时 Lua 输出包含全部字符；提供已有 Lua 字表时只把其中的字符写入 Lua 常用表，完整 TSV 始终包含全部字符。需要指定 format/encoding 而不筛选常用字时，第四个参数填 `-`：
-因为`lua table` 很大时，load会很慢，所以不建议把大字集全部编译成 `lua` 部分，应保留 `tsv` 部分。
+`common-from.lua` specifies a Lua table used to select common characters. The
+built-in `lua/flash-any/table/tiger.lua` is one possible set (about 3,500 characters).
+Without argument four, Lua output contains all characters. With an existing Lua
+table, Lua output includes only characters present in that table; TSV always
+contains the full set. Keep large character sets in TSV: loading a very large Lua
+table slows startup.
+
+Use `-` for argument four when specifying `format` / `encoding` without selecting
+common characters:
 
 ```vim
 :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
 ```
 
-输出编码必须是 ASCII，且不能包含逗号、制表符或换行；文件会覆盖输出路径，请选择与输入不同的路径。
+Output codes must be ASCII without commas, tabs, or newlines. Output files are
+overwritten; choose paths different from the input.
 
-当前按 Unicode 码点处理文本，不合并完整 grapheme cluster（例如 ZWJ emoji 和组合音标）。
+Text is processed as Unicode codepoints, not complete grapheme clusters such as
+ZWJ emoji or combining sequences.
 
-## 许可与来源
+## 📄 License and sources
 
-项目代码采用 [MIT](LICENSE)。内置码表保留各自的上游许可与来源，见 [THIRD_PARTY.md](THIRD_PARTY.md)。虎码码表来源：[虎码官网](https://www.tiger-code.com/)。
+Project code is [MIT licensed](LICENSE). Bundled data retains its upstream
+licenses and attribution; see [THIRD_PARTY.md](THIRD_PARTY.md). Tiger table source:
+[the Tiger website](https://www.tiger-code.com/).
+
+Demo scripts and recording instructions: [demos/README.md](demos/README.md).

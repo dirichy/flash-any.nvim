@@ -48,21 +48,28 @@ assert(vim.deep_equal(pinyin["中"], { "zhong" }) and vim.deep_equal(pinyin["㐀
 assert(vim.deep_equal(raw_pinyin, pinyin_before) and vim.deep_equal(raw_rules, rules_before))
 print("ok - full pinyin expands fuzzy initials and finals without changing shared tables")
 
-local padded = tables.load("pinyin", { scheme = "flypy", strategy = "top_force", max_length = 4 })
+local padded = tables.load("pinyin", { scheme = "flypy", append_space_below = 4 })
 assert(vim.deep_equal(padded["中"], { "vs " }))
 assert(vim.deep_equal(padded["㐀"], { "qq " }))
 assert(vim.deep_equal(flypy["中"], { "vs" }) and vim.deep_equal(flypy["㐀"], { "qq" }))
 assert(vim.deep_equal(pinyin["㐀"], { "qiu" }))
-print("ok - top_force preserves ordinary and lazy default entries")
+print("ok - append_space_below preserves ordinary and lazy default entries")
 
 local lazy = tables.lazy({ ["甲"] = { "a" } }, function(char)
   if char == "乙" then return { "b" } end
 end)
-local transformed = tables.apply_strategy(lazy, { strategy = "top_force", max_length = 4 })
+local transformed = tables.append_space(lazy, 4)
 assert(transformed ~= lazy and transformed["甲"] ~= lazy["甲"])
 assert(transformed["甲"][1] == "a " and lazy["甲"][1] == "a")
 assert(transformed["乙"][1] == "b " and lazy["乙"][1] == "b")
-print("ok - apply_strategy does not mutate its input")
+print("ok - append_space does not mutate its input")
+
+local lengths = { ["甲"] = { "a", "abc", "abcd", "abcde" } }
+assert(tables.append_space(lengths) == lengths)
+assert(vim.deep_equal(tables.append_space(lengths, 4)["甲"], { "a ", "abc ", "abcd", "abcde" }))
+assert(vim.deep_equal(lengths["甲"], { "a", "abc", "abcd", "abcde" }))
+assert(transformed["丙"] == nil)
+print("ok - only codes strictly below the threshold gain one trailing space")
 
 local names = tables.available()
 table.sort(names)
@@ -73,11 +80,10 @@ assert(not pcall(tables.load, "pinyin", { scheme = "missing" }))
 assert(not pcall(tables.load, "tiger", { scheme = "flypy" }))
 print("ok - source registry exposes one pinyin source and rejects unknown schemes")
 
-assert(not pcall(tables.load, "tiger", { strategy = "typo" }))
-for _, value in ipairs({ 0, -1, 0.5, "4" }) do
-  assert(not pcall(tables.load, "tiger", { strategy = "top_force", max_length = value }))
+for _, value in ipairs({ 0, -1, 0.5, "4", false, math.huge }) do
+  assert(not pcall(tables.load, "tiger", { append_space_below = value }))
 end
-print("ok - strategy and max_length are validated during configuration")
+print("ok - append_space_below is validated during configuration")
 
 for _, map in ipairs({ { ["ab"] = "x" }, { ["中"] = 1 }, { ["中"] = { "中" } }, { ["中"] = { "" } } }) do
   assert(not pcall(tables.normalize, map))
