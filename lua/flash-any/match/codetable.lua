@@ -39,7 +39,8 @@ local scopes = {
 local function match(char, stream, args, mode)
   local source = args.source
   local accepts = source.name and scopes[source.name]
-  if accepts and not accepts(char) then return nil end
+  -- Built-in scopes exclude ASCII; skip char2nr for these common buffer characters.
+  if accepts and (char:byte() < 0x80 or not accepts(char)) then return nil end
   local data = source.data
   ---@type string[]?
   local codes = data and data[char]

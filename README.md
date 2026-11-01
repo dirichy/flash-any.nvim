@@ -17,7 +17,8 @@
   opts = {
     sources = {
       { name = "pinyin", scheme = "flypy" },
-      "tiger",
+      -- 使用虎码时，将上面的拼音 source 替换为：
+      -- { name = "tiger", strategy = "top_force", max_length = 4 },
     },
   },
   keys = {
@@ -128,7 +129,7 @@ sources = {
 }
 ```
 
-短于 `max_length` 的编码追加一个空格，达到最大码长的不追加。`max_length` 必须是正整数。
+虎码通过 `strategy = "top_force", max_length = 4` 开启顶功；不需要顶功时只写 `"tiger"` 即可。短于 `max_length` 的编码追加一个空格，达到最大码长的不追加。`max_length` 必须是正整数。
 
 ## 自定义 source
 

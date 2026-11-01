@@ -19,7 +19,8 @@ With lazy.nvim:
   opts = {
     sources = {
       { name = "pinyin", scheme = "flypy" },
-      "tiger",
+      -- For Tiger, replace the pinyin source above with:
+      -- { name = "tiger", strategy = "top_force", max_length = 4 },
     },
   },
   keys = {
@@ -148,6 +149,8 @@ sources = {
 }
 ```
 
+For Tiger, set `strategy = "top_force", max_length = 4` to enable top-force codes;
+use just `"tiger"` without this behavior.
 Codes shorter than `max_length` gain a trailing space; full-length codes do not.
 `max_length` must be a positive integer.
 
