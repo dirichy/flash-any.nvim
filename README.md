@@ -22,9 +22,13 @@
   dependencies = { "folke/flash.nvim" },
   opts = {
     sources = {
-      { name = "pinyin", scheme = "flypy" },
-      -- 使用虎码时，将上面的拼音 source 替换为：
+      { name = "pinyin" },
+      -- 使用双拼时，在 pinyin source 中加上双拼方案。 
+      -- { name = "pinyin", scheme = "flypy" },
+      -- 使用形码时，将上面的拼音 source 替换为对应形码：
       -- { name = "tiger", strategy = "top_force", max_length = 4 },
+      -- 其中 top_force 和 max_length 可以把码长不足 max_length 的编码后加一个空格，更接近输入法打单的真实体验。 
+      "nerdfont", -- 用来显示图标的字体，nvim 用户应该都需要这个 
       "unicode", -- Unicode 名称 fallback，不需要时可删除这一行
     },
   },
@@ -48,6 +52,13 @@ vim.keymap.set({ "n", "x", "o" }, "s", function()
 end)
 ```
 
+## 特性和功能
+  - 支持多种中文编码，包括全拼，各种双拼，以及五笔，虎码。
+  - 大字符集，懒加载，采用字符扫描而非正则匹配，所用时间与字符集大小几乎无关。
+  - 内置模糊拼音策略，也可自定义模糊音。
+  - 可以很方使地添加码表，也可以使用非码表的 `matcher` ，自带 `builder` 可以读取常见格式码表。
+  - 天然支持混输，可以同时匹配 `ascii` 字符，中文，`nerdfont`, `unicode`, 以及其他自定义 `matcher`, 匹配多字符可以来自不同码表。
+  
 ## 配置与跳转
 
 `setup(opts)` 校验并保存整份默认配置。`jump()` / `jump(nil)` 使用它，复用码表及懒加载缓存。
