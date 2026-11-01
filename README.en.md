@@ -8,6 +8,10 @@ Jump with full pinyin, double pinyin, shape codes, or custom encodings using
 Requires Neovim 0.11+ and `folke/flash.nvim`. ASCII literal matching is included;
 Chinese, emoji, and other characters use your configured sources.
 
+![Double-pinyin and Unicode-name jump demo](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+
+[HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [Record the demo](demos/README.md)
+
 ## Installation
 
 With lazy.nvim:
@@ -21,6 +25,7 @@ With lazy.nvim:
       { name = "pinyin", scheme = "flypy" },
       -- For Tiger, replace the pinyin source above with:
       -- { name = "tiger", strategy = "top_force", max_length = 4 },
+      "unicode", -- Unicode name fallback; remove this line if not needed
     },
   },
   keys = {

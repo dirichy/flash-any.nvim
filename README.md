@@ -6,6 +6,10 @@
 
 需要 Neovim 0.11+ 和 `folke/flash.nvim`。默认支持 ASCII 字面匹配；中文、emoji 等字符通过配置的 source 匹配。
 
+![小鹤双拼与 Unicode 名称跳转演示](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+
+[高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [重新录制](demos/README.md)
+
 ## 安装
 
 使用 lazy.nvim：
@@ -19,6 +23,7 @@
       { name = "pinyin", scheme = "flypy" },
       -- 使用虎码时，将上面的拼音 source 替换为：
       -- { name = "tiger", strategy = "top_force", max_length = 4 },
+      "unicode", -- Unicode 名称 fallback，不需要时可删除这一行
     },
   },
   keys = {
