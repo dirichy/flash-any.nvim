@@ -101,6 +101,11 @@ local function file_source(name, convert)
 			common[char] = convert(codes)
 		end
 	end
+	if name == "pinyin" or name == "tiger" or name == "wubi86" then
+		for char, codes in pairs(M.normalize(require("flash-any.table.punctuation"))) do
+			common[char] = codes
+		end
+	end
 	local files = vim.api.nvim_get_runtime_file("lua/flash-any/table/" .. name .. ".tsv", false)
 	local full_path = files[1]
 	if not full_path then

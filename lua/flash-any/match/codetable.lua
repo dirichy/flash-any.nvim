@@ -1,13 +1,15 @@
 local M = {}
+local punctuation = require("flash-any.table.punctuation")
 
 -- Code-table encodings are ASCII; buffer characters may be UTF-8.
 -- Matching has three modes: full_code, initial and prefix.
 
-local function cjk_char(char)
+local function chinese_char(char)
   local cp = vim.fn.char2nr(char)
   return (cp >= 0x3400 and cp <= 0x4DBF)
     or (cp >= 0x4E00 and cp <= 0x9FFF)
     or (cp >= 0x20000 and cp <= 0x323AF)
+    or punctuation[char] ~= nil
 end
 
 local function unicode_char(char)
@@ -24,9 +26,9 @@ end
 
 -- Reject unrelated characters before a lazy lookup can search the TSV.
 local scopes = {
-  pinyin = cjk_char,
-  tiger = cjk_char,
-  wubi86 = cjk_char,
+  pinyin = chinese_char,
+  tiger = chinese_char,
+  wubi86 = chinese_char,
   unicode = unicode_char,
   nerdfont = private_use_char,
 }

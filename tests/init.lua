@@ -28,6 +28,16 @@ local function run(text, pattern, sources)
   return jump.matcher(0, { pattern = function() return pattern end }, { from = { 1, 0 }, to = { 1, 0 } })
 end
 
+for _, source in ipairs({ "pinyin", { name = "pinyin", scheme = "flypy", fuzzy = true }, "tiger", "wubi86" }) do
+  for _, pair in ipairs({ { "，", "," }, { "。", "." }, { "、", "/" }, { "、", "\\" }, { "“”", "\"\"" }, { "……", "^^" }, { "——", "__" } }) do
+    local found = run(pair[1], pair[2], { source })
+    assert(#found == 1 and found[1].pos[2] == 0, vim.inspect({ source, pair }))
+  end
+end
+assert(#run("中国，a。", "zg,a.", { "pinyin" }) == 1)
+assert(#run("中国，a。", "vsgo,a.", { { name = "pinyin", scheme = "flypy" } }) == 1)
+print("ok - Chinese sources match punctuation and mixed encodings")
+
 assert(package.loaded["flash-any.table.unicode"] == nil)
 assert(#run("α", "alpha", {}) == 0)
 assert(package.loaded["flash-any.table.unicode"] == nil)

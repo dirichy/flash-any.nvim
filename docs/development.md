@@ -145,6 +145,14 @@ and retains only byte positions for matches and incremental continuation.
 
 ## 码表所有权
 
+中文 source 的标点键位统一保存在 `table/punctuation.lua`。`file_source` 在拼音
+转换完成后加入标点，码表 matcher 的中文范围预检也读取同一份映射，避免标点
+触发 TSV 查询或参与双拼、模糊音转换。`append_space_below` 仍统一作用于所有编码。
+
+Chinese sources share `table/punctuation.lua`. File loading adds punctuation
+after pinyin conversion; matcher scope checks use the same map. Punctuation
+avoids TSV lookups and pinyin transformations. Space padding applies to all codes.
+
 `require("flash-any.tsv").loader(path, opts)` 创建按字符查询的加载函数，可配置
 separator 和 decode。它打开并持有文件句柄，返回编码数组或 nil，不缓存查询结果；
 命中与未命中缓存由 `table.lazy` 统一管理。loader 按需缓存二分树前 6 层的

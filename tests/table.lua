@@ -23,6 +23,17 @@ assert(vim.deep_equal(pinyin["中"], { "zhong" }))
 assert(vim.deep_equal(raw_pinyin, pinyin_before) and vim.deep_equal(raw_rules, rules_before))
 print("ok - scheme conversion preserves shared pinyin and rules")
 
+for _, data in ipairs({ pinyin, flypy, fuzzy, tables.load("pinyin", { fuzzy = true }), tables.load("tiger"), tables.load("wubi86") }) do
+  for char, codes in pairs(tables.normalize(require("flash-any.table.punctuation"))) do
+    assert(vim.deep_equal(data[char], codes), char)
+  end
+end
+local punctuation_copy = tables.load("pinyin", { scheme = "flypy" })
+punctuation_copy["，"][1] = "changed"
+assert(pinyin["，"][1] == "," and flypy["，"][1] == ",")
+assert(require("flash-any.table.punctuation")["，"] == ",")
+print("ok - Chinese sources share punctuation rules with independent encoding arrays")
+
 assert(rawget(flypy, "㐀") == nil and rawget(fuzzy, "㐀") == nil)
 assert(vim.deep_equal(flypy["㐀"], { "qq" }))
 assert(vim.deep_equal(fuzzy["㐀"], { "qq" }))

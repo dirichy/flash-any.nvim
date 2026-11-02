@@ -150,6 +150,12 @@ Use a name string or a configuration object with `name`:
 For 中国, full pinyin accepts `zg`, and Flypy accepts `vsgo`. ASCII and encodings
 can mix: with `sources = { "pinyin" }`, `ag` matches `a国`.
 
+`pinyin` (including double pinyin), `tiger`, and `wubi86` also match Chinese
+punctuation by keyboard key: `,` matches `，`, `.` matches `。`, `/` or `\` matches `、`,
+and `; : ? !` match `；：？！`. Quotes match `“”‘’`; `() [] <>` match `（）【】《》`.
+Use `^` for `…`, `_` for `—`, a backtick for `·`, and `$` for `￥`.
+For example, full pinyin `zg,a.` matches `中国，a。`.
+
 Configuration automatically prepends ASCII literal matching before all sources;
 you do not need to add it manually. Other ordinary sources still participate.
 The plugin manages Flash's top-level `matcher` and `labeler`; configure character

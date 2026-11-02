@@ -45,4 +45,24 @@ for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
 end
 print("ok - code-table modes never fall back to the character")
 
+for _, name in ipairs({ "pinyin", "tiger", "wubi86" }) do
+  local reads = 0
+  local data = setmetatable({}, { __index = function()
+    reads = reads + 1
+    return { "," }
+  end })
+  local args = { source = { name = name, data = data } }
+  for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
+    assert(codetable[mode]("，", ",", args)[1].consumed == 1)
+    assert(codetable[mode]("，", "", args)[1].next[","])
+    assert(#codetable[mode]("，", "x", args) == 0)
+    local before = reads
+    for _, char in ipairs({ "a", "😀", "α", "　" }) do
+      assert(codetable[mode](char, ",", args) == nil)
+    end
+    assert(reads == before)
+  end
+end
+print("ok - Chinese scopes admit punctuation without loading unrelated characters")
+
 print("all code-table matcher tests passed")
