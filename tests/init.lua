@@ -16,10 +16,11 @@ local unconfigured = jump
 assert(not pcall(plugin.jump))
 assert(not pcall(plugin.remote))
 assert(jump == unconfigured)
-plugin.setup({ sources = { { matcher = function(char, stream)
-  if char ~= "中" then return nil end
-  if stream == "x" then return { { next = {} } } end
-  return {}
+plugin.setup({ sources = { { matcher = function(text, stream, _, emit)
+  local char = text:get(1)
+  if char ~= "中" then return false end
+  if stream:get() == "x" then emit(""); return true end
+  return true
 end } } })
 plugin.jump()
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
@@ -43,9 +44,9 @@ assert(#run("中国，a。", "zg,a.", { "pinyin" }) == 1)
 assert(#run("中国，a。", "vsgo,a.", { { name = "pinyin", scheme = "flypy" } }) == 1)
 print("ok - Chinese sources match punctuation and mixed encodings")
 
-assert(package.loaded["flash-any.table.unicode"] == nil)
+assert(package.loaded["flash-any.tables.unicode"] == nil)
 assert(#run("α", "alpha", {}) == 0)
-assert(package.loaded["flash-any.table.unicode"] == nil)
+assert(package.loaded["flash-any.tables.unicode"] == nil)
 assert(#run("α", "alpha", { "unicode" }) == 1)
 assert(#run("α", "α", {}) == 0)
 assert(#run("abc", "ab", {}) == 1)
@@ -68,7 +69,7 @@ assert(#matches == 0)
 print("ok - setup preserves recognized-but-unmatched coverage")
 
 matches = run("甲", "b", {
-  { matcher = function() return nil end },
+  { matcher = function() return false end },
   { data = { ["甲"] = { "b" } }, fallback = true },
 })
 assert(#matches == 1)

@@ -6,7 +6,7 @@ vim.opt.shadafile='NONE'
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local match=require('flash-any.match')
 local codetable=require('flash-any.match.codetable')
-local literal=require('flash-any.match.literal')
+local literal=require('flash-any.sources.literal')()
 local count=tonumber(arg[1] or '100')
 assert(count and count>=2 and count%1==0,'character count must be an integer >= 2')
 local text=('甲'):rep(count)

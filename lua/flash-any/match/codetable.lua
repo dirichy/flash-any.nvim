@@ -1,5 +1,5 @@
 local M = {}
-local punctuation = require("flash-any.table.punctuation")
+local punctuation = require("flash-any.tables.punctuation")
 
 -- Code-table encodings are ASCII; buffer characters may be UTF-8.
 -- Matching has three modes: full_code, initial and prefix.
@@ -33,76 +33,72 @@ local scopes = {
   nerdfont = private_use_char,
 }
 
----@param char string
----@param stream string
----@param args FlashAnyMatcherArgs
+---@param text FlashAnyCursor
+---@param stream FlashAnyCursor
+---@param source FlashAnySource
+---@param emit FlashAnyEmit
 ---@param mode "full_code"|"initial"|"prefix"
----@return FlashAnyMatcherResult[]?
-local function match(char, stream, args, mode)
-  local source = args.source
+---@return boolean
+local function match(text, stream, source, emit, mode)
+  local char = text:get(1)
+  if char == "" then return false end
   local accepts = source.name and scopes[source.name]
   -- Built-in scopes exclude ASCII; skip char2nr for these common buffer characters.
-  if accepts and (char:byte() < 0x80 or not accepts(char)) then return nil end
+  if accepts and (char:byte() < 0x80 or not accepts(char)) then return false end
   local data = source.data
   ---@type string[]?
   local codes = data and data[char]
-  if not codes then return nil end
-  local ret, consumed, next = {}, nil, nil
-  local n = #stream
+  if not codes then return false end
+  local initial, prefix = false, 0
+  local input = stream:get()
+  local n = #input
   for _, code in ipairs(codes) do
     local length = #code
     local common = 0
-    while common < math.min(n, length) and stream:byte(common + 1) == code:byte(common + 1) do
+    while common < math.min(n, length) and input:byte(common + 1) == code:byte(common + 1) do
       common = common + 1
     end
-    -- All modes accept an input prefix and report its next ASCII key.
-    if length > n and common == n then
-      next = next or {}
-      next[code:sub(n + 1, n + 1)] = true
-    end
-    -- All modes can finish this character after its complete encoding.
+    if length > n and common == n then emit(code:sub(n + 1, n + 1)) end
     if length > 0 and common == length then
-      consumed = consumed or {}
-      consumed[length] = true
+      if mode == "full_code" or (mode == "initial" and length > 1) then emit(length) end
     end
     if mode == "initial" and common > 0 then
-      consumed = consumed or {}
-      consumed[1] = true
-    elseif mode == "prefix" and common > 0 then
-      consumed = consumed or {}
-      for bytes = 1, common do consumed[bytes] = true end
+      initial = true
+    elseif mode == "prefix" then
+      prefix = math.max(prefix, common)
     end
   end
-  -- Different encodings/prefixes may consume the same byte count; keep it once.
-  if consumed then
-    for bytes in pairs(consumed) do ret[#ret + 1] = { consumed = bytes } end
-  end
-  if next then ret[#ret + 1] = { next = next } end
-  return ret
+  if initial then emit(1) end
+  -- Prefix intervals all begin at 1; their union needs only the largest boundary.
+  for bytes = 1, prefix do emit(bytes) end
+  return true
 end
 
----@param char string
----@param stream string
----@param args FlashAnyMatcherArgs
----@return FlashAnyMatcherResult[]?
-function M.full_code(char, stream, args)
-  return match(char, stream, args, "full_code")
+---@param text FlashAnyCursor
+---@param stream FlashAnyCursor
+---@param source FlashAnySource
+---@param emit FlashAnyEmit
+---@return boolean
+function M.full_code(text, stream, source, emit)
+  return match(text, stream, source, emit, "full_code")
 end
 
----@param char string
----@param stream string
----@param args FlashAnyMatcherArgs
----@return FlashAnyMatcherResult[]?
-function M.initial(char, stream, args)
-  return match(char, stream, args, "initial")
+---@param text FlashAnyCursor
+---@param stream FlashAnyCursor
+---@param source FlashAnySource
+---@param emit FlashAnyEmit
+---@return boolean
+function M.initial(text, stream, source, emit)
+  return match(text, stream, source, emit, "initial")
 end
 
----@param char string
----@param stream string
----@param args FlashAnyMatcherArgs
----@return FlashAnyMatcherResult[]?
-function M.prefix(char, stream, args)
-  return match(char, stream, args, "prefix")
+---@param text FlashAnyCursor
+---@param stream FlashAnyCursor
+---@param source FlashAnySource
+---@param emit FlashAnyEmit
+---@return boolean
+function M.prefix(text, stream, source, emit)
+  return match(text, stream, source, emit, "prefix")
 end
 
 return M

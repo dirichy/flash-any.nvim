@@ -22,18 +22,17 @@ function M.check()
     })
   end
 
-  local ok, tables = pcall(require, "flash-any.table")
+  local ok, registry = pcall(require, "flash-any.source")
   if not ok then
-    vim.health.error("Unable to load source registry: " .. tostring(tables))
+    vim.health.error("Unable to load source registry: " .. tostring(registry))
     return
   end
 
-  local sources = tables.available()
-  table.insert(sources, 1, "literal")
+  local sources = registry.available()
   if #sources > 0 then
     vim.health.ok("Available sources: " .. table.concat(sources, ", "))
   else
-    vim.health.warn("No built-in source is available")
+    vim.health.warn("No source is available")
   end
 
   if vim.tbl_contains(vim.fn.getcompletion("flash-any", "help"), "flash-any") then

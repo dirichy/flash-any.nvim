@@ -76,8 +76,6 @@ function M.normalize(map)
 	return ret
 end
 
-local pinyin_parts = require("flash-any.table.pinyin_parts")
-
 ---拆分 TSV 值列中用逗号分隔的 ASCII 编码；这里不处理 CSV 引号语法。
 ---@param value string
 ---@return string[]
@@ -89,36 +87,36 @@ local function csv(value)
 	return ret
 end
 
----加载内置常用字 Lua 表，附加全字集 TSV 懒加载；两者共用 convert，缓存转换后的编码。
+---@class FlashAnyTableOptions
+---@field convert? fun(codes: string[]?): string[]?
+---@field extra? table<string, string|string[]> Added after conversion; overrides common entries.
+
+---从 runtimepath 加载常用字 Lua 表和可选的完整 TSV；每次创建私有缓存。
 ---@param name string 码表文件名，不含扩展名
----@param convert? fun(codes: string[]?): string[]?
+---@param opts? FlashAnyTableOptions
 ---@return FlashAnyTable
-local function file_source(name, convert)
-	-- require() is shared; this private copy can be transformed in place.
-	local common = M.normalize(require("flash-any.table." .. name))
+function M.load(name, opts)
+	local convert = opts and opts.convert
+	local common = M.normalize(require("flash-any.tables." .. name))
 	if convert then
 		for char, codes in pairs(common) do
 			common[char] = convert(codes)
 		end
 	end
-	if name == "pinyin" or name == "tiger" or name == "wubi86" then
-		for char, codes in pairs(M.normalize(require("flash-any.table.punctuation"))) do
+	if opts and opts.extra then
+		for char, codes in pairs(M.normalize(opts.extra)) do
 			common[char] = codes
 		end
 	end
-	local files = vim.api.nvim_get_runtime_file("lua/flash-any/table/" .. name .. ".tsv", false)
-	local full_path = files[1]
-	if not full_path then
-		return common
-	end
+	local files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)
+	if not files[1] then return common end
 	local decode = csv
 	if convert then
 		decode = function(value)
 			return convert(csv(value)) or {}
 		end
 	end
-	local lookup = require("flash-any.tsv").loader(full_path, { decode = decode })
-	return M.lazy(common, lookup)
+	return M.lazy(common, require("flash-any.tsv").loader(files[1], { decode = decode }))
 end
 
 ---加载用户指定的 Lua 码表，复制后按需挂接 TSV；不复用内置方案缓存。
@@ -132,137 +130,6 @@ function M.from_files(lua_path, tsv_path)
 	end
 	local lookup = require("flash-any.tsv").loader(tsv_path, { decode = csv })
 	return M.lazy(common, lookup)
-end
-
-local default_fuzzy = {
-	initials = { { "zh", "z" }, { "ch", "c" }, { "sh", "s" } },
-	finals = { { "ang", "an" }, { "eng", "en" }, { "ing", "in" } },
-}
-
----把分组索引为“声母/韵母 → 候选数组”；重叠时保留第一个分组，未分组仅保留自身。
----@param groups? string[][]
----@param parts table<string, string> 音节到声母或韵母的映射
----@return table<string, string[]>
-local function fuzzy_index(groups, parts)
-	assert(groups == nil or (type(groups) == "table" and vim.islist(groups)), "fuzzy groups must be arrays")
-	local ret = {}
-	for _, group in ipairs(groups or {}) do
-		assert(type(group) == "table" and vim.islist(group), "each fuzzy group must be an array")
-		for _, value in ipairs(group) do
-			assert(type(value) == "string" and not value:find("[\128-\255]"), "fuzzy components must be ASCII strings")
-			if not ret[value] then
-				ret[value] = group
-			end
-		end
-	end
-	for _, value in pairs(parts) do
-		if not ret[value] then
-			ret[value] = { value }
-		end
-	end
-	return ret
-end
-
----从统一拼音表生成全拼或双拼码表；模糊音先展开，再按方案转换键位。
----opts.scheme 省略时使用全拼；不启用模糊音的全拼直接加载原表。
----@param opts? table scheme 选择双拼方案，fuzzy 控制声母、韵母的模糊音分组。
----@return FlashAnyTable
-local function from_pinyin(opts)
-	local scheme = opts and opts.scheme
-	local fuzzy = opts and opts.fuzzy
-	assert(fuzzy == nil or type(fuzzy) == "boolean" or type(fuzzy) == "table", "fuzzy must be a boolean or table")
-	if not scheme and not fuzzy then
-		return file_source("pinyin")
-	end
-	local rules = scheme
-		and assert(require("flash-any.table.schemes")[scheme], "unknown pinyin scheme: " .. tostring(scheme))
-	local groups
-	if fuzzy == true then
-		groups = default_fuzzy
-	elseif type(fuzzy) == "table" then
-		groups = fuzzy
-	end
-	-- 分组只读；本次加载构建反向索引，常用字和懒加载生僻字共用。
-	local initial_index = fuzzy_index(groups and groups.initials, pinyin_parts.initial)
-	local final_index = fuzzy_index(groups and groups.finals, pinyin_parts.final)
-	---把一个字符的所有读音转为最终编码，供常用字和 TSV 解码共用。
-	---@param syllables? string[]
-	---@return string[]? 无可用编码时返回 nil。
-	local function convert(syllables)
-		if not syllables then
-			return nil
-		end
-		local ret = {}
-		for _, syllable in ipairs(syllables) do
-			local direct = rules and rules.syllables and rules.syllables[syllable]
-			if direct then
-				-- Zero-initial and scheme-specific exceptions take precedence.
-				vim.list_extend(ret, direct)
-			else
-				-- 拆音表覆盖内置拼音的全部音节，直接查询 ASCII 声母、韵母。
-				local initial, final = pinyin_parts.initial[syllable], pinyin_parts.final[syllable]
-				for _, initial_variant in ipairs(initial_index[initial]) do
-					if not rules then
-						for _, final_variant in ipairs(final_index[final]) do
-							ret[#ret + 1] = initial_variant .. final_variant
-						end
-					else
-						for _, first in ipairs(rules.initials[initial_variant] or {}) do
-							for _, final_variant in ipairs(final_index[final]) do
-								for _, last in ipairs(rules.finals[final_variant] or {}) do
-									ret[#ret + 1] = first .. last
-								end
-							end
-						end
-					end
-				end
-			end
-		end
-		return #ret > 0 and ret or nil
-	end
-	return file_source("pinyin", convert)
-end
-
--- 注册时只创建函数，调用 load 时才加载所选码表。
-local loaders = {
-	pinyin = from_pinyin,
-	tiger = function()
-		return file_source("tiger")
-	end,
-	wubi86 = function()
-		return file_source("wubi86")
-	end,
-	unicode = function()
-		return file_source("unicode")
-	end,
-	nerdfont = function()
-		return file_source("nerdfont")
-	end,
-}
--- 只缓存不带 opts 的默认码表；自定义选项每次创建独立实例。
-local cache = {}
-
----按 source 名称加载码表，默认 pinyin；无 opts 时复用缓存，有 opts 时独立构建并应用策略。
----@param name? string
----@param opts? table scheme、fuzzy、append_space_below 等加载选项。
----@return FlashAnyTable
-function M.load(name, opts)
-	name = name or "pinyin"
-	if not loaders[name] then
-		error("unknown flash-any table: " .. tostring(name))
-	end
-	if opts then
-		assert(not opts.scheme or name == "pinyin", "scheme is only supported by the pinyin source")
-		return M.append_space(loaders[name](opts), opts.append_space_below)
-	end
-	cache[name] = cache[name] or loaders[name]()
-	return cache[name]
-end
-
----返回已注册的 source 名称，不触发任何码表加载；结果不保证排序。
----@return string[]
-function M.available()
-	return vim.tbl_keys(loaders)
 end
 
 return M

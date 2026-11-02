@@ -7,8 +7,10 @@ vim.opt.runtimepath:prepend(vim.uv.cwd() .. "/.dev/flash.nvim")
 
 local matcher = require("flash-any.match")
 local tables = require("flash-any.table")
+local registry = require("flash-any.source")
+local function load(name, opts) return registry.load(name, opts).data end
 local codetable = require("flash-any.match.codetable")
-local literal = require("flash-any.match.literal")
+local literal = require("flash-any.sources.literal")()
 local literal_source = { name = "literal", matcher = literal.matcher }
 
 local function check(name, fn)
@@ -71,9 +73,9 @@ check("literal success does not skip later ordinary sources", function()
   local calls = 0
   local matches = matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 1, 0 } }, {
     literal_source,
-    { matcher = function()
+    { matcher = function(_, _, _, emit)
       calls = calls + 1
-      return { { next = { z = true } } }
+      emit("z"); return true
     end },
   })
   assert(#matches == 1 and matches[1].next.z and calls == 1)
@@ -106,9 +108,10 @@ check("mixed literal and code-table input remains incremental", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a国" })
   local value, calls = "a", {}
   local state = { pattern = function() return value end }
-  local sources = { literal_source, { data = { ["国"] = { "guo" } }, matcher = function(char, stream, args)
+  local sources = { literal_source, { data = { ["国"] = { "guo" } }, matcher = function(text, stream, args, emit)
+    local char = text:get(1)
     calls[#calls + 1] = char
-    return codetable.full_code(char, stream, args)
+    return codetable.full_code(text, stream, args, emit)
   end } }
   local opts = { from = { 1, 0 }, to = { 1, 0 } }
   assert(#matcher.get(0, state, opts, sources) == 1)
@@ -168,9 +171,10 @@ check("equal streams merge before invoking the following matcher", function()
   local calls = 0
   local sources = { {
     data = { ["甲"] = { "a" }, ["乙"] = { "a", "aa" }, ["丙"] = { "a" } },
-    matcher = function(char, stream, args)
-      if char == "丙" and stream == "a" then calls = calls + 1 end
-      return codetable.full_code(char, stream, args)
+    matcher = function(text, stream, args, emit)
+      local char = text:get(1)
+      if char == "丙" and stream:get() == "a" then calls = calls + 1 end
+      return codetable.full_code(text, stream, args, emit)
     end,
   } }
   local matches = matcher.get(0, { pattern = function() return "aaa" end }, { from = { 1, 0 }, to = { 1, 0 } }, sources)
@@ -209,7 +213,7 @@ check("input append reuses cached line text", function()
   local opts, sources = { from = { 1, 0 }, to = { 1, 0 } }, { literal_source }
   local first = matcher.get(0, state, opts, sources)
   local lines = state._flash_any_cache[0].lines
-  assert(lines[1] == "abc")
+  assert(lines[1].value == "abc")
   value = "ab"
   local second = matcher.get(0, state, opts, sources)
   assert(#first == 1 and #second == 1 and second[1].end_pos[2] == 1)
@@ -217,18 +221,18 @@ check("input append reuses cached line text", function()
 end)
 
 check("lazy schemes", function()
-  local flypy = tables.load("pinyin", { scheme = "flypy" })
-  local pinyin = tables.load("pinyin")
-  local pyjj = tables.load("pinyin", { scheme = "pyjj" })
-  local natural = tables.load("pinyin", { scheme = "natural" })
-  local abc = tables.load("pinyin", { scheme = "abc" })
-  local mspy = tables.load("pinyin", { scheme = "mspy" })
-  local st = tables.load("pinyin", { scheme = "st" })
-  local tiger = tables.load("tiger")
+  local flypy = load("pinyin", { scheme = "flypy" })
+  local pinyin = load("pinyin")
+  local pyjj = load("pinyin", { scheme = "pyjj" })
+  local natural = load("pinyin", { scheme = "natural" })
+  local abc = load("pinyin", { scheme = "abc" })
+  local mspy = load("pinyin", { scheme = "mspy" })
+  local st = load("pinyin", { scheme = "st" })
+  local tiger = load("tiger")
   assert(flypy["中"] and pinyin["中"] and pyjj["中"] and tiger["的"])
   assert(pinyin["㐀"] and pinyin["㐀"][1] == "qiu")
   assert(flypy["㐀"] and flypy["㐀"][1] == "qq")
-  local schemes = require("flash-any.table.schemes")
+  local schemes = require("flash-any.tables.schemes")
   assert(schemes.flypy.initials and schemes.flypy.finals)
   assert(schemes.pyjj.initials and schemes.pyjj.finals)
   assert(vim.deep_equal(flypy["中"], { "vs" }))
@@ -241,7 +245,7 @@ check("lazy schemes", function()
   assert(vim.deep_equal(pyjj["爱"], { "as" }))
   assert(vim.deep_equal(pyjj["学"], { "xt" }))
   assert(vim.deep_equal(pyjj["光"], { "gl" }))
-  local fuzzy = tables.load("pinyin", { scheme = "flypy", fuzzy = { initials = { { "zh", "z" } } } })
+  local fuzzy = load("pinyin", { scheme = "flypy", fuzzy = { initials = { { "zh", "z" } } } })
   assert(vim.deep_equal(fuzzy["中"], { "vs", "zs" }))
 end)
 
@@ -271,9 +275,10 @@ check("matcher scope avoids lazy lookup", function()
   end)
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "abc" })
   matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 2, 0 } }, {
-    { data = data, matcher = function(char, stream, args)
-      if char ~= "甲" then return nil end
-      return codetable.full_code(char, stream, args)
+    { data = data, matcher = function(text, stream, args, emit)
+      local char = text:get(1)
+      if char ~= "甲" then return false end
+      return codetable.full_code(text, stream, args, emit)
     end },
   })
   assert(calls == 0)
@@ -296,12 +301,12 @@ end)
 
 check("matcher owns next", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲" })
-  local custom = function(_, stream)
-    if stream == "" then return { { next = { z = true } } } end
-    if stream == "x" then
-      return { { next = { z = true } } }
+  local custom = function(_, stream, _, emit)
+    if stream:get() == "" then emit("z"); return true end
+    if stream:get() == "x" then
+      emit("z"); return true
     end
-    return {}
+    return true
   end
   local state = { pattern = function() return "x" end, labels = function() return { "z", "a" } end }
   local matches = matcher.get(0, state, { from = { 1, 0 }, to = { 2, 0 } }, {
@@ -313,13 +318,14 @@ end)
 check("custom matcher owns consumption without a code table", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })
   local received
-  local source = { matcher = function(char, stream)
-    if char == "中" and stream == "zhongg" then return { { consumed = 5 } } end
-    if char == "国" and stream == "g" then
-      received = stream
-      return { { next = { u = true } } }
+  local source = { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    if char == "中" and stream:get() == "zhongg" then emit(5); return true end
+    if char == "国" and stream:get() == "g" then
+      received = stream:get()
+      emit("u"); return true
     end
-    return {}
+    return true
   end }
   local matches = matcher.get(0, { pattern = function() return "zhongg" end }, { from = { 1, 0 }, to = { 1, 0 } }, { source })
   assert(received == "g" and #matches == 1)
@@ -328,11 +334,12 @@ end)
 
 check("custom consumption branches keep distinct ranges", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲乙丙" })
-  local sources = { { matcher = function(char, stream)
-    if char == "甲" and stream == "abc" then return { { consumed = 1 }, { consumed = 2 } } end
-    if char == "乙" and stream == "bc" then return { { consumed = 1 } } end
-    if (char == "乙" or char == "丙") and stream == "c" then return { { next = {} } } end
-    return {}
+  local sources = { { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    if char == "甲" and stream:get() == "abc" then emit(1); emit(2); return true end
+    if char == "乙" and stream:get() == "bc" then emit(1); return true end
+    if (char == "乙" or char == "丙") and stream:get() == "c" then emit(""); return true end
+    return true
   end } }
   local matches = matcher.get(0, { pattern = function() return "abc" end }, { from = { 1, 0 }, to = { 1, 0 } }, sources)
   assert(#matches == 2 and matches[1].pos[2] == 0 and matches[2].pos[2] == 0)
@@ -343,14 +350,14 @@ check("outer matcher never reads source data", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲" })
   local source = {
     data = setmetatable({}, { __index = function() error("outer matcher read codes") end }),
-    matcher = function(_, stream)
-      if stream == "a" then return { { next = {} } } end
-      return {}
+    matcher = function(_, stream, _, emit)
+      if stream:get() == "a" then emit(""); return true end
+      return true
     end,
   }
   local matches = matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 1, 0 } }, { source })
   assert(#matches == 1 and next(matches[1].next) == nil)
-  source.matcher = function() return {} end
+  source.matcher = function() return true end
   matches = matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 1, 0 } }, { source })
   assert(#matches == 0)
 end)
@@ -360,11 +367,12 @@ check("append retries only the unfinished character", function()
   local value = "a"
   local state = { pattern = function() return value end }
   local calls = {}
-  local sources = { { matcher = function(char, stream)
-    calls[#calls + 1] = { char, stream }
-    if char == "甲" and stream == "a" then return { { next = { b = true } } } end
-    if char == "甲" and stream == "ab" then return { { next = {} } } end
-    return {}
+  local sources = { { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    calls[#calls + 1] = { char, (stream:get()) }
+    if char == "甲" and stream:get() == "a" then emit("b"); return true end
+    if char == "甲" and stream:get() == "ab" then emit(""); return true end
+    return true
   end } }
   local opts = { from = { 1, 0 }, to = { 1, 0 } }
   assert(#matcher.get(0, state, opts, sources) == 1)
@@ -379,12 +387,13 @@ check("append starts after the completed character", function()
   local value = "a"
   local calls = {}
   local state = { pattern = function() return value end }
-  local sources = { { matcher = function(char, stream)
-    calls[#calls + 1] = { char, stream }
-    if char == "甲" and stream:sub(1, 1) == "a" then return { { consumed = 1 } } end
-    if char == "乙" and stream == "" then return { { next = { b = true } } } end
-    if char == "乙" and stream == "b" then return { { next = {} } } end
-    return {}
+  local sources = { { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    calls[#calls + 1] = { char, (stream:get()) }
+    if char == "甲" and stream:get():sub(1, 1) == "a" then emit(1); return true end
+    if char == "乙" and stream:get() == "" then emit("b"); return true end
+    if char == "乙" and stream:get() == "b" then emit(""); return true end
+    return true
   end } }
   local opts = { from = { 1, 0 }, to = { 1, 0 } }
   assert(#matcher.get(0, state, opts, sources) == 1)
@@ -440,10 +449,11 @@ check("repairing invalid input bytes rebuilds custom UTF-8 matches", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" .. invalid })
   local value = invalid
   local state = { pattern = function() return value end }
-  local opts, sources = { from = { 1, 0 }, to = { 1, 0 } }, { { matcher = function(char, stream)
-    if stream == "" then return { { next = {} } } end
-    if stream:sub(1, #char) == char then return { { consumed = #char } } end
-    return {}
+  local opts, sources = { from = { 1, 0 }, to = { 1, 0 } }, { { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    if stream:get() == "" then emit(""); return true end
+    if stream:get():sub(1, #char) == char then emit(#char); return true end
+    return true
   end } }
   local first = matcher.get(0, state, opts, sources)
   assert(#first == 1 and first[1].pos[2] == 3)
@@ -464,8 +474,8 @@ end)
 check("coverage survives unknown sources and permits unconditional sources", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲" })
   local matches = matcher.get(0, { pattern = function() return "b" end }, { from = { 1, 0 }, to = { 1, 0 } }, {
-    { matcher = function() return {} end },
-    { matcher = function() return nil end },
+    { matcher = function() return true end },
+    { matcher = function() return false end },
     { matcher = function() error("coverage was reset") end, fallback = true },
     { data = { ["甲"] = { "b" } }, matcher = codetable.full_code },
   })
@@ -493,14 +503,15 @@ check("starting keys respect source coverage", function()
   assert(#fallback == 1 and fallback[1].next.x)
 end)
 
-check("suffixes are sliced once per offset across lines and windows", function()
+check("one input cursor shares read caches across lines and windows", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲乙甲乙", "甲乙" })
   local value, slices = "ab", 0
   local state = { pattern = function() return value end }
-  local sources = { { matcher = function(char, stream)
-    if char == "甲" and stream == "ab" then return { { consumed = 1 } } end
-    if char == "乙" and stream == "b" then return { { next = {} } } end
-    return {}
+  local sources = { { matcher = function(text, stream, _, emit)
+    local char = text:get(1)
+    if char == "甲" and stream:get() == "ab" then emit(1); return true end
+    if char == "乙" and stream:get() == "b" then emit(""); return true end
+    return true
   end } }
   local opts = { from = { 1, 0 }, to = { 2, 0 } }
   local sub = string.sub
@@ -514,10 +525,13 @@ check("suffixes are sliced once per offset across lines and windows", function()
   end)
   rawset(string, "sub", sub)
   assert(ok, err)
-  assert(slices == 1 and state._flash_any_streams.suffixes[1] == "b")
+  local cursor = state._flash_any_stream
+  assert(slices == 1 and cursor.value == "ab")
+  cursor:set_offset(1)
+  assert(cursor:get() == "b" and slices == 1)
   value = "ac"
   matcher.get(0, state, opts, sources)
-  assert(state._flash_any_streams.pattern == "ac" and state._flash_any_streams.suffixes[1] == nil)
+  assert(state._flash_any_stream ~= cursor and state._flash_any_stream.value == "ac")
 end)
 
 check("merge next for same extmark", function()
@@ -537,7 +551,7 @@ check("same code keeps next from each source", function()
   for _, label in ipairs({ "x", "y" }) do
     sources[#sources + 1] = {
       data = { ["甲"] = { "a" } },
-      matcher = function() return { { next = { [label] = true } } } end,
+      matcher = function(_, _, _, emit) emit(label); return true end,
     }
   end
   local matches = matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 1, 0 } }, sources)
@@ -549,12 +563,12 @@ check("empty-stream lookahead runs once per source", function()
   local calls = 0
   local matches = matcher.get(0, { pattern = function() return "a" end }, { from = { 1, 0 }, to = { 1, 0 } }, {
     { data = { ["甲"] = { "a" } }, matcher = codetable.full_code },
-    { data = { ["乙"] = { "bx", "by", "bz" } }, matcher = function(_, stream)
-      if stream == "" then
+    { data = { ["乙"] = { "bx", "by", "bz" } }, matcher = function(_, stream, _, emit)
+      if stream:get() == "" then
         calls = calls + 1
-        return { { next = { b = true } } }
+        emit("b"); return true
       end
-      return {}
+      return true
     end },
   })
   assert(#matches == 1 and matches[1].next.b and calls == 1)
@@ -563,9 +577,9 @@ end)
 check("same pattern reuses scan and refreshes labels", function()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲乙" })
   local calls = 0
-  local sources = { { data = { ["甲"] = { "a" }, ["乙"] = { "b" } }, matcher = function(char, stream, args)
+  local sources = { { data = { ["甲"] = { "a" }, ["乙"] = { "b" } }, matcher = function(text, stream, args, emit)
     calls = calls + 1
-    return codetable.full_code(char, stream, args)
+    return codetable.full_code(text, stream, args, emit)
   end } }
   local labels = { "b", "c" }
   local state = { pattern = function() return "a" end, labels = function() return labels end }
@@ -606,7 +620,7 @@ check("exclude next labels globally", function()
   local state = { pattern = function() return "a" end, labels = function() return labels end }
   local matches = matcher.get(0, state, { from = { 1, 0 }, to = { 2, 0 } }, {
     literal_source,
-    { data = tables.load("tiger"), matcher = codetable.full_code },
+    { data = load("tiger"), matcher = codetable.full_code },
   })
   assert(#matches == 4)
   local used = {}

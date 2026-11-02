@@ -46,7 +46,7 @@ def main() -> None:
     ap.add_argument("lua", type=Path)
     ap.add_argument("tsv", type=Path)
     ap.add_argument("--separator", choices=("auto", "tab", "space"), default="auto")
-    ap.add_argument("--common-from", type=Path, default=Path("lua/flash-any/table/tiger.lua"))
+    ap.add_argument("--common-from", type=Path, default=Path("lua/flash-any/tables/tiger.lua"))
     ap.add_argument("--cjk-only", action="store_true")
     args = ap.parse_args()
     separator = {"tab": "\t", "space": " ", "auto": "auto"}[args.separator]

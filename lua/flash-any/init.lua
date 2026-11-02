@@ -3,7 +3,7 @@ local match = require("flash-any.match")
 local tables = require("flash-any.table")
 local build = require("flash-any.build")
 local codetable = require("flash-any.match.codetable")
-local literal = require("flash-any.match.literal")
+local registry = require("flash-any.source")
 local M = {}
 
 vim.api.nvim_create_user_command("FlashAnyBuildTable", function(command)
@@ -41,20 +41,11 @@ local default_opts = nil
 ---@type FlashAnySource[]?
 local default_sources = nil
 
--- Unicode and Nerd Font names are meant to be discoverable from any prefix;
--- ordinary code tables require an exact code unless they opt into another
--- matcher explicitly.
----@param name? string
 ---@param matcher? string|FlashAnyMatcher
----@param scheme? string
 ---@return FlashAnyMatcher
-local function source_matcher(name, matcher, scheme)
+local function source_matcher(matcher)
   if type(matcher) == "function" then return matcher end
-  if matcher == nil then
-    if name == "literal" then return literal.matcher end
-    matcher = name == "pinyin" and not scheme and "initial"
-      or (name == "unicode" or name == "nerdfont") and "prefix" or "full_code"
-  end
+  if matcher == nil then matcher = "full_code" end
   assert(type(matcher) == "string", "matcher must be a mode name or function")
   return assert(codetable[matcher], "invalid code-table matcher: " .. matcher)
 end
@@ -63,7 +54,7 @@ end
 ---@return FlashAnySource[]
 local function load_sources(values)
   assert(type(values) == "table" and vim.islist(values), "opts.sources is required and must be a list")
-  local ret, has_pinyin = { { name = "literal", matcher = literal.matcher } }, false
+  local ret, has_pinyin = { { name = "literal", matcher = source_matcher(registry.load("literal").matcher) } }, false
   for _, value in ipairs(values) do
     assert(type(value) == "string" or type(value) == "table", "source must be a name or configuration table")
     local name = type(value) == "string" and value or value.name
@@ -71,38 +62,33 @@ local function load_sources(values)
       assert(not has_pinyin, "configure only one pinyin source; select its encoding with scheme")
       has_pinyin = true
     end
-    if type(value) == "string" then
-      ret[#ret + 1] = {
-        data = value ~= "literal" and tables.load(value) or nil,
-        matcher = source_matcher(value),
-        name = value,
-        fallback = value == "unicode",
-      }
-    elseif value.name or value.matcher or value.data or value.lua or value.loader then
+    local named_only = type(value) == "string"
+    if named_only then value = { name = value } end
+    if value.name or value.matcher or value.data or value.lua or value.loader then
       ---@cast value FlashAnySourceConfig
       assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
       assert(value.loader == nil or type(value.loader) == "function", "loader must be a function")
-      local matcher = source_matcher(value.name, value.matcher, value.scheme)
-      local fallback = value.fallback
-      if fallback == nil then fallback = value.name == "unicode" end
-      local data
+      local defaults = value.name and registry.load(value.name, not named_only and value or nil) or {}
+      local data = defaults.data
       if value.lua then
         data = tables.append_space(tables.from_files(value.lua, value.tsv), value.append_space_below)
       elseif value.data then
         data = tables.append_space(tables.normalize(value.data), value.append_space_below)
-      elseif value.name and value.name ~= "literal" then
-        data = tables.load(value.name, value)
       end
-      if value.loader then
-        data = tables.lazy(data or {}, value.loader)
-      end
+      if value.loader then data = tables.lazy(data or {}, value.loader) end
+      local matcher = value.matcher
+      if matcher == nil then matcher = defaults.matcher end
+      local fallback = value.fallback
+      if fallback == nil then fallback = defaults.fallback end
+      assert(fallback == nil or type(fallback) == "boolean", "fallback must be a boolean")
       ret[#ret + 1] = {
         data = data,
-        matcher = matcher,
+        matcher = source_matcher(matcher),
         name = value.name,
         fallback = fallback,
       }
     else
+      ---@cast value table<string, string|string[]>
       ret[#ret + 1] = { data = tables.normalize(value), matcher = codetable.full_code }
     end
   end

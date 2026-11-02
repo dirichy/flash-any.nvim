@@ -5,15 +5,15 @@ vim.opt.shadafile = "NONE"
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local match = require("flash-any.match")
 local codetable = require("flash-any.match.codetable")
-local literal = require("flash-any.match.literal")
+local literal = require("flash-any.sources.literal")()
 local calls = 0
 local sources = {
   { matcher = literal.matcher },
   { data = { ["中"] = { "vs", "va" }, ["珠"] = { "vu" }, ["国"] = { "go" } },
-    matcher = function(char, stream, args)
-      assert(stream == "v", "char search must not query the next character")
+    matcher = function(text, stream, args, emit)
+      assert(stream:get() == "v", "char search must not query the next character")
       calls = calls + 1
-      return codetable.full_code(char, stream, args)
+      return codetable.full_code(text, stream, args, emit)
     end },
   { data = { ["国"] = { "v" }, ["😀"] = { "vname" } },
     matcher = codetable.prefix, fallback = true },

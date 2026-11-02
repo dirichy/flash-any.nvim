@@ -54,12 +54,13 @@ keys("fv", { 102, 0 }) -- Counts and repeats can find offscreen targets too.
 
 -- Instrument a real Flash state: drawing and nearby jumps must not touch far rows.
 local visited, allow_far = {}, false
-plugin.setup({ sources = { { matcher = function(char, stream)
-  if not ({ ["甲"] = true, ["乙"] = true, ["丙"] = true, ["终"] = true })[char] then return nil end
-  assert(stream == "v")
+plugin.setup({ sources = { { matcher = function(text, stream, _, emit)
+  local char = text:get(1)
+  if not ({ ["甲"] = true, ["乙"] = true, ["丙"] = true, ["终"] = true })[char] then return false end
+  assert(stream:get() == "v")
   assert(char ~= "终" or allow_far, "eagerly scanned a distant target")
   visited[char] = (visited[char] or 0) + 1
-  return { { next = {} } }
+  emit(""); return true
 end } } })
 lines = {}
 for _ = 1, 1000 do lines[#lines + 1] = "" end

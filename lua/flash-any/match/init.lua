@@ -1,48 +1,48 @@
 local M = {}
-local utf8 = require("flash-any.utf8")
+local Cursor = require("flash-any.cursor")
 
 -- 跨 source 和扫描器共用的 matcher 协议；具体实现只引用这些类型。
 ---@alias FlashAnyNext table<string, boolean>
 
--- Each result is one branch: either consume bytes and move to the next character,
--- or finish the input with next. nil means unknown character; an empty list
--- means a known character whose input did not match.
--- Matchers are prefix-closed: appended input cannot revive a failed branch.
----@class FlashAnyMatcherResult
----@field consumed? integer Bytes consumed before moving to the next character.
----@field next? FlashAnyNext Input fully matched; may be an empty set.
+-- Emit a consumed input byte count, or a string of possible next ASCII keys.
+-- chars is the matched buffer span in codepoints, defaulting to 1.
+---@alias FlashAnyEmit fun(value: integer|string, chars?: integer)
 
----@class FlashAnyMatcherArgs
----@field source FlashAnySource
-
----@alias FlashAnyMatcher fun(char: string, stream: string, args: FlashAnyMatcherArgs): FlashAnyMatcherResult[]?
+-- Return true for a known position, even when no branch matched; false means unknown.
+-- Matchers emit synchronously and are prefix-closed: appends cannot revive failures.
+---@alias FlashAnyMatcher fun(text: FlashAnyCursor, stream: FlashAnyCursor, source: FlashAnySource, emit: FlashAnyEmit): boolean
 
 -- 初始化后的运行时 source；scheme、fuzzy 等配置已用于构建 data 和 matcher。
 ---@class FlashAnySource
 ---@field data? table<string, string[]>
 ---@field matcher FlashAnyMatcher
----@field fallback? boolean Only run if every earlier configured source returned nil.
+---@field fallback? boolean Only run if every earlier configured source returned false.
 ---@field name? string
 
----@param char string
----@param stream string
+---One input cursor per state/pattern; all source calls share its read cache.
+---@param state table
+---@param pattern string
+---@return FlashAnyCursor
+local function stream_for(state, pattern)
+  local stream = state._flash_any_stream
+  if not stream or stream.value ~= pattern then
+    stream = Cursor.new(pattern)
+    state._flash_any_stream = stream
+  end
+  return stream
+end
+
+---@param text FlashAnyCursor
+---@param stream FlashAnyCursor
 ---@param sources FlashAnySource[]
----@return FlashAnyMatcherResult[]
-local function match_char(char, stream, sources)
-  -- Buffer characters are UTF-8; each configured matcher owns its input format.
-  local ret, known = {}, false
+---@param emit FlashAnyEmit
+local function match_text(text, stream, sources, emit)
+  local known = false
   for _, source in ipairs(sources) do
     if not known or not source.fallback then
-      local results = source.matcher(char, stream, { source = source })
-      if results ~= nil then
-        known = true
-        for _, item in ipairs(results) do
-          ret[#ret + 1] = item
-        end
-      end
+      if source.matcher(text, stream, source, emit) then known = true end
     end
   end
-  return ret
 end
 
 -- Buffer byte column -> input byte offset -> earliest match start column.
@@ -67,82 +67,102 @@ end
 ---@field end_col integer Last character's starting byte column
 ---@field next FlashAnyNext
 
----@param text string
+---@param text FlashAnyCursor
 ---@param line integer
 ---@param pattern string
 ---@param sources FlashAnySource[]
----@param suffixes table<integer, string> Shared across starts, lines and windows.
+---@param stream FlashAnyCursor Shared across starts, lines and windows.
 ---@param resume? FlashAnyRequests Only these states can survive appended input.
 ---@return FlashAnyInternalMatch[], FlashAnyRequests
-local function scan_line(text, line, pattern, sources, suffixes, resume)
+local function scan_line(text, line, pattern, sources, stream, resume)
   if resume and next(resume) == nil then return {}, {} end
   local matches = {}
   local requests, frontier = {}, {}
   local first = 0
   if resume then
-    first = #text
+    first = #text.value
     for col, offsets in pairs(resume) do
       first = math.min(first, col)
       for offset, start in pairs(offsets) do add_request(requests, col, offset, start) end
     end
   end
+  -- A multi-codepoint branch may finish ahead of the current scan position.
+  ---@type table<integer, FlashAnyInternalMatch>
+  local ends, waiting = {}, {}
+  local offset, start = 0, 0
+  local col = first
+  ---@type integer?
+  local next_col
   ---@type FlashAnyInternalMatch?
-  local waiting
-  for next_col, char in utf8.iter_char(text, first) do
-    if next_col and char then
-      local col = next_col - #char
-      if waiting then
-        -- Completed ranges end at the previous character. Query this character
-        -- once for their next keys without adding it to those ranges.
-        for _, item in ipairs(match_char(char, "", sources)) do
-          for key in pairs(item.next or {}) do
-            waiting.next[key] = true
-          end
-        end
-        waiting = nil
-      end
-      -- New starts and streams left by the previous character share one queue.
-      if not resume then add_request(requests, col, 0, col) end
-      ---@type FlashAnyInternalMatch?
-      local at_end
-      local pending = requests[col]
-      if pending then
-        for offset, start in pairs(pending) do
-          local stream = suffixes[offset]
-          if not stream then
-            stream = pattern:sub(offset + 1)
-            suffixes[offset] = stream
-          end
-          for _, item in ipairs(match_char(char, stream, sources)) do
-            local complete = item.consumed == #stream
-            if item.next then add_request(frontier, col, offset, start) end
-            if item.next or complete then
-              -- All successes here end at col. Merge their display range now;
-              -- continuation requests above keep distinct stream offsets.
-              if not at_end then
-                at_end = { line = line, start_col = start, end_col = col, next = {} }
-                matches[#matches + 1] = at_end
-              else
-                at_end.start_col = math.min(at_end.start_col, start)
-              end
-              if item.next then
-                for value in pairs(item.next) do at_end.next[value] = true end
-              end
-              if complete and next_col < #text then
-                add_request(frontier, next_col, #pattern, start)
-                waiting = at_end
-              end
-            elseif next_col < #text then
-              local consumed = item.consumed
-              ---@cast consumed integer
-              add_request(requests, next_col, offset + consumed, start)
-            end
-          end
-        end
-        requests[col] = nil
-      end
-      if resume and not waiting and next(requests) == nil then break end
+  local completed
+
+  -- One emitter per line scan, reused across positions, input offsets and sources.
+  ---@type FlashAnyEmit
+  local function emit(value, chars)
+    ---@type integer?, integer?
+    local after, last = next_col, col
+    if chars and chars ~= 1 then
+      local _
+      _, after, last = text:get(chars)
     end
+    if not after or not last then return end
+    local is_next = type(value) == "string"
+    if completed then
+      -- Query only next keys at a completed span's successor, without extending it.
+      if is_next then
+        for i = 1, #value do completed.next[value:sub(i, i)] = true end
+      end
+      return
+    end
+    local complete = not is_next and value == #stream.value - stream.offset
+    if is_next then add_request(frontier, col, offset, start) end
+    if is_next or complete then
+      local at_end = ends[last]
+      if not at_end then
+        at_end = { line = line, start_col = start, end_col = last, next = {} }
+        ends[last] = at_end
+        matches[#matches + 1] = at_end
+      else
+        at_end.start_col = math.min(at_end.start_col, start)
+      end
+      if is_next then
+        for i = 1, #value do at_end.next[value:sub(i, i)] = true end
+      end
+      if complete and after < #text.value then
+        add_request(frontier, after, #pattern, start)
+        waiting[after] = at_end
+      end
+    elseif after < #text.value then
+      ---@cast value integer
+      add_request(requests, after, offset + value, start)
+    end
+  end
+
+  text:set_offset(first)
+  while true do
+    local char
+    char, next_col = text:get(1)
+    if not char or not next_col then break end
+    col = text.offset
+    completed = waiting[col]
+    if completed then
+      stream:set_offset(#pattern)
+      match_text(text, stream, sources, emit)
+      waiting[col] = nil
+      completed = nil
+    end
+    if not resume then add_request(requests, col, 0, col) end
+    local pending = requests[col]
+    if pending then
+      for input_offset, match_start in pairs(pending) do
+        offset, start = input_offset, match_start
+        stream:set_offset(offset)
+        match_text(text, stream, sources, emit)
+      end
+      requests[col] = nil
+    end
+    if resume and next(waiting) == nil and next(requests) == nil then break end
+    text:set_offset(next_col)
   end
   -- Branch enumeration must not change label order.
   table.sort(matches, function(a, b)
@@ -168,18 +188,16 @@ function M.get(win, state, opts, sources)
   local pattern = state.pattern()
   if pattern == "" then return {} end
   state._flash_any_cache = state._flash_any_cache or {}
-  local input = state._flash_any_streams
-  if not input or input.pattern ~= pattern then
-    input = { pattern = pattern, suffixes = { [0] = pattern, [#pattern] = "" } }
-    state._flash_any_streams = input
-  end
+  local stream = stream_for(state, pattern)
   local buf = vim.api.nvim_win_get_buf(win)
   local tick = vim.api.nvim_buf_get_changedtick(buf)
   local from, to = opts.from[1], opts.to[1]
   local cache = state._flash_any_cache[win]
   if not cache or cache.buf ~= buf or cache.from ~= from or cache.to ~= to or cache.tick ~= tick then
-    cache = { buf = buf, from = from, to = to, tick = tick,
-      lines = vim.api.nvim_buf_get_lines(buf, from - 1, to, false) }
+    ---@type FlashAnyCursor[]
+    local lines = {}
+    for i, text in ipairs(vim.api.nvim_buf_get_lines(buf, from - 1, to, false)) do lines[i] = Cursor.new(text) end
+    cache = { buf = buf, from = from, to = to, tick = tick, lines = lines }
     state._flash_any_cache[win] = cache
   end
   if cache.pattern ~= pattern or cache.sources ~= sources then
@@ -195,7 +213,7 @@ function M.get(win, state, opts, sources)
     local matches, frontiers = {}, {}
     for i, text in ipairs(cache.lines) do
       local found, frontier = scan_line(text, from + i - 1, pattern, sources,
-        input.suffixes, incremental and cache.frontiers[i] or nil)
+        stream, incremental and cache.frontiers[i] or nil)
       vim.list_extend(matches, found)
       frontiers[i] = frontier
     end
@@ -240,27 +258,49 @@ end
 function M.char(win, state, opts, sources)
   local pattern = state.pattern()
   if pattern == "" then return {} end
+  local stream = stream_for(state, pattern)
   local buf = vim.api.nvim_win_get_buf(win)
   local tick = vim.api.nvim_buf_get_changedtick(buf)
   state._flash_any_char_cache = state._flash_any_char_cache or {}
   local cache = state._flash_any_char_cache[win]
-  if not cache or cache.buf ~= buf or cache.tick ~= tick or cache.pattern ~= pattern or cache.sources ~= sources then
-    cache = { buf = buf, tick = tick, pattern = pattern, sources = sources, lines = {} }
+  if not cache or cache.buf ~= buf or cache.tick ~= tick then
+    cache = { buf = buf, tick = tick, lines = {}, matches = {} }
     state._flash_any_char_cache[win] = cache
   end
+  if cache.pattern ~= pattern or cache.sources ~= sources then
+    cache.matches = {}
+    cache.pattern, cache.sources = pattern, sources
+  end
   local ret = {}
+  ---@type FlashAnyCursor
+  local text
+  local found = false
+  ---@type FlashAnyEmit
+  local function emit(_, chars)
+    local _, after = text:get(chars or 1)
+    if after then found = true end
+  end
   local last = math.min(opts.to[1], vim.api.nvim_buf_line_count(buf))
   for row = math.max(1, opts.from[1]), last do
-    local matches = cache.lines[row]
+    local matches = cache.matches[row]
     if not matches then
       matches = {}
-      local text = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
-      for next_col, char in utf8.iter_char(text) do
-        if next_col and char and #match_char(char, pattern, sources) > 0 then
-          matches[#matches + 1] = next_col - #char
-        end
+      text = cache.lines[row]
+      if not text then
+        text = Cursor.new(vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1])
+        cache.lines[row] = text
       end
-      cache.lines[row] = matches
+      text:set_offset(0)
+      while true do
+        local char, after = text:get(1)
+        if not char or not after then break end
+        found = false
+        stream:set_offset(0)
+        match_text(text, stream, sources, emit)
+        if found then matches[#matches + 1] = text.offset end
+        text:set_offset(after)
+      end
+      cache.matches[row] = matches
     end
     for _, col in ipairs(matches) do
       ret[#ret + 1] = { win = win, pos = { row, col }, end_pos = { row, col }, next = {} }
