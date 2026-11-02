@@ -46,6 +46,18 @@ kana[1][1], kana["漢"] = "ん", false
 assert(compiled(Cursor.new("ぁ")) and compiled(Cursor.new("漢")))
 print("ok - mixed scopes check character hashes first and copy numeric/string ranges")
 
+local extra = { ["あ"] = { "a", "other" }, ["漢"] = "kan" }
+assert(accepts(extra, "あ") and accepts(extra, "漢") and not accepts(extra, "い"))
+local mixed_codes = { { "ぁ", "ヿ" }, ["あ"] = false, ["漢"] = { "kan" } }
+assert(not accepts(mixed_codes, "あ") and accepts(mixed_codes, "い") and accepts(mixed_codes, "漢"))
+assert(accepts({ a = 0, b = "", c = {} }, "a"))
+assert(accepts({ a = 0, b = "", c = {} }, "b"))
+assert(accepts({ a = 0, b = "", c = {} }, "c"))
+local extra_scope = assert(scopes.resolve(extra))
+extra["あ"] = nil
+assert(extra_scope(Cursor.new("あ")), "compiled scopes retain their snapshot")
+print("ok - character hashes accept code maps directly and preserve false-over-range priority")
+
 local function custom(text)
   return text:get(2) == "きゃ"
 end
@@ -63,7 +75,6 @@ for _, invalid in ipairs({
   { { "ab", "z" } },
   { { "", "z" } },
   { ["ab"] = true },
-  { a = 1 },
   { [0] = { 1, 2 } },
 }) do
   assert(not pcall(scopes.resolve, invalid), vim.inspect(invalid))
@@ -161,4 +172,5 @@ assert(#match.char(
   }
 ) == 1)
 assert(#run("α", { { name = "pinyin", data = { ["α"] = "x" }, scope = "all" } }) == 1)
+assert(#run("あ", { { matcher = matcher, scope = { ["あ"] = { "a" }, ["い"] = "i" } } }) == 1)
 print("all generic source scope tests passed")

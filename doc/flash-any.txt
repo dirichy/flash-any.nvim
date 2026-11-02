@@ -339,18 +339,24 @@ source 对 text 和 stream 都只能调用 get，不可修改对象或调用 shi
       },
     }
 <
-多码点 Lua 文件（也可作为用户 data）返回： >lua
+Lua 文件统一采用 codes 加可选元数据（也可作为用户 data）： >lua
     return {
       codes = { ["中"] = {"zhong"}, ["中国"] = {"country"} },
       prefixes = { ["中"] = true },
       max_chars = 2,
+      scope = { { "中", "中" } },
     }
 <
 prefixes 只列可加长的文本键，包括自身也有编码的键；叶子省略，不存 false。
 max_chars 限制完整码表（含 TSV）的文本码点数，和 ASCII 编码长度独立。省略时
 从 Lua 编码键和前缀长度推导；若 TSV 含更长条目，应提供完整上限。
 三种内置 matcher 自动读取码表元数据，保留长短词分支；source 无须配置开关或长度。
-单码点简表默认上限 1。matcher="prefix" 仍控制 ASCII 编码前缀匹配。
+省略 max_chars 的单码点表默认上限 1；加载器仍接受直接编码映射。
+matcher="prefix" 仍控制 ASCII 编码前缀匹配。scope 是可选字符/区间表，作为默认初筛；
+字符键对应值按 Lua 真假判断，false 排除，编码字符串/数组等真值包含。单码点 extra
+表可直接作为 scope，hash 优先于区间。
+用户 scope > 工厂 scope > 码表 scope。builder 取完整输入条目首码点的最小/最大字符
+生成宽区间，不包含组合序列后续码点；空输入生成空范围。
 Lua 文件返回与 data 相同结构的表。tsv 可省略；提供时须按 UTF-8 字节序排序，
 每条文本一行，支持 LF/CRLF，行内是“文本<Tab>编码1,编码2”。TSV 编码不能含逗号、Tab 或换行。
 路径可以相对当前目录，或为绝对路径、~ 路径。
@@ -430,7 +436,7 @@ TSV（tsv、tab 或 auto 识别的制表符行）的值列支持逗号分隔多�
 
 多码点条目（包括词条、组合音标和 ZWJ emoji）保留在输出中。构建成功后，若完整
 输入中包含这类条目，命令用 WARN 级别报告去重后的条目数，不逐行警告。
-生成的 Lua 文件携带 codes、prefixes、max_chars，内置 matcher 自动启用文本前缀匹配。常用 Lua 筛选仍按文本键精确匹配，完整 TSV 不受筛选影响。
+生成的 Lua 文件统一携带 codes、prefixes、max_chars、scope，内置 matcher 自动读取元数据。常用 Lua 筛选仍按文本键精确匹配，完整 TSV 不受筛选影响。
 文本列不能包含 Tab/换行。Lua API build.table(opts) 返回 common、full、multi 三个
 条目计数：写入 Lua 数量、完整输入数量、完整输入的多码点数量。opts.tsv 可省略；
 即使不输出 TSV，完整输入计数仍保留。通知只报告实际生成的输出，由命令入口负责。

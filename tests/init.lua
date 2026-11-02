@@ -232,14 +232,16 @@ print("ok - custom source short codes require a trailing space; threshold-length
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
 local calls = 0
 plugin.setup({
-	sources = { {
-		loader = function(char)
-			calls = calls + 1
-			if char == "中" then
-				return { "x" }
-			end
-		end,
-	} },
+	sources = {
+		{
+			loader = function(char)
+				calls = calls + 1
+				if char == "中" then
+					return { "x" }
+				end
+			end,
+		},
+	},
 })
 assert(calls == 0)
 for _ = 1, 2 do
@@ -299,18 +301,35 @@ assert(#run(
 for _, maximum in ipairs({ 0, -1, 1.5, "2", false, math.huge }) do
 	assert(not pcall(plugin.jump, { sources = { { data = { codes = {}, prefixes = {}, max_chars = maximum } } } }))
 end
-assert(not pcall(
-	plugin.jump,
-	{
-		sources = {
-			{
-				data = {
-					codes = { ["中国人"] = "abc" },
-					prefixes = { ["中"] = true, ["中国"] = true },
-					max_chars = 2,
-				},
+assert(not pcall(plugin.jump, {
+	sources = {
+		{
+			data = {
+				codes = { ["中国人"] = "abc" },
+				prefixes = { ["中"] = true, ["中国"] = true },
+				max_chars = 2,
 			},
 		},
-	}
-))
+	},
+}))
 print("ok - table metadata selects word matching and validates max_chars without source flags")
+
+local scope_lookups = 0
+local function greek_loader(char)
+	scope_lookups = scope_lookups + 1
+	return char == "α" and { "alpha" } or nil
+end
+local greek_data = { codes = {}, scope = { { "α", "ω" } } }
+assert(#run("中", "alpha", { { data = greek_data, loader = greek_loader } }) == 0)
+assert(scope_lookups == 0, "table scope filters before lazy lookup")
+assert(#run("α", "alpha", { { data = greek_data, loader = greek_loader } }) == 1)
+assert(scope_lookups == 1)
+assert(#run("中", "x", { {
+	data = greek_data,
+	scope = "all",
+	loader = function()
+		return { "x" }
+	end,
+} }) == 1)
+assert(#run("α", "x", { { codes = { ["α"] = "x" }, scope = { { "α", "ω" } } } }) == 1)
+print("ok - table scopes apply to configured/shorthand data before loaders and accept explicit overrides")

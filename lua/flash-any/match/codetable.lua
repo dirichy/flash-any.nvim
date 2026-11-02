@@ -52,7 +52,7 @@ local function match(text, stream, source, emit, mode)
     return false
   end
   local input = stream:get()
-  local maximum = source.max_chars or tables.max_chars(data)
+  local maximum = source.max_chars or tables.metadata(data).max_chars
   if maximum == 1 then
     local codes = data[text:get(1)]
     if type(codes) ~= "table" then

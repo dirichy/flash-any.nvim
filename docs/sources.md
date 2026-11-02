@@ -37,7 +37,7 @@ end
 - `data`：已经规范化的“非空 UTF-8 文本 → 非空 ASCII 编码数组”。可带懒加载元表；
   不使用码表的 matcher 可省略此项。
 - `matcher`：`full_code`、`initial`、`prefix` 或函数；省略为 `full_code`。
-- `scope`：策略名、混合字符/区间表或函数；省略时不额外限制。
+- `scope`：策略名、混合字符/区间表或函数；省略时使用码表范围，码表无范围时不额外限制。
 - `fallback`：布尔值；省略时不开启。
 
 `require("flash-any.sources." .. name)` must return a function. It receives the
@@ -104,13 +104,16 @@ scope = function(text) return text:get(2) == "きゃ" end
 | `private_use` | Unicode 三段私用区 / Unicode private-use areas |
 
 表格中的数值键是区间条目，每项必须为两个端点；端点可为单个字符或数字码点，
-闭区间，起点不可大于终点。字符串键必须是单个字符，值必须为布尔值。
-先查哈希：true 直接接受，false 直接拒绝，只有没有该键时才查区间；没有匹配则拒绝。
+闭区间，起点不可大于终点。字符串键必须是单个字符，值按 Lua 真假判断：false 排除，
+其他真值包含，所以单码点 extra 码表可直接用作 scope，无需转换编码字符串/数组。
+先查哈希：真值直接接受，false 直接拒绝，只有没有该键时才查区间；没有匹配则拒绝。
 空表拒绝全部。声明会复制，不在运行时读取调用方修改的表。
 
 Numeric table keys contain two-bound inclusive ranges. Bounds may be single
 characters or numeric codepoints, with start <= end. String keys are single
-characters with boolean values. Hash entries win: true accepts and false rejects;
+characters whose values use Lua truthiness. Hash entries win: truthy values
+accept and false rejects; a single-codepoint extra code map can be used directly,
+without converting its strings or encoding arrays to booleans;
 only absent keys fall through to ranges. No match rejects, as does an empty table.
 Declarations are copied rather than consulted dynamically after setup.
 
@@ -245,7 +248,7 @@ Use actual tabs in TSV, sort rows by UTF-8 bytes, and separate multiple codes wi
 commas. LF/CRLF are supported. Lua can contain only common entries while TSV
 contains the full set. TSV is optional; algorithmic sources need no tables directory.
 
-多码点 Lua 文件返回 `codes`、`prefixes` 和 `max_chars`，单码点表仍直接返回编码映射：
+Lua 码表统一返回带 `codes` 的表；`prefixes`、`max_chars`、`scope` 为可选元数据：
 
 ```lua
 -- lua/flash-any/tables/japan.lua（示意）
@@ -253,6 +256,7 @@ return {
   codes = { ["中"] = { "zhong" }, ["中国"] = { "country" } },
   prefixes = { ["中"] = true },
   max_chars = 2,
+  scope = { { "中", "中" } },
 }
 ```
 
@@ -261,10 +265,15 @@ return {
 读这两张 hash 表，不在运行时扫描或生成前缀，也不因编码数组存在而继续试探。
 `max_chars` 是完整码表（包括 TSV）的最长文本码点数，与 ASCII 编码长度无关。
 可省略时从 Lua 编码键和前缀长度计算；若 TSV 含更长条目，必须显式给出完整上限。
-加载器复制编码、前缀和元数据，运行时 source.data 仍只包含编码映射。
+`scope` 是可选的字符/区间表，作为 source 的默认初筛范围。builder 用完整输入所有条目
+首码点的最小、最大字符生成一个宽区间；不会把组合序列后续码点算入边界。
+范围允许误命中，最终仍由 matcher 决定；用户 scope 优先于工厂 scope，再优先于码表 scope。
+空输入生成空 scope。加载器仍接受直接编码映射，builder 始终输出统一结构。
+编码、前缀和元数据均为私有副本，运行时 source.data 仍只包含编码映射。
 
-Multi-codepoint Lua files return `{ codes, prefixes, max_chars }`. Compact maps
-remain the single-codepoint format. `codes` contains only encodings; `prefixes`
+Lua files return a table with `codes`; `prefixes`, `max_chars`, and `scope` are
+optional metadata. The loader also accepts direct encoding maps, while the
+builder always emits the structured format. `codes` contains only encodings; `prefixes`
 contains every extendable text key with value true, including keys that also have
 codes. Omit terminal prefixes rather than storing false. Lua-only lookup reads
 the two hash tables directly, without building a prefix index or probing past
@@ -272,7 +281,12 @@ leaves. `max_chars` bounds Unicode text codepoints in the complete table,
 including TSV; it is independent of ASCII code length. When omitted, it is
 inferred from Lua code keys and prefix lengths, so providers must supply the full
 bound if TSV includes longer entries. Loading copies the codes, prefixes and
-metadata; runtime source.data remains an encoding map.
+metadata; runtime source.data remains an encoding map. A table's `scope` is a
+character/range table used as the default coarse filter. The builder takes the
+minimum and maximum first codepoints from the complete input, excluding later
+codepoints in compound sequences. Empty input emits an empty scope. Explicit user
+scope overrides factory scope, which overrides table scope; matching still decides
+recognition after filtering.
 
 source 只需声明 `codetable = "japan"` 和编码匹配模式，无需 multi_code 或长度配置。
 三种内置 matcher 根据码表元数据自动查询文本前缀，保留所有长短词分支；
@@ -315,19 +329,20 @@ and create a new map when replacing data.
 | --- | --- |
 | `load(name, opts?)` | 加载 `tables/<name>.lua` 与可选 TSV / Load runtime Lua data and optional TSV |
 | `from_files(lua, tsv?)` | 加载指定路径 / Load explicit file paths |
-| `normalize(map)` | 复制、校验编码映射或多码点结构 / Copy and validate compact maps or multi-codepoint descriptors |
-| `max_chars(data)` | 读取完整码表的文本长度上限 / Read the full table’s text-codepoint bound |
+| `normalize(map)` | 复制、校验编码映射或带元数据的结构 / Copy and validate code maps or table descriptors |
+| `metadata(data)` | 读取只读元数据 max_chars/scope / Read max_chars/scope metadata without mutating it |
 | `lookup(data, key, offset?)` | 查询编码和继续位置，false 表示剪枝 / Codes and continuation offset, false prunes |
 | `lazy(data, loader)` | 缓存命中与未命中 / Cache both hits and misses |
 
 `load` 的可选 `convert(codes)` 转换常用表和 TSV 的编码，返回编码数组或 nil。
 `extra` 是转换后加入的额外字符映射，覆盖常用表中的同名字符；适合标点等不应参与
-转换的数据。`load` 不缓存整个表，每次创建私有副本，不能再用它选择双拼方案；
+转换的数据；其首码点自动加入已有的码表 scope，避免被初筛误排除。`load` 不缓存整个表，每次创建私有副本，不能再用它选择双拼方案；
 方案属于 `source.load("pinyin", opts)`。
 
 `load` accepts `convert(codes)`, returning converted codes or nil, for both common
 and TSV entries. Its `extra` map merges after conversion and overrides common
-entries, useful for punctuation that should bypass conversion. Every call creates
+entries, useful for punctuation that should bypass conversion. Extra entries
+extend any table scope with their first codepoints. Every call creates
 private data. Pinyin scheme selection belongs to `source.load("pinyin", opts)`,
 not `table.load`.
 

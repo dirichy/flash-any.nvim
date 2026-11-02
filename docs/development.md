@@ -108,13 +108,15 @@ buffer、changedtick 或搜索行范围变化时替换行快照；删除、替�
 ## Source scope
 
 `flash-any.scope` 编译 scope 声明。预置函数共享，用户函数原样使用；混合表拆为
-字符布尔哈希与 UTF-8 字符串区间。字符键先查询，显式 false 不能回落到区间。
+字符布尔哈希与 UTF-8 字符串区间。声明值按 Lua 真假规范化，因此可直接传单码点
+extra 编码表。字符键先查询，显式 false 不能回落到区间。
 数值端点只在初始化时 nr2char，运行时利用 UTF-8 有序性比较字符串，不调用 char2nr。
 编译时复制声明，调用方不维护过滤缓存。中文范围复用 tables/punctuation.lua 的键，
 码表加载仍复用同一标点数据。scope = "all" 编译为 nil，运行层没有额外 predicate。
 
 Scope declarations compile into predicates before scanning. Mixed tables split
-into a character boolean hash and UTF-8 string ranges. Explicit hash entries win,
+into a character boolean hash and UTF-8 string ranges. Hash declaration values
+use Lua truthiness, allowing single-codepoint extra encoding maps directly. Explicit hash entries win,
 including false. Numeric bounds convert once via nr2char; the hot path compares
 strings without char2nr. Presets share functions, user functions pass through, and
 compiled tables own their copies. All source kinds share the same dispatch check;
@@ -411,8 +413,10 @@ LuaLS 保留真实 Neovim runtime 和 .dev/flash.nvim/lua，检查全部诊断�
 
 ### 多码点缓存 / Multi-codepoint caches
 
-多码点文件返回 {codes, prefixes, max_chars}。normalize 复制编码映射，并将 prefixes
-复制进码表所有的独立 continuation 缓存；max_chars 单独按同一所有者保存。source
+Builder 总是输出 {codes, prefixes, max_chars, scope}，包括单码点表和空表。
+normalize 也接受仅带 codes 的结构，以及直接编码映射。prefixes 复制进独立
+continuation 缓存；max_chars/scope 存在同一码表所有的 metadata 中，由 metadata(data)
+只读访问，避免调用方管理生命周期。source
 初始化只从数据推导运行时 max_chars，不接收 multi_code/长度选项。编码数组不携带前缀
 语义；纯 Lua 缓存中 true 表示可加长，缺失表示终止，无须显式 false 或运行时建索引。
 TSV 缓存中 nil 表示未查询，数字是继续的文件位置，false 缓存终止结果。
@@ -427,8 +431,10 @@ TSV 二分节点缓存与前缀缓存分开：前 6 层节点无条件保留，�
 不会删除二分节点。带 offset 的查询从该行开始，必要时在后续范围二分，
 不使用对应整份文件划分的节点编号，避免错误复用节点。
 
-Multi-codepoint files return {codes, prefixes, max_chars}. normalize copies code
-maps and installs a private continuation set plus a full-table length bound.
+The builder always emits {codes, prefixes, max_chars, scope}, including empty and
+single-codepoint tables. normalize also accepts codes-only descriptors and direct
+maps. Prefix sets have a private continuation cache; max_chars/scope are owned by
+the same code map and exposed through read-only metadata(data).
 Runtime source metadata is inferred from the table, without multi_code or length
 configuration. Lua-only continuation sets contain true for extendable keys and
 omit terminal ones. Code arrays have no continuation semantics; no runtime prefix
@@ -443,3 +449,16 @@ The first six binary-search levels are cached regardless of continuation, togeth
 with deeper exact-hit nodes. These comparison nodes retain key/position/after
 independently of prefix pruning. Searches starting from a saved offset do not use
 whole-file heap indices because their binary partitions differ.
+
+生成的 scope 使用完整输入首码点的最小、最大 UTF-8 字符，直接作为既有 scope 区间表，
+不增加运行时策略。UTF-8 字节排序同时给出首码点边界；无需转换数值码点。空输入为
+空范围。用户声明优先于工厂声明，再优先于文件元数据；显式 all 可取消初筛。
+补空格保留私有 metadata；extra 插入的首码点会作为 hash=true 加入文件范围，
+不扩大其他码表实例的 scope。
+
+Generated scopes use the complete input's minimum and maximum first-codepoint
+characters with the existing range-table compiler. UTF-8 byte ordering supplies
+the bounds without numeric codepoint conversion. Empty input emits an empty set.
+User declarations override factory declarations, then file metadata; explicit all
+clears the filter. Padding preserves metadata. Extra entries add first-codepoint
+hash inclusions to the owning map's scope without changing other instances.

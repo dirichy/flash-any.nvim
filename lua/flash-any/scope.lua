@@ -3,7 +3,7 @@ local utf8 = require("flash-any.utf8")
 
 ---@alias FlashAnyScopeFn fun(text: FlashAnyCursor): boolean
 ---@alias FlashAnyScopeBound integer|string
----@alias FlashAnyScopeTable table<integer|string, boolean|FlashAnyScopeBound[]>
+---@alias FlashAnyScopeTable table<integer|string, any> Numeric keys contain ranges; character keys use Lua truthiness.
 ---@alias FlashAnyScope "all"|"ascii"|"chinese"|"unicode"|"private_use"|FlashAnyScopeTable|FlashAnyScopeFn
 
 ---Normalize bounds once; valid UTF-8 byte order preserves codepoint order.
@@ -35,8 +35,8 @@ local function compile(spec)
       assert(first <= last, "scope range start must not exceed its end")
       ranges[#ranges + 1] = { first, last }
     else
-      assert(type(key) == "string" and type(value) == "boolean", "scope character entries must be booleans")
-      chars[bound(key)] = value
+      assert(type(key) == "string", "scope character keys must be strings")
+      chars[bound(key)] = not not value
     end
   end
   return function(text)

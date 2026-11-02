@@ -128,13 +128,15 @@ local word_codes, longer = tables.lookup(word_table, "中")
 assert(word_codes and word_codes[1] == "zhong" and longer == true)
 word_codes, longer = tables.lookup(word_table, "中国")
 assert(word_codes and word_codes[1] == "country" and longer == false, "a leaf with codes must stop immediately")
-assert(tables.max_chars(word_table) == 2 and tables.max_chars(tables.normalize({ ["中"] = "z" })) == 1)
+assert(
+	tables.metadata(word_table).max_chars == 2 and tables.metadata(tables.normalize({ ["中"] = "z" })).max_chars == 1
+)
 local copied = tables.normalize(word_table)
-assert(select(2, tables.lookup(copied, "中")) == true and tables.max_chars(copied) == 2)
+assert(select(2, tables.lookup(copied, "中")) == true and tables.metadata(copied).max_chars == 2)
 local padded_words = tables.append_space(word_table, 9)
 assert(select(2, tables.lookup(padded_words, "中")) == true)
 assert(select(2, tables.lookup(padded_words, "中国")) == false)
-assert(tables.max_chars(padded_words) == 2 and padded_words["中国"][1] == "country ")
+assert(tables.metadata(padded_words).max_chars == 2 and padded_words["中国"][1] == "country ")
 -- Once a full TSV-style loader is attached, its terminal status is authoritative.
 local full = tables.lazy(
 	tables.normalize({
@@ -148,7 +150,7 @@ local full = tables.lazy(
 )
 assert(select(2, tables.lookup(full, "中")) == false)
 assert(full["中"][1] == "z")
-assert(tables.max_chars(tables.normalize({ codes = { ["中国人"] = "p" }, prefixes = {} })) == 3)
+assert(tables.metadata(tables.normalize({ codes = { ["中国人"] = "p" }, prefixes = {} })).max_chars == 3)
 for _, prefixes in ipairs({ { ["中"] = false }, { ["中"] = 0 }, { [""] = true }, { [1] = true } }) do
 	assert(not pcall(tables.normalize, { codes = {}, prefixes = prefixes }))
 end
@@ -156,3 +158,18 @@ end
 local invalid_codes = { ["中"] = true }
 assert(not pcall(tables.normalize, invalid_codes))
 print("ok - code maps and prefix sets remain independent, copied, precise and loader-authoritative")
+
+local scoped_input = { codes = { ["α"] = "alpha" }, scope = { { "α", "ω" } } }
+local scoped = tables.normalize(scoped_input)
+scoped_input.scope[1][1] = "a"
+assert(tables.metadata(scoped).max_chars == 1)
+assert(tables.metadata(scoped).scope[1][1] == "α")
+assert(scoped["codes"] == nil and scoped["scope"] == nil, "metadata must not leak into the encoding map")
+local scoped_copy = tables.normalize(scoped)
+local scoped_padded = tables.append_space(scoped, 9)
+assert(tables.metadata(scoped_copy).scope[1][1] == "α")
+assert(tables.metadata(scoped_padded).scope[1][1] == "α")
+assert(tables.metadata(scoped).scope ~= tables.metadata(scoped_copy).scope)
+assert(tables.metadata(scoped).scope ~= tables.metadata(scoped_padded).scope)
+assert(not pcall(tables.normalize, { codes = {}, scope = "all" }))
+print("ok - codes-only descriptors and scope metadata survive isolated normalization and padding")

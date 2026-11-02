@@ -20,7 +20,8 @@ local function read(path)
 end
 local function lua_codes(path)
 	local value = dofile(path)
-	return value.codes or value
+	assert(type(value.codes) == "table", "builder always emits a codes field")
+	return value.codes
 end
 local source = write("source.csv", '"中","ab"\n"国","cd"\n"中","ab"\n"中国","word"\n')
 local common = write("common.lua", 'return {["中"] = {"old"}}\n')
@@ -29,6 +30,7 @@ local n, all, multi = build.table(opts)
 assert(n == 1 and all == 3 and multi == 1)
 assert(vim.deep_equal(lua_codes(opts.lua), { ["中"] = { "ab" } }))
 assert(read(opts.tsv) == "中\tab\n中国\tword\n国\tcd\n")
+assert(vim.deep_equal(dofile(opts.lua).scope, { { "中", "国" } }))
 opts.common = write("empty.lua", "return {}\n")
 n, all, multi = build.table(opts)
 assert(n == 0 and all == 3 and multi == 1 and next(lua_codes(opts.lua)) == nil)
@@ -97,7 +99,7 @@ assert(n == 0 and all == 6 and multi == 4)
 local empty_common = dofile(opts.lua)
 assert(empty_common.max_chars == 3 and next(empty_common.codes) == nil and next(empty_common.prefixes) == nil)
 local loaded = tables.from_files(opts.lua, opts.tsv)
-assert(tables.max_chars(loaded) == 3)
+assert(tables.metadata(loaded).max_chars == 3)
 local built_in = require("flash-any.match.codetable")
 local Cursor = require("flash-any.cursor")
 local span
@@ -134,7 +136,7 @@ n, all, multi = build.table(lua_only)
 assert(n == 6 and all == 6 and multi == 4)
 assert(#vim.fn.glob(lua_only_root .. "/*", false, true) == 1)
 local pure = tables.from_files(lua_only.lua)
-assert(tables.max_chars(pure) == 3 and pure["中国"][1] == "country")
+assert(tables.metadata(pure).max_chars == 3 and pure["中国"][1] == "country")
 assert(select(2, tables.lookup(pure, "中")) == true)
 assert(select(2, tables.lookup(pure, "中国")) == false)
 lua_only.common = word_common
@@ -144,10 +146,23 @@ assert(vim.deep_equal(lua_codes(lua_only.lua), { ["中国"] = { "country", "word
 assert(dofile(lua_only.lua).max_chars == 3)
 print("ok - Lua-only builds retain prefix metadata, full-input counts and common filtering")
 
+local scope_input = write("scope.tsv", "🧑‍💻\tdev\n😀\tgrin\n")
+local scope_lua = root .. "/scope.lua"
+local scope_common = write("scope-common.lua", 'return { ["🧑‍💻"] = {"old"} }')
+local scope_n = build.table({ source = scope_input, lua = scope_lua, common = scope_common })
+assert(scope_n == 1)
+local generated_scope = dofile(scope_lua).scope
+assert(vim.deep_equal(generated_scope, { { "😀", "🧑" } }), "scope covers all entry starts before common filtering")
+local accepts = assert(require("flash-any.scope").resolve(generated_scope))
+assert(accepts(Cursor.new("😀")) and accepts(Cursor.new("🧑‍💻")))
+assert(not accepts(Cursor.new("💻")) and not accepts(Cursor.new("‍")), "continuation codepoints do not widen scope")
+print("ok - generated scope covers complete-input first codepoints, including supplementary Unicode")
+
 opts.common, opts.format = nil, "csv"
 opts.source = write("empty-keys.csv", '"","ab"\n" ","ab"\n')
 n, all, multi = build.table(opts)
 assert(n == 0 and all == 0 and multi == 0)
+assert(vim.deep_equal(dofile(opts.lua), { codes = {}, prefixes = {}, max_chars = 1, scope = {} }))
 for _, code in ipairs({ "中", "ab,中" }) do
 	opts.source = write("invalid.tsv", "中国\t" .. code .. "\n")
 	opts.format = "tsv"

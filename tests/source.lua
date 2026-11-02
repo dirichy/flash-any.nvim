@@ -19,7 +19,7 @@ print("ok - runtime discovery does not execute source modules")
 -- Build a private external plugin fixture instead of shipping example sources.
 vim.fn.mkdir(root .. "/lua/flash-any/tables", "p")
 vim.fn.writefile(
-	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2 }' },
+	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2, scope = { { "あ", "い" } } }' },
 	root .. "/lua/flash-any/tables/japan.lua"
 )
 vim.fn.writefile({ "あ\ta", "あい\tword", "い\ti" }, root .. "/lua/flash-any/tables/japan.tsv")
@@ -32,7 +32,7 @@ local definition = require("flash-any.sources.japan")()
 assert(definition.codetable == "japan" and definition.data == nil)
 assert(package.loaded["flash-any.tables.japan"] == nil)
 local source = registry.load("japan")
-assert(source.codetable == nil and tables.max_chars(source.data) == 2)
+assert(source.codetable == nil and tables.metadata(source.data).max_chars == 2)
 assert(source == registry.load("japan"))
 assert(source.data["あ"][1] == "a" and rawget(source.data, "い") == nil)
 assert(source.data["い"][1] == "i")
@@ -47,6 +47,9 @@ local converted = tables.load("japan", {
 	extra = { ["あ"] = "extra" },
 })
 assert(converted["あ"][1] == "extra" and converted["い"][1] == "I")
+local extended = tables.load("japan", { extra = { a = "ascii" } })
+assert(tables.metadata(extended).scope.a == true)
+assert(tables.metadata(source.data).scope.a == nil, "extras cannot widen another instance's metadata")
 assert(source.data["あ"][1] == "a" and source.data["い"][1] == "i")
 print("ok - external tables share lazy loading, conversion and cache ownership rules")
 
@@ -82,6 +85,16 @@ assert(#run("あ", "a", { { name = "japan", scope = { ["あ"] = false } } }) == 
 assert(#run("a", "x", { { name = "japan", data = { a = "x" }, scope = "all" } }) == 1)
 assert(#run("あ", "a", { { name = "japan", scope = {} } }) == 0)
 assert(not pcall(plugin.setup, { sources = { { name = "japan", scope = "missing" } } }))
+assert(#run(
+	"う",
+	"x",
+	{ {
+		name = "japan",
+		loader = function(char)
+			return char == "う" and { "x" } or nil
+		end,
+	} }
+) == 1, "factory scope takes precedence over narrower table metadata")
 print("ok - an installed source is usable by name with matcher/data/scope overrides")
 
 write("algorithm", {

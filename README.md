@@ -365,8 +365,10 @@ sources = {
 
 Strategy names are `"ascii"`, `"chinese"`, `"unicode"`, and `"private_use"`; `"all"`
 removes the restriction. Numeric codepoint bounds also work, for example
-`{ { 1, 10000 }, a = false }`. Numeric bounds convert once during initialization;
-matching checks the character hash first, then compares UTF-8 strings without
+`{ { 1, 10000 }, a = false }`. Numeric bounds convert once during initialization.
+Character hash values use Lua truthiness: false excludes, while code strings and
+arrays include, so a single-codepoint extra table can also serve directly as scope.
+Matching checks the character hash first, then compares UTF-8 strings without
 converting codepoints on each call. Custom functions receive the text cursor,
 e.g. `scope = function(text) return text:get(2) == "きゃ" end`. An empty table accepts
 nothing. Passing scope does not claim recognition; the matcher still decides.
@@ -406,13 +408,15 @@ TSV; CSV, Rime and whitespace-separated records retain their single-code fields.
 
 Multi-codepoint text such as `中国`, `きゃ`, combining sequences, and ZWJ emoji is
 retained. After a successful build, the command emits one warning with the count
-of distinct multi-codepoint entries in the complete input, with or without TSV output. Multi-codepoint Lua output carries
-`codes`, `prefixes`, and `max_chars`; built-in matchers infer word support from this
+of distinct multi-codepoint entries in the complete input, with or without TSV output. Lua output always wraps encodings in `codes` and carries
+`prefixes`, `max_chars`, and `scope`; built-in matchers infer word support from this
 metadata without source flags or length options. The bound counts text codepoints
 in the complete input, even when the common Lua subset is empty. Lua-only prefixes
 are a separate set of extendable keys, including keys with codes; omit leaves.
-Compact single-codepoint maps retain their original format. TSV must contain all
-Lua code entries. Text keys cannot contain tabs or newlines.
+The generated scope spans the minimum and maximum first codepoints of all input
+entries, providing a coarse filter before matching or TSV reads. Explicit source
+scopes take precedence. The loader also accepts direct encoding maps. TSV must
+contain all Lua code entries. Text keys cannot contain tabs or newlines.
 
 `common-from.lua` specifies a Lua table used to select common entries. The
 built-in `lua/flash-any/tables/tiger.lua` is one possible set (about 3,500 characters).

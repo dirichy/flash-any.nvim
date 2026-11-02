@@ -69,6 +69,7 @@ local function load_sources(values)
     end
     local named_only = type(value) == "string"
     if named_only then value = { name = value } end
+    if not value.name and type(value.codes) == "table" then value = { data = value } end
     if value.name or value.matcher or value.scope ~= nil or value.data or value.lua or value.loader then
       ---@cast value FlashAnySourceConfig
       assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
@@ -83,15 +84,17 @@ local function load_sources(values)
       if value.loader then data = tables.lazy(data or {}, value.loader) end
       local matcher = value.matcher
       if matcher == nil then matcher = defaults.matcher end
+      local metadata = data and tables.metadata(data)
       local scope = value.scope
       if scope == nil then scope = defaults.scope end
+      if scope == nil and metadata then scope = metadata.scope end
       local fallback = value.fallback
       if fallback == nil then fallback = defaults.fallback end
       assert(fallback == nil or type(fallback) == "boolean", "fallback must be a boolean")
       ret[#ret + 1] = {
         data = data,
         matcher = source_matcher(matcher),
-        max_chars = data and tables.max_chars(data) or 1,
+        max_chars = metadata and metadata.max_chars or 1,
         scope = scopes.resolve(scope),
         name = value.name,
         fallback = fallback,
@@ -99,7 +102,8 @@ local function load_sources(values)
     else
       ---@cast value FlashAnyTableInput
       local data = tables.normalize(value)
-      ret[#ret + 1] = { data = data, matcher = codetable.full_code, max_chars = tables.max_chars(data) }
+      local metadata = tables.metadata(data)
+      ret[#ret + 1] = { data = data, matcher = codetable.full_code, max_chars = metadata.max_chars, scope = scopes.resolve(metadata.scope) }
     end
   end
   return ret

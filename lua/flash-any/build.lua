@@ -154,7 +154,7 @@ function M.table(opts)
   if opts.common then
     local common = dofile(vim.fn.expand(opts.common))
     assert(type(common) == "table", "common Lua file must return a table")
-    if type(common.codes) == "table" and type(common.prefixes) == "table" then
+    if type(common.codes) == "table" then
       common = common.codes
     end
     keys = vim.tbl_keys(common)
@@ -173,26 +173,29 @@ function M.table(opts)
     end
   end
   local lua = assert(io.open(vim.fn.expand(opts.lua), "wb"))
-  local structured = maximum > 1
-  local indent = structured and "    " or "  "
-  lua:write(structured and "return {\n  codes = {\n" or "return {\n")
+  lua:write("return {\n  codes = {\n")
   for _, key in ipairs(keys) do
     if rows[key] then
       local codes = vim.tbl_keys(rows[key])
       table.sort(codes)
       lua:write(
-        string.format("%s[%s] = {%s},\n", indent, quote(key), table.concat(vim.tbl_map(quote, codes), ", "))
+        string.format("    [%s] = {%s},\n", quote(key), table.concat(vim.tbl_map(quote, codes), ", "))
       )
     end
   end
-  if structured then
-    lua:write("  },\n  prefixes = {\n")
-    local prefix_keys = vim.tbl_keys(prefixes)
-    table.sort(prefix_keys)
-    for _, key in ipairs(prefix_keys) do
-      lua:write(string.format("    [%s] = true,\n", quote(key)))
-    end
-    lua:write(("  },\n  max_chars = %d,\n"):format(maximum))
+  lua:write("  },\n  prefixes = {\n")
+  local prefix_keys = vim.tbl_keys(prefixes)
+  table.sort(prefix_keys)
+  for _, key in ipairs(prefix_keys) do
+    lua:write(string.format("    [%s] = true,\n", quote(key)))
+  end
+  lua:write(("  },\n  max_chars = %d,\n"):format(maximum))
+  if #all > 0 then
+    -- Sorted UTF-8 keys also order their first codepoints; scope filters starts.
+    local first, last = utf8.sub(all[1], 0, 1), utf8.sub(all[#all], 0, 1)
+    lua:write(("  scope = { { %s, %s } },\n"):format(quote(first), quote(last)))
+  else
+    lua:write("  scope = {},\n")
   end
   lua:write("}\n")
   lua:close()

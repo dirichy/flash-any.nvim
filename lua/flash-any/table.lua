@@ -4,11 +4,12 @@ local utf8 = require("flash-any.utf8")
 -- Nonempty UTF-8 text -> ASCII encodings. Prefix metadata belongs to the map.
 ---@alias FlashAnyTable table<string, string[]>
 ---@alias FlashAnyTableMap table<string, string|string[]>
----@class FlashAnyMultiTable
+---@class FlashAnyTableDefinition
 ---@field codes FlashAnyTableMap
----@field prefixes table<string, true> Proper prefixes, including those with codes.
+---@field prefixes? table<string, true> Proper prefixes, including those with codes.
 ---@field max_chars? integer Maximum text codepoints in the full table, including TSV.
----@alias FlashAnyTableInput FlashAnyTableMap|FlashAnyMultiTable
+---@field scope? FlashAnyScopeTable Coarse first-codepoint filter, covering the complete input.
+---@alias FlashAnyTableInput FlashAnyTableMap|FlashAnyTableDefinition
 ---@alias FlashAnyTableLoader fun(key: string, offset?: number, prefix_lookup?: boolean): string[]?, (number|boolean)?
 -- Continuations share the map's lifetime: true for Lua prefixes, numeric TSV
 -- positions, or false for cached terminal TSV queries.
@@ -16,14 +17,18 @@ local utf8 = require("flash-any.utf8")
 local offsets = setmetatable({}, { __mode = "k" })
 ---@type table<FlashAnyTable, FlashAnyTableLoader>
 local loaders = setmetatable({}, { __mode = "k" })
----@type table<FlashAnyTable, integer>
-local limits = setmetatable({}, { __mode = "k" })
+---@class FlashAnyTableMetadata
+---@field max_chars integer
+---@field scope? FlashAnyScopeTable
+---@type table<FlashAnyTable, FlashAnyTableMetadata>
+local metadata = setmetatable({}, { __mode = "k" })
+local defaults = { max_chars = 1 }
 
----Read table metadata; compact single-codepoint maps default to one.
+---Read metadata owned by this map; callers treat it as immutable.
 ---@param data FlashAnyTable
----@return integer
-function M.max_chars(data)
-	return limits[data] or 1
+---@return FlashAnyTableMetadata
+function M.metadata(data)
+	return metadata[data] or defaults
 end
 
 ---Read codes and whether longer text keys exist. An earlier prefix supplies the TSV offset.
@@ -94,7 +99,9 @@ function M.append_space(data, below)
 	-- data may be a shared default cache; keep transformed arrays separate.
 	assert(type(below) == "number" and below > 0 and below % 1 == 0, "append_space_below must be a positive integer")
 	local ret = {}
-	limits[ret] = limits[data]
+	if metadata[data] then
+		metadata[ret] = vim.deepcopy(metadata[data])
+	end
 	for char, codes in pairs(data) do
 		ret[char] = space_codes(codes, below)
 	end
@@ -117,13 +124,22 @@ end
 ---@param map FlashAnyTableInput
 ---@return FlashAnyTable
 function M.normalize(map)
-	local prefixes, maximum
+	local prefixes, maximum, scope
 	local values = map
-	if type(map.codes) == "table" and type(map.prefixes) == "table" then
-		---@cast map FlashAnyMultiTable
-		maximum, prefixes, values = map.max_chars, map.prefixes, map.codes
-	elseif not loaders[map] then
-		prefixes, maximum = offsets[map], limits[map]
+	local structured = type(map.codes) == "table"
+	if structured then
+		---@cast map FlashAnyTableDefinition
+		maximum, prefixes, scope, values = map.max_chars, map.prefixes, map.scope, map.codes
+		assert(prefixes == nil or type(prefixes) == "table", "prefixes must be a table")
+		assert(scope == nil or type(scope) == "table", "table scope must be a character/range table")
+	else
+		local properties = metadata[map]
+		if properties then
+			maximum, scope = properties.max_chars, properties.scope
+		end
+		if not loaders[map] then
+			prefixes = offsets[map]
+		end
 	end
 	---@cast values FlashAnyTableMap
 	assert(
@@ -134,7 +150,7 @@ function M.normalize(map)
 	local ret = {}
 	for char, codes in pairs(values) do
 		assert(type(char) == "string" and char ~= "", "code-table keys must be nonempty strings")
-		if prefixes then
+		if structured or prefixes then
 			length = math.max(length, utf8.len(char))
 		end
 		if type(codes) == "string" then
@@ -161,9 +177,9 @@ function M.normalize(map)
 			length = math.max(length, utf8.len(key) + 1)
 		end
 		offsets[ret] = cache
-		assert(maximum == nil or maximum >= length, "max_chars is shorter than the Lua entries or prefixes")
-		limits[ret] = maximum or length
 	end
+	assert(maximum == nil or maximum >= length, "max_chars is shorter than the Lua entries or prefixes")
+	metadata[ret] = { max_chars = maximum or length, scope = scope and vim.deepcopy(scope) or nil }
 	return ret
 end
 
@@ -197,6 +213,10 @@ function M.load(name, opts)
 	if opts and opts.extra then
 		for char, codes in pairs(M.normalize(opts.extra)) do
 			common[char] = codes
+			local scope = metadata[common].scope
+			if scope then
+				scope[utf8.sub(char, 0, 1)] = true
+			end
 		end
 	end
 	local files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)
