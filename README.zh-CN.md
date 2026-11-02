@@ -45,6 +45,20 @@
     -- 其他 Flash 跳转选项也可放在这里：
     -- labels = "asdfghjkl", -- 使用这些字母作为跳转标签
   },
+  -- 如果要开 f mode 就解除注释。
+  -- config = function(_, opts)
+  --   require("flash").setup({
+  --     modes = {
+  --       char = {
+  --         matcher = function(win, state, range)
+  --           return require("flash-any").char(win, state, range)
+  --         end,
+  --         -- multi_line = false, -- 只匹配当前行
+  --       },
+  --     },
+  --   })
+  --   require("flash-any").setup(opts)
+  -- end,
   keys = {
     {
       "s",

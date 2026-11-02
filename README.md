@@ -46,6 +46,20 @@ With lazy.nvim:
     -- Other Flash jump options can go here:
     -- labels = "asdfghjkl", -- Use these letters as jump labels
   },
+  -- Uncomment to enable f mode.
+  -- config = function(_, opts)
+  --   require("flash").setup({
+  --     modes = {
+  --       char = {
+  --         matcher = function(win, state, range)
+  --           return require("flash-any").char(win, state, range)
+  --         end,
+  --         -- multi_line = false, -- Current line only
+  --       },
+  --     },
+  --   })
+  --   require("flash-any").setup(opts)
+  -- end,
   keys = {
     {
       "s",
