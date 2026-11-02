@@ -137,6 +137,14 @@ function M.jump(opts)
   return flash.jump(config)
 end
 
+---Search with the configured sources, then perform a remote operator via Flash.
+---@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
+---@return Flash.State
+function M.remote(opts)
+  local config = opts == nil and default_opts or build_opts(opts)
+  return flash.remote(config)
+end
+
 ---Use as flash.nvim's modes.char.matcher; Flash owns keys, repeats and labels.
 ---@param win integer
 ---@param state Flash.State

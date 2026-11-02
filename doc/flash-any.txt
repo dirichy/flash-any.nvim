@@ -114,6 +114,20 @@ F/t/T、计数、;/,、操作符和可选标签由 Flash 原生字符模式处�
 显示标签只扫描可见区域；屏幕外目标按跳转方向逐行查询，找到指定数量后停止。
 multi_line = false 将范围限制在当前行。
 
+远程操作：                                                 *flash-any-remote*
+
+remote 与 s 共用 sources 和搜索规则，默认不绑定 r。setup 后可添加映射： >lua
+    vim.keymap.set("o", "r", function()
+      require("flash-any").remote()
+    end, { desc = "Remote Flash any" })
+<
+按 yr，输入 zg 搜索“中国”，选择标签，再输入 iw，复制目标位置的单词后回到原窗口
+和光标位置。改用 dr 则删除远处单词。映射只在操作符等待模式生效，删除即可关闭。
+
+remote() / remote(nil) 复用 setup 的完整配置与码表缓存；remote(opts) 使用独立
+完整配置，必须包含 sources，不继承 setup 的字段。返回 Flash state。
+匹配与标签复用 s 扫描器；远程操作及位置恢复使用 Flash 原生 remote() API。
+
 ===============================================================================
 3. source                                                  *flash-any-sources*
 

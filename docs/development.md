@@ -298,6 +298,16 @@ Unicode name matching requires an explicit unicode source; none is appended
 automatically. Configuration prepends the literal source before user sources; an empty
 configured source list therefore still matches ASCII.
 
+## Remote 操作
+
+`remote(opts)` 与 `jump(opts)` 使用相同的配置选择、扫描器和标签规则。nil 复用 setup
+已构建的 sources 及缓存，显式 opts 构建独立配置；只将最终配置传给 Flash 的公开
+remote() API，不维护另一套远程操作状态或光标恢复机制。remote 默认不创建按键映射。
+
+`remote(opts)` shares configuration selection and matching with jump(). It passes
+the compiled options to Flash's public remote() API, which owns operator execution
+and restoration. No keymap is installed automatically.
+
 ## 发布检查
 
 用户安装入口为 dirichy/flash-any.nvim；Neovim 最低版本为 0.11（UTF-8 原生辅助
@@ -321,6 +331,7 @@ for test in tests/init.lua tests/table.lua tests/utf8.lua tests/tsv.lua tests/bu
 done
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
 nvim --clean --headless '+helptags doc' '+qa'
 ```
 

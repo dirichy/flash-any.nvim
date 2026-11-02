@@ -66,6 +66,12 @@
       function() require("flash-any").jump() end,
       desc = "Flash any",
     },
+    {
+      "r",
+      mode = "o",
+      function() require("flash-any").remote() end,
+      desc = "Remote Flash any",
+    },
   },
 }
 ```
@@ -127,6 +133,24 @@ Flash 原生的字面字符匹配。若要关闭 Flash 整个字符模式，设�
 标签使用 Flash 原生 labeler；`s` 的标签规则保持不变。
 只扫描可见区域来显示标签；需要屏幕外目标时，再沿跳转方向逐行扫描，找到指定数量后停止。
 `multi_line = false` 将范围限制在当前行。
+
+### `r` 远程操作
+
+remote 模式与 `s` 共用 sources 和搜索规则。lazy.nvim 安装示例已包含操作符等待模式的
+`r` 映射；手动配置时，在 setup 后添加：
+
+```lua
+vim.keymap.set("o", "r", function()
+  require("flash-any").remote()
+end, { desc = "Remote Flash any" })
+```
+
+按 `yr`，输入 `zg` 搜索“中国”，选择标签，再输入 `iw`，即可复制目标位置的单词，
+随后回到原窗口和光标位置。改用 `dr` 则删除远处单词。删除映射即可关闭此入口。
+
+`remote()` 复用 setup 保存的配置和码表缓存；`remote(opts)` 与 `jump(opts)` 一样
+使用独立完整配置，必须包含 `sources`，并返回 Flash state。
+远程操作与位置恢复直接使用 Flash 原生的 `remote()` API。
 
 ## 内置 source
 

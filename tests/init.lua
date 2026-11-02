@@ -6,10 +6,15 @@ vim.opt.runtimepath:prepend(vim.uv.cwd())
 
 ---@type table<string, any>
 local jump = {}
-package.loaded.flash = { jump = function(opts) jump = opts end }
+local remote = {}
+package.loaded.flash = {
+  jump = function(opts) jump = opts end,
+  remote = function(opts) remote = opts end,
+}
 local plugin = require("flash-any")
 local unconfigured = jump
 assert(not pcall(plugin.jump))
+assert(not pcall(plugin.remote))
 assert(jump == unconfigured)
 plugin.setup({ sources = { { matcher = function(char, stream)
   if char ~= "中" then return nil end
@@ -177,5 +182,20 @@ for _ = 1, 2 do
 end
 assert(calls == 1)
 print("ok - setup builds sources once and preserves lazy lookup caches across jumps")
+
+plugin.remote()
+assert(remote == jump)
+matches = remote.matcher(0, { pattern = function() return "x" end }, { from = { 1, 0 }, to = { 1, 0 } })
+assert(#matches == 1 and calls == 1)
+local remote_defaults = remote
+plugin.remote({ sources = { { data = { ["中"] = "y" } } }, labels = "ab" })
+assert(remote ~= remote_defaults and remote.labels == "ab")
+matches = remote.matcher(0, { pattern = function() return "y" end }, { from = { 1, 0 }, to = { 1, 0 } })
+assert(#matches == 1)
+plugin.remote()
+assert(remote == remote_defaults)
+assert(not pcall(plugin.remote, {}))
+assert(remote == remote_defaults)
+print("ok - remote shares configured sources and caches; explicit opts replace defaults")
 
 print("all source setup tests passed")

@@ -67,6 +67,12 @@ With lazy.nvim:
       function() require("flash-any").jump() end,
       desc = "Flash any",
     },
+    {
+      "r",
+      mode = "o",
+      function() require("flash-any").remote() end,
+      desc = "Remote Flash any",
+    },
   },
 }
 ```
@@ -134,6 +140,27 @@ labels; no extra keymaps are needed. It uses Flash's native labeler; `s` keeps
 its existing label rules. Only the visible range is scanned for labels; offscreen
 targets are scanned line by line when needed, stopping once the requested count
 is found. Set `multi_line = false` to stay on the current line.
+
+### Remote operators with `r`
+
+Remote mode uses the same sources and search rules as `s`. The lazy.nvim
+installation example includes the operator-pending `r` mapping. For manual
+configuration, add this mapping after setup:
+
+```lua
+vim.keymap.set("o", "r", function()
+  require("flash-any").remote()
+end, { desc = "Remote Flash any" })
+```
+
+Press `yr`, type a search such as `zg` for 中国, select its label, then type `iw`.
+Flash yanks the word at that target and restores your original window and cursor.
+Use `dr` instead to delete the remote word. Remove the mapping to disable this entry.
+
+`remote()` reuses the configuration and table caches saved by `setup()`.
+Like `jump(opts)`, `remote(opts)` accepts a complete standalone configuration
+including `sources`, and returns the Flash state. Flash handles the remote
+operator and position restoration through its native `remote()` API.
 
 ## Built-in sources
 
