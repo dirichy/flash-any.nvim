@@ -270,7 +270,7 @@ It suits shape-code users accustomed to confirming short codes with a space.
 
 ## 💡 Custom sources
 
-`data` maps a single UTF-8 character to an ASCII encoding or array of encodings:
+`data` maps nonempty UTF-8 text to an ASCII encoding or array of encodings:
 
 ```lua
 sources = {
@@ -294,50 +294,131 @@ sources = {
 ```
 
 Lua files return the same structure as `data`. Sort TSV rows by UTF-8 bytes,
-with one character per row and comma-separated codes; LF and CRLF are supported. Paths may be relative to
+with one text entry per row and comma-separated codes; LF and CRLF are supported. Paths may be relative to
 the current directory, absolute, or start with `~`.
 
-A custom matcher does not need a table. It receives `char, stream, args`, where
-`args.source` is the runtime source. For example, match 中 with `x`:
+A custom matcher does not need a table. It receives `text, stream, source, emit`. Both `text` and `stream` are `Cursor` objects. Read
+all remaining content with `get()`, or up to n codepoints with `get(n)`; `source` is the runtime source. For example, match 中 with `x`:
 
 ```lua
 sources = {
   {
-    matcher = function(char, stream)
-      if char ~= "中" then return nil end
-      if stream == "" then return { { next = { x = true } } } end
-      if stream:sub(1, 1) == "x" then return { { consumed = 1 } } end
-      return {}
+    matcher = function(text, stream, source, emit)
+      if text:get(1) ~= "中" then return false end
+      if stream:get() == "" then
+        emit("x")
+      elseif stream:get(1) == "x" then
+        emit(1)
+      end
+      return true
     end,
   },
 }
 ```
 
-Nil means unknown character; `{}` means recognized without a matching branch.
-Successful results are branch arrays. Each branch has either `consumed` (a byte
-count) or `next` (all remaining input matched; a set of possible next ASCII keys).
-An empty stream queries starting keys only.
+Return `true` for a recognized position, even if the input does not match; return
+`false` for an unknown position. Emit matching branches synchronously:
+
+- `emit(bytes, chars?)` consumes input bytes and matches a text span.
+- `emit(keys, chars?)` matches all remaining input; the ASCII string lists possible
+  next keys. `emit("")` is success with no further keys.
+
+`chars` defaults to 1. For example, `emit(3, 2)` consumes 3 input bytes and matches
+2 buffer codepoints. An empty stream only queries next keys; it must not consume
+input. Do not retain `emit` or call it after the matcher returns.
+
+`get()` returns all remaining content, including an empty string at the end.
+`get(n)` returns all remaining content when fewer than n codepoints remain. `text` holds a buffer
+line; `stream` holds the complete input and points at its unconsumed portion.
+Reads share cached boundaries and strings without moving the cursor. Sources may
+only call `get`; `shift` (default 1 codepoint) and `set_offset` belong to the scanner. See the
+[source author guide](docs/sources.md#文本读取--text-access) for the full contract.
 
 Every character prefix of a successful input must also succeed. Failed branches
 are not retried after appends. Implementations own the dynamic return contract;
 see `:help flash-any-matchers` and the [development notes](docs/development.md).
 
+## Third-party source plugins
+
+See [dirichy/flash-any-gemoji.nvim](https://github.com/dirichy/flash-any-gemoji.nvim)
+for an emoji source and an example of writing a third-party source. Installation,
+configuration, and authoring instructions are in that project's README.
+
+### Character scope
+
+`scope` checks the current position before the matcher or lazy lookup. An excluded
+source counts as unknown and does not block fallback. Declare it in a factory or
+source configuration; explicit user configuration wins:
+
+```lua
+sources = {
+  {
+    name = "japan",
+    scope = {
+      { "ぁ", "ヿ" }, -- character bounds, inclusive
+      ["あ"] = false, -- hash entries take precedence over ranges
+      ["漢"] = true,  -- include a character outside the range
+    },
+  },
+}
+```
+
+Strategy names are `"ascii"`, `"chinese"`, `"unicode"`, and `"private_use"`; `"all"`
+removes the restriction. Numeric codepoint bounds also work, for example
+`{ { 1, 10000 }, a = false }`. Numeric bounds convert once during initialization;
+matching checks the character hash first, then compares UTF-8 strings without
+converting codepoints on each call. Custom functions receive the text cursor,
+e.g. `scope = function(text) return text:get(2) == "きゃ" end`. An empty table accepts
+nothing. Passing scope does not claim recognition; the matcher still decides.
+
 ## 🛠️ Building tables and checking installation
 
 ```vim
-:FlashAnyBuildTable source.dict common.lua full.tsv [common-from.lua|-] [format] [encoding]
+:FlashAnyBuildTable source.dict common.lua [full.tsv|-] [common-from.lua|-] [format] [encoding]
 :checkhealth flash-any
+```
+
+Only the input and Lua output paths are required. Omit argument three to generate
+Lua only; use `-` in its place when supplying later arguments. The Lua API also
+accepts `build.table({ source = "source.tsv", lua = "out.lua" })` without `tsv`.
+
+```vim
+:FlashAnyBuildTable source.tsv out.lua
+:FlashAnyBuildTable source.tsv out.lua - - tsv utf-8
 ```
 
 Input supports Rime, TSV, CSV, and whitespace-separated text. `format` accepts
 `auto` (default), `rime`, `tsv`, `tab`, `csv`, or `space`; `encoding` defaults to
-`utf-8`. Only single-character entries are included; duplicate codes are merged.
+`utf-8`. Single- and multi-codepoint entries are retained; duplicate codes are merged.
 
-`common-from.lua` specifies a Lua table used to select common characters. The
-built-in `lua/flash-any/table/tiger.lua` is one possible set (about 3,500 characters).
-Without argument four, Lua output contains all characters. With an existing Lua
-table, Lua output includes only characters present in that table; TSV always
-contains the full set. Keep large character sets in TSV: loading a very large Lua
+TSV input (`tsv`, `tab`, or tab-separated rows detected by `auto`) accepts
+comma-separated codes in the second column, as well as one code per row:
+
+```text
+中	zhong,chong
+中	zhong
+国	guo
+```
+
+List items are trimmed, empty items ignored, and duplicates merged across rows.
+The builder's output TSV can be used as input again. This list syntax applies to
+TSV; CSV, Rime and whitespace-separated records retain their single-code fields.
+
+Multi-codepoint text such as `中国`, `きゃ`, combining sequences, and ZWJ emoji is
+retained. After a successful build, the command emits one warning with the count
+of distinct multi-codepoint entries in the complete input, with or without TSV output. Multi-codepoint Lua output carries
+`codes`, `prefixes`, and `max_chars`; built-in matchers infer word support from this
+metadata without source flags or length options. The bound counts text codepoints
+in the complete input, even when the common Lua subset is empty. Lua-only prefixes
+are a separate set of extendable keys, including keys with codes; omit leaves.
+Compact single-codepoint maps retain their original format. TSV must contain all
+Lua code entries. Text keys cannot contain tabs or newlines.
+
+`common-from.lua` specifies a Lua table used to select common entries. The
+built-in `lua/flash-any/tables/tiger.lua` is one possible set (about 3,500 characters).
+Without argument four, Lua output contains all entries. With an existing Lua
+table, Lua output includes only entries whose keys appear in that table; when
+requested, TSV contains the full set. Keep large character sets in TSV: loading a very large Lua
 table slows startup.
 
 Use `-` for argument four when specifying `format` / `encoding` without selecting
@@ -345,9 +426,10 @@ common characters:
 
 ```vim
 :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
+:FlashAnyBuildTable source.tsv common.lua full.tsv - tsv utf-8
 ```
 
-Output codes must be ASCII without commas, tabs, or newlines. Output files are
+Individual codes must be ASCII without commas, tabs, or newlines. Output files are
 overwritten; choose paths different from the input.
 
 Text is processed as Unicode codepoints, not complete grapheme clusters such as

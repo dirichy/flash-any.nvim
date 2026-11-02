@@ -3,6 +3,7 @@
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local match = require("flash-any.match")
 local literal = require("flash-any.sources.literal")()
+local literal_source = { matcher = literal.matcher, scope = require("flash-any.scope").resolve(literal.scope) }
 
 local function words(entries)
   return {
@@ -26,7 +27,7 @@ local function words(entries)
 end
 local range = { from = { 1, 0 }, to = { 1, 0 } }
 local kana = words({ { "きゃ", "kya" }, { "き", "ki" }, { "ゃ", "ya" }, { "く", "ku" } })
-local sources = { { matcher = literal.matcher }, kana }
+local sources = { literal_source, kana }
 local function run(text, pattern, configured)
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { text })
   return match.get(0, {
@@ -195,7 +196,7 @@ local unicode_state = {
     return pattern
   end,
 }
-local unicode_sources = { unicode_source, { matcher = literal.matcher } }
+local unicode_sources = { unicode_source, literal_source }
 for _, input_value in ipairs({ "a", "a🙂", "a🙂b" }) do
   pattern = input_value
   local incremental = match.get(0, unicode_state, range, unicode_sources)

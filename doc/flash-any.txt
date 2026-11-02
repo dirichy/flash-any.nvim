@@ -141,7 +141,7 @@ source 可写成名称字符串或配置对象： >lua
 内置 source：
                                                             *flash-any-literal*
 literal    普通 ASCII 字面 source，配置层默认前置，用户无需传入。
-           ASCII 未匹配返回 {}；非 ASCII 返回 nil，不认识该字符。
+           ASCII 返回 true；输入匹配时 emit，未匹配时不输出。非 ASCII 返回 false。
                                                             *flash-any-pinyin*
 pinyin     全拼或双拼。省略 scheme 使用全拼，默认 initial；双拼默认 full_code。
            同一次配置只允许一个 pinyin source。
@@ -199,9 +199,38 @@ ing/in。也可自定义： >lua
 fallback：
 
 普通 source 都参与匹配。fallback = true 的 source 只在前面的 source 全都返回
-nil（不认识字符）时参与。前项返回 {} 表示认识但输入不匹配，也会阻止 fallback。
+false（不认识当前位置）时参与。前项返回 true 表示认识，即使输入不匹配也阻止 fallback。
 unicode 默认使用此策略，可显式 fallback = false。默认字面 source 认识所有
 ASCII，因此后续 fallback source 不处理 ASCII 字符。
+
+字符范围：                                                *flash-any-scope*
+
+source 可声明 scope，在 matcher 和懒加载之前检查当前位置，未通过时按不认识处理，
+不阻止后续 fallback。用户配置优先于工厂默认值，scope = "all" 取消默认限制。
+
+scope 可为：
+    "all"          不额外限制。
+    "ascii"        U+0000–U+007F。
+    "chinese"      内置汉字范围及共用中文标点。
+    "unicode"      U+00A0–U+10FFFF。
+    "private_use"  Unicode 私用区。
+
+也可传混合表，字符哈希优先于区间： >lua
+    scope = {
+      { "ぁ", "ヿ" },
+      { 1, 10000 },
+      ["あ"] = false, -- 即使位于区间内也排除
+      ["🙂"] = true,  -- 可加入区间外的字符
+    }
+<
+区间为闭区间，每项两个端点，可用字符或数字码点。哈希值必须是布尔值；
+true/false 直接决定结果，仅缺失时查询区间，没有匹配即拒绝。空表拒绝全部。
+数字端点初始化时转为 UTF-8；运行时比较字符字符串，不逐次转换码点。
+
+自定义函数接收 text 游标，只可读取，不可移动；它不接收输入 stream： >lua
+    scope = function(text) return text:get(2) == "きゃ" end
+<
+范围检查通过后仍由 matcher 决定是否认识。搜索和 f/F/t/T 使用同一范围检查。
 
 短码补空格：                                          *flash-any-append-space*
 >lua
@@ -230,37 +259,62 @@ prefix      任意非空编码前缀都可进入下一个字符。名称表默�
 z 是“中”的首字母，zh 是它的编码前缀。三种 matcher 都能在单字编码尚未
 输完时显示候选；区别在于何时可以进入下一个字符。
 
-自定义 matcher 接收 (char, stream, args)。char 是当前 buffer 的一个 UTF-8
-码点，stream 是尚未消费的输入字节串；args.source 是运行时 source，只包含
-name、data、matcher、fallback，不含 scheme 等配置属性。
+自定义 matcher 接收 (text, stream, source, emit)。text、stream 都是 Cursor，
+分别保存当前行和完整输入，指向当前匹配位置和未消费的输入位置；source 是运行时 source，只包含
+name、data、matcher、scope、fallback；scope 已解析为函数，不含 scheme 等配置属性。
 
 不用码表也可定义 matcher，例如用 x 匹配“中”： >lua
     sources = {
       {
-        matcher = function(char, stream)
-          if char ~= "中" then return nil end
-          if stream == "" then return { { next = { x = true } } } end
-          if stream:sub(1, 1) == "x" then return { { consumed = 1 } } end
-          return {}
+        matcher = function(text, stream, source, emit)
+          if text:get(1) ~= "中" then return false end
+          if stream:get() == "" then
+            emit("x")
+          elseif stream:get(1) == "x" then
+            emit(1)
+          end
+          return true
         end,
       },
     }
 <
-返回值：
+返回 true 表示认识当前位置，即使没有匹配；返回 false 表示不认识。
+成功分支用 emit 同步输出，不构造结果数组或分支表：
 
-nil                             不认识字符。
-{}                              认识字符，但输入没有匹配分支。
-{ { consumed = n }, ... }        消费 n 字节后进入下一个文本字符。
-{ { next = { a = true } }, ... } 剩余输入全部匹配，a 是可能的后续 ASCII 键。
+emit(bytes, chars?)              消费 bytes 个输入字节，越过 chars 个文本码点。
+emit(keys, chars?)               剩余输入全部匹配，keys 字符串列出后续 ASCII 键。
 
-每个成功分支只有 consumed 或 next 之一。consumed 必须是 1..#stream 的整数。
-next 可以是空集合，仍代表成功。多个分支可以表示不同消费边界；next 的 key 只
-允许单字节 ASCII 字符。空 stream 仅用于查询起始 next，不能再消费字节。
+chars 为正整数，默认 1；bytes 必须是 1..#stream:get() 的整数，且消费后位于输入码点边界。
+emit("") 仍代表成功，但没有后续键。空 stream 只查询起始键，不能消费输入。
+emit 可以调用多次表示不同分支；重复分支由扫描器合并。source 不可保存 emit，
+不可异步调用，也不可在 matcher 返回后调用。
 
-恰好消费完全部输入时，扫描器查询后一个字符的起始 next，不扩大可见匹配范围。
-是否认识字符只取决于 char，不随 stream 改变；长输入成功则其字符前缀也必须
-成功。追加输入只继续未结束的分支，失败分支不会重新尝试。动态返回值由实现者
-保证，运行路径不逐分支校验。
+恰好消费完全部输入时，扫描器查询整个文本跨度之后的起始键，不扩大显示范围。
+是否认识当前位置只取决于文本，不随 stream 改变；长输入成功则其字符前缀也必须
+成功。追加输入只继续未结束的分支，失败分支不会重新尝试。动态协议由实现者保证。
+
+文本读取：                                                    *flash-any-text*
+
+text 和 stream 均复用 flash-any.cursor / FlashAnyCursor。
+value 字段保存完整字符串，offset 是当前 0-based 字节偏移；source 将其视为只读。
+get() 返回当前位置到末尾的全部内容，末尾返回空字符串。
+get(n) 最多返回 n 个 Unicode 码点，不足返回剩余全部内容，末尾返回空字符串；get(1) 获取单个码点。
+读取不移动位置；仅足额的 get(n) 额外返回片段之后和末尾码点起始的字节偏移；不足时只返回字符串。
+get() 直接截取并缓存后缀，只返回字符串，不遍历码点。组合音标、ZWJ 不合并为字素。
+
+例如 text:get(2) == "きゃ" 时，可调用 emit(3, 2)，表示
+用三个输入字节匹配两个文本码点。输出后续键时同样可以指定 chars。
+
+每条缓存行只创建一个对象：重复 get(n) 复用字符串，增大 n 只解码新增部分；
+后续 offset 共用已解码边界。输入改变不清理文本缓存；行快照失效时替换对象。
+
+source 对 text 和 stream 都只能调用 get，不可修改对象或调用 shift / set_offset。
+扫描器用 text:set_offset(col) 定位到 0-based 字节边界，或 text:shift(n)
+按码点向后移动（默认 1），两者共用 get 的缓存。shift 成功返回 true；剩余
+码点不足时返回 false，位置不变。显式 n 必须为正整数，offset 可指向字符串末尾。
+每份输入共用一个 stream 游标和缓存，输入改变时替换对象；没有 ASCII 特判。
+
+字符模式 f/F/t/T 仍只定位匹配起点；source 可读取多个码点，但不扩大 motion 范围。
 
 相同终点的显示结果在扫描中合并，只保留最早起点并合并 next。位置采用 Neovim
 字节列；默认按码点处理文本，不合并 ZWJ emoji 等完整 grapheme cluster。
@@ -268,7 +322,7 @@ next 可以是空集合，仍代表成功。多个分支可以表示不同消费
 ===============================================================================
 5. 自定义码表                                        *flash-any-custom-table*
 
-字符必须是单个 UTF-8 码点，编码是 ASCII 字符串或字符串数组： >lua
+键必须是非空 UTF-8 文本，编码是 ASCII 字符串或字符串数组： >lua
     sources = {
       {
         data = { ["中"] = { "vs", "ds" }, ["国"] = "go" },
@@ -285,12 +339,67 @@ next 可以是空集合，仍代表成功。多个分支可以表示不同消费
       },
     }
 <
+多码点 Lua 文件（也可作为用户 data）返回： >lua
+    return {
+      codes = { ["中"] = {"zhong"}, ["中国"] = {"country"} },
+      prefixes = { ["中"] = true },
+      max_chars = 2,
+    }
+<
+prefixes 只列可加长的文本键，包括自身也有编码的键；叶子省略，不存 false。
+max_chars 限制完整码表（含 TSV）的文本码点数，和 ASCII 编码长度独立。省略时
+从 Lua 编码键和前缀长度推导；若 TSV 含更长条目，应提供完整上限。
+三种内置 matcher 自动读取码表元数据，保留长短词分支；source 无须配置开关或长度。
+单码点简表默认上限 1。matcher="prefix" 仍控制 ASCII 编码前缀匹配。
 Lua 文件返回与 data 相同结构的表。tsv 可省略；提供时须按 UTF-8 字节序排序，
-每个字符一行，支持 LF/CRLF，行内是“字符<Tab>编码1,编码2”。TSV 编码不能含逗号、Tab 或换行。
+每条文本一行，支持 LF/CRLF，行内是“文本<Tab>编码1,编码2”。TSV 编码不能含逗号、Tab 或换行。
 路径可以相对当前目录，或为绝对路径、~ 路径。
 
-loader 可按字符返回编码数组或 nil。当前表未命中时才调用，命中及未命中都缓存。
+loader 单码点读取按字符返回编码数组或 nil，未命中时调用并缓存结果。
+多码点查询调用 loader(key, offset?, true)，返回 codes, continuation：数字为
+文件继续位置，true 表示可继续但没有文件位置，false 或省略表示不能加长。
+前缀查询可无编码。TSV 应完整包含 Lua 编码条目，其前缀状态是唯一依据。
+纯 Lua 使用独立 prefixes 集合，运行时只做 hash 查询，不从 codes 数组猜测。
+builder 自动生成 prefixes 与完整 max_chars；前缀不计入编码条目数，不写入 TSV。
+即使常用 Lua 为空，也输出完整 TSV 的最大词长元数据。
 自定义 loader 会替换该 source 的 TSV 未命中加载器，不会逐层调用多个 loader。
+
+第三方 source 插件：                               *flash-any-source-plugins*
+
+扩展插件进入 runtimepath 后，直接配置 sources = { "japan" }，无需注册。
+也可使用 { name = "japan", matcher = "prefix" } 覆盖默认值并传入自定义选项。
+使用 lazy.nvim 时，可将扩展插件加入 flash-any.nvim 的 dependencies。
+
+推荐目录：
+    lua/flash-any/tables/japan.lua     常用字符 → ASCII 编码数组
+    lua/flash-any/tables/japan.tsv     完整码表，可省略
+    lua/flash-any/sources/japan.lua    source 工厂
+
+工厂模块返回函数，接收配置对象 opts（名称简写时为空表），返回： >lua
+    return function(opts)
+      return {
+        codetable = "japan",
+        matcher = "full_code",
+        fallback = false,
+      }
+    end
+<
+matcher 可为模式名或函数；省略时为 full_code。fallback 省略时不开启。
+用户显式 matcher、scope、fallback 优先于工厂默认值。codetable 指向 tables/ 下的码表名，
+主插件加载 Lua 表和可选 TSV，再应用 append_space_below。码表名可与 source 不同。
+codetable 与 data 互斥；需要转换时仍可自行加载 data。运行时 matcher 统一读 data。
+data 必须已规范化，可以有懒加载
+元表；可用 table.load、table.from_files、table.normalize 或 table.lazy 构建。
+无须码表的 source 可省略 data。append_space_below 由主插件统一处理。
+
+require("flash-any.table").load(name, opts) 加载 tables/<name>.lua 和可选 TSV；
+每次创建独立数据和懒加载缓存。opts.convert 转换常用字及 TSV 编码数组，
+opts.extra 在转换后添加或覆盖常用字编码，适合共用标点等不参与转换的数据。
+名称简写的默认 source 按名称缓存；配置对象创建独立实例。工厂应为每次调用
+返回独立状态。setup 构建的 source 在多次 jump/remote 间复用。
+
+checkhealth 通过 runtimepath 发现 source 名称，不执行工厂。名称唯一性由维护者
+负责。完整说明见 docs/sources.md。
 
 ===============================================================================
 6. 健康检查                                               *flash-any-health*
@@ -302,22 +411,41 @@ loader 可按字符返回编码数组或 nil。当前表未命中时才调用，
 ===============================================================================
 7. 码表生成                                          *flash-any-build-table*
 
-    :FlashAnyBuildTable source.dict common.lua full.tsv [common-from.lua|-] [format] [encoding]
+    :FlashAnyBuildTable source.dict common.lua [full.tsv|-] [common-from.lua|-] [format] [encoding]
 
-前三个参数是输入文件、Lua 输出、完整 TSV 输出。输入支持单字符表格，不收录词条；
-同字编码合并、去重。format 支持 auto（默认）、rime、tsv、tab、csv、space，encoding
+前两个参数是输入文件和 Lua 输出，为必填。第三个 TSV 输出可省略；需要后续参数
+时用 - 占位。仅生成 Lua：
+    :FlashAnyBuildTable source.tsv out.lua
+    :FlashAnyBuildTable source.tsv out.lua - - tsv utf-8
+
+保留单码点和多码点条目；
+同一文本的编码合并、去重。format 支持 auto（默认）、rime、tsv、tab、csv、space，encoding
 默认为 utf-8，也可指定 cp936、big5 等由 iconv 支持的输入编码。输出统一 UTF-8。
 
+TSV（tsv、tab 或 auto 识别的制表符行）的值列支持逗号分隔多编码，例如：
+    中<Tab>zhong,chong
+    中<Tab>zhong
+<Tab> 代表真实制表符。各项两侧空白去掉，空项忽略，同字跨行编码合并去重。
+生成的完整 TSV 可再次作为输入。CSV、Rime、空白分隔记录仍按单编码列解析。
+
+多码点条目（包括词条、组合音标和 ZWJ emoji）保留在输出中。构建成功后，若完整
+输入中包含这类条目，命令用 WARN 级别报告去重后的条目数，不逐行警告。
+生成的 Lua 文件携带 codes、prefixes、max_chars，内置 matcher 自动启用文本前缀匹配。常用 Lua 筛选仍按文本键精确匹配，完整 TSV 不受筛选影响。
+文本列不能包含 Tab/换行。Lua API build.table(opts) 返回 common、full、multi 三个
+条目计数：写入 Lua 数量、完整输入数量、完整输入的多码点数量。opts.tsv 可省略；
+即使不输出 TSV，完整输入计数仍保留。通知只报告实际生成的输出，由命令入口负责。
+
 第四个参数可指定已有 Lua 字表，用其字符集合筛选 Lua 常用表；省略时 Lua 输出
-全部字符。TSV 始终包含完整字集。可使用内置的 lua/flash-any/table/tiger.lua
+全部字符。若输出 TSV，它始终包含完整字集。可使用内置的 lua/flash-any/tables/tiger.lua
 作为常用字集，约 3500 字。大 Lua 码表加载较慢，建议将大字符集保留在 TSV 中，
 Lua 只存常用字。
 
 需要 format/encoding 而不筛选常用字时，第四个参数填 -：
 
     :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
+    :FlashAnyBuildTable source.tsv common.lua full.tsv - tsv utf-8
 
-输出编码必须是 ASCII，不能含逗号、Tab 或换行。输出路径会被覆盖，不应与输入
+单个编码必须是 ASCII，不能含逗号、Tab 或换行。输出路径会被覆盖，不应与输入
 文件相同。插件代码采用 MIT，码表来源和上游说明见仓库 THIRD_PARTY.md。
 
 vim:tw=78:ts=8:ft=help:norl:

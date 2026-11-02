@@ -8,8 +8,7 @@ local function matcher(text, stream, _, emit)
   if char == "" then
     return false
   end
-  local byte = char:byte()
-  if byte >= 0x80 then
+  if char:byte() >= 0x80 then
     return false
   end
   local input = stream:get(1)
@@ -21,7 +20,7 @@ local function matcher(text, stream, _, emit)
   return true
 end
 
----@return { matcher: FlashAnyMatcher }
+---@return { matcher: FlashAnyMatcher, scope?: FlashAnyScope }
 return function()
   return { matcher = matcher }
 end

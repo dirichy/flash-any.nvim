@@ -14,7 +14,7 @@ local patterns,codes={},{}
 for i=1,20 do patterns[i]=('a'):rep(i) end
 for i=1,10 do codes[i]=patterns[i] end
 vim.api.nvim_buf_set_lines(0,0,-1,false,{text})
-local sources={{name='literal',matcher=literal.matcher},{data={['甲']=codes},matcher=codetable.full_code}}
+local sources={{name='literal',matcher=literal.matcher,scope=require('flash-any.scope').resolve(literal.scope)},{data={['甲']=codes},matcher=codetable.full_code}}
 local opts={from={1,0},to={1,0}}
 local function state(pattern,labels)
  local obj={value=pattern}

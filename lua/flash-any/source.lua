@@ -5,6 +5,7 @@ local tables = require("flash-any.table")
 ---@field codetable? string Table name under flash-any.tables; mutually exclusive with data.
 ---@field data? FlashAnyTable Prepared data; may have a lazy __index.
 ---@field matcher? "full_code"|"initial"|"prefix"|FlashAnyMatcher
+---@field scope? FlashAnyScope
 ---@field fallback? boolean
 
 -- Only default instances are shared; configured instances own their data and caches.

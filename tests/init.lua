@@ -8,37 +8,68 @@ vim.opt.runtimepath:prepend(vim.uv.cwd())
 local jump = {}
 local remote = {}
 package.loaded.flash = {
-  jump = function(opts) jump = opts end,
-  remote = function(opts) remote = opts end,
+	jump = function(opts)
+		jump = opts
+	end,
+	remote = function(opts)
+		remote = opts
+	end,
 }
 local plugin = require("flash-any")
 local unconfigured = jump
 assert(not pcall(plugin.jump))
 assert(not pcall(plugin.remote))
 assert(jump == unconfigured)
-plugin.setup({ sources = { { matcher = function(text, stream, _, emit)
-  local char = text:get(1)
-  if char ~= "中" then return false end
-  if stream:get() == "x" then emit(""); return true end
-  return true
-end } } })
+plugin.setup({
+	sources = {
+		{
+			matcher = function(text, stream, _, emit)
+				local char = text:get(1)
+				if char ~= "中" then
+					return false
+				end
+				if stream:get() == "x" then
+					emit("")
+					return true
+				end
+				return true
+			end,
+		},
+	},
+})
 plugin.jump()
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
-local matches = jump.matcher(0, { pattern = function() return "x" end }, { from = { 1, 0 }, to = { 1, 0 } })
+local matches = jump.matcher(0, {
+	pattern = function()
+		return "x"
+	end,
+}, { from = { 1, 0 }, to = { 1, 0 } })
 assert(#matches == 1 and matches[1].pos[2] == 0)
 print("ok - setup loads a matcher without name or data")
 
 local function run(text, pattern, sources)
-  plugin.jump({ sources = sources })
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { text })
-  return jump.matcher(0, { pattern = function() return pattern end }, { from = { 1, 0 }, to = { 1, 0 } })
+	plugin.jump({ sources = sources })
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { text })
+	return jump.matcher(0, {
+		pattern = function()
+			return pattern
+		end,
+	}, { from = { 1, 0 }, to = { 1, 0 } })
 end
 
 for _, source in ipairs({ "pinyin", { name = "pinyin", scheme = "flypy", fuzzy = true }, "tiger", "wubi86" }) do
-  for _, pair in ipairs({ { "，", "," }, { "。", "." }, { "、", "/" }, { "、", "\\" }, { "“”", "\"\"" }, { "……", "^^" }, { "——", "__" } }) do
-    local found = run(pair[1], pair[2], { source })
-    assert(#found == 1 and found[1].pos[2] == 0, vim.inspect({ source, pair }))
-  end
+	for _, pair in ipairs({
+		{ "，", "," },
+		{ "。", "." },
+		{ "、", "/" },
+		{ "、", "\\" },
+		{ "“”", '""' },
+		{ "……", "^^" },
+		{ "——", "__" },
+	}) do
+		local found = run(pair[1], pair[2], { source })
+		assert(#found == 1 and found[1].pos[2] == 0, vim.inspect({ source, pair }))
+	end
 end
 assert(#run("中国，a。", "zg,a.", { "pinyin" }) == 1)
 assert(#run("中国，a。", "vsgo,a.", { { name = "pinyin", scheme = "flypy" } }) == 1)
@@ -55,42 +86,67 @@ assert(#run("abc", "ab", { { name = "literal" } }) == 1)
 assert(#run("中", "中", { "literal" }) == 0)
 assert(#run("a", "x", { "literal", { data = { a = { "x" } }, fallback = true } }) == 0)
 assert(#run("中", "x", { "literal", { data = { ["中"] = { "x" } }, fallback = true } }) == 1)
-assert(#run("a", "a", { { matcher = function() error("default literal must run first") end, fallback = true } }) == 1)
+assert(#run("a", "a", { {
+	matcher = function()
+		error("default literal must run first")
+	end,
+	fallback = true,
+} }) == 1)
 assert(#run("a", "a", { { data = {} }, { name = "literal", fallback = true } }) == 1)
 print("ok - literal is prepended by configuration; Unicode remains explicit")
 
 assert(#run("中", "ab", { { data = { ["中"] = "ab" }, matcher = "full_code" } }) == 1)
 
 matches = run("甲", "b", {
-  { data = { ["甲"] = { "a" } } },
-  { matcher = function() error("recognized character reached fallback") end, fallback = true },
+	{ data = { ["甲"] = { "a" } } },
+	{
+		matcher = function()
+			error("recognized character reached fallback")
+		end,
+		fallback = true,
+	},
 })
 assert(#matches == 0)
 print("ok - setup preserves recognized-but-unmatched coverage")
 
 matches = run("甲", "b", {
-  { matcher = function() return false end },
-  { data = { ["甲"] = { "b" } }, fallback = true },
+	{
+		matcher = function()
+			return false
+		end,
+	},
+	{ data = { ["甲"] = { "b" } }, fallback = true },
 })
 assert(#matches == 1)
 assert(#run("甲", "name", {
-  { data = { ["甲"] = "a" } },
-  { name = "unicode", data = { ["甲"] = "name" }, fallback = false },
+	{ data = { ["甲"] = "a" } },
+	{ name = "unicode", data = { ["甲"] = "name" }, fallback = false },
 }) == 1)
 assert(#run("甲", "name", {
-  { data = { ["甲"] = "a" } },
-  { name = "unicode", data = { ["甲"] = "name" } },
+	{ data = { ["甲"] = "a" } },
+	{ name = "unicode", data = { ["甲"] = "name" } },
 }) == 0)
 print("ok - setup permits fallback for unknown characters and honors explicit false")
 
 matches = run("🙂", "x", {
-  { name = "pinyin", loader = function() error("out-of-scope character reached loader") end },
+	{
+		name = "pinyin",
+		loader = function()
+			error("out-of-scope character reached loader")
+		end,
+	},
 })
 assert(#matches == 0)
 print("ok - built-in matcher scope avoids unrelated lazy lookup")
 
 matches = run("🙂", "x", {
-  { loader = function(char) if char == "🙂" then return { "x" } end end },
+	{
+		loader = function(char)
+			if char == "🙂" then
+				return { "x" }
+			end
+		end,
+	},
 })
 assert(#matches == 1)
 print("ok - custom loaders support their own character scope")
@@ -110,18 +166,22 @@ assert(#matches == 1 and matches[1].end_pos[2] == 3)
 print("ok - pinyin matcher can override the encoding default")
 
 for _, sources in ipairs({
-  { "pinyin", { name = "pinyin", scheme = "flypy" } },
-  { { name = "pinyin", scheme = "flypy" }, { name = "pinyin", scheme = "natural" } },
+	{ "pinyin", { name = "pinyin", scheme = "flypy" } },
+	{ { name = "pinyin", scheme = "flypy" }, { name = "pinyin", scheme = "natural" } },
 }) do
-  local ok, err = pcall(plugin.jump, { sources = sources })
-  assert(not ok and tostring(err):find("only one pinyin source", 1, true))
+	local ok, err = pcall(plugin.jump, { sources = sources })
+	assert(not ok and tostring(err):find("only one pinyin source", 1, true))
 end
 print("ok - multiple pinyin encodings are mutually exclusive")
 
 plugin.setup({ sources = { { name = "pinyin", scheme = "flypy" } } })
 plugin.jump()
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
-matches = jump.matcher(0, { pattern = function() return "vs" end }, { from = { 1, 0 }, to = { 1, 0 } })
+matches = jump.matcher(0, {
+	pattern = function()
+		return "vs"
+	end,
+}, { from = { 1, 0 }, to = { 1, 0 } })
 assert(#matches == 1)
 print("ok - setup selects encoding through the pinyin source")
 
@@ -140,23 +200,23 @@ assert(jump == defaults)
 plugin.jump({ sources = {} })
 assert(jump.labels == nil and jump.search == nil)
 for _, options in ipairs({ {}, false, { labels = "xy" }, { table = { ["中"] = "x" } } }) do
-  local before = jump
-  assert(not pcall(plugin.jump, options))
-  assert(jump == before)
+	local before = jump
+	assert(not pcall(plugin.jump, options))
+	assert(jump == before)
 end
 print("ok - explicit opts replace the whole configuration; only nil selects defaults")
 
 for _, source in ipairs({
-  { data = {}, matcher = "missing" },
-  { data = {}, matcher = "literal" },
-  { data = {}, matcher = false },
-  { data = {}, fallback = "yes" },
-  { loader = "not a function" },
+	{ data = {}, matcher = "missing" },
+	{ data = {}, matcher = "literal" },
+	{ data = {}, matcher = false },
+	{ data = {}, fallback = "yes" },
+	{ loader = "not a function" },
 }) do
-  local before = jump
-  assert(not pcall(plugin.setup, { sources = { source } }))
-  assert(not pcall(plugin.jump, { sources = { source } }))
-  assert(jump == before)
+	local before = jump
+	assert(not pcall(plugin.setup, { sources = { source } }))
+	assert(not pcall(plugin.jump, { sources = { source } }))
+	assert(jump == before)
 end
 assert(not pcall(plugin.setup, { sources = { "pinyin", "pinyin" } }))
 assert(not pcall(plugin.setup, { sources = { name = "pinyin" } }))
@@ -171,27 +231,45 @@ print("ok - custom source short codes require a trailing space; threshold-length
 
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中" })
 local calls = 0
-plugin.setup({ sources = { { loader = function(char)
-  calls = calls + 1
-  if char == "中" then return { "x" } end
-end } } })
+plugin.setup({
+	sources = { {
+		loader = function(char)
+			calls = calls + 1
+			if char == "中" then
+				return { "x" }
+			end
+		end,
+	} },
+})
 assert(calls == 0)
 for _ = 1, 2 do
-  plugin.jump()
-  matches = jump.matcher(0, { pattern = function() return "x" end }, { from = { 1, 0 }, to = { 1, 0 } })
-  assert(#matches == 1)
+	plugin.jump()
+	matches = jump.matcher(0, {
+		pattern = function()
+			return "x"
+		end,
+	}, { from = { 1, 0 }, to = { 1, 0 } })
+	assert(#matches == 1)
 end
 assert(calls == 1)
 print("ok - setup builds sources once and preserves lazy lookup caches across jumps")
 
 plugin.remote()
 assert(remote == jump)
-matches = remote.matcher(0, { pattern = function() return "x" end }, { from = { 1, 0 }, to = { 1, 0 } })
+matches = remote.matcher(0, {
+	pattern = function()
+		return "x"
+	end,
+}, { from = { 1, 0 }, to = { 1, 0 } })
 assert(#matches == 1 and calls == 1)
 local remote_defaults = remote
 plugin.remote({ sources = { { data = { ["中"] = "y" } } }, labels = "ab" })
 assert(remote ~= remote_defaults and remote.labels == "ab")
-matches = remote.matcher(0, { pattern = function() return "y" end }, { from = { 1, 0 }, to = { 1, 0 } })
+matches = remote.matcher(0, {
+	pattern = function()
+		return "y"
+	end,
+}, { from = { 1, 0 }, to = { 1, 0 } })
 assert(#matches == 1)
 plugin.remote()
 assert(remote == remote_defaults)
@@ -200,3 +278,39 @@ assert(remote == remote_defaults)
 print("ok - remote shares configured sources and caches; explicit opts replace defaults")
 
 print("all source setup tests passed")
+
+local word_data = {
+	codes = { ["中"] = "a", ["中国"] = "ab", ["国"] = "b", ["中国人"] = "abc" },
+	prefixes = { ["中"] = true, ["中国"] = true },
+	max_chars = 3,
+}
+local word_matches = run("中国人", "ab", { { data = word_data } })
+assert(#word_matches >= 1 and word_matches[1].pos[2] == 0 and word_matches[1].end_pos[2] == 3)
+assert(#run("中国", "ab", { { data = { ["中国"] = "ab" } } }) == 0)
+assert(#run(
+	"中国",
+	"ab",
+	{ { data = {
+		codes = { ["中国"] = "ab" },
+		prefixes = { ["中"] = true },
+		max_chars = 2,
+	} } }
+) == 1)
+for _, maximum in ipairs({ 0, -1, 1.5, "2", false, math.huge }) do
+	assert(not pcall(plugin.jump, { sources = { { data = { codes = {}, prefixes = {}, max_chars = maximum } } } }))
+end
+assert(not pcall(
+	plugin.jump,
+	{
+		sources = {
+			{
+				data = {
+					codes = { ["中国人"] = "abc" },
+					prefixes = { ["中"] = true, ["中国"] = true },
+					max_chars = 2,
+				},
+			},
+		},
+	}
+))
+print("ok - table metadata selects word matching and validates max_chars without source flags")

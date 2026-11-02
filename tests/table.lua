@@ -3,12 +3,16 @@
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local tables = require("flash-any.table")
 local registry = require("flash-any.source")
-local function load(name, opts) return registry.load(name, opts).data end
+local function load(name, opts)
+	return registry.load(name, opts).data
+end
 
-local input = { ["甲"] = { "a" }, ["乙"] = "b" }
+local input = { ["甲"] = { "a" }, ["乙"] = "b", ["中国"] = { "country" }, ["きゃ"] = "kya" }
 local normalized = tables.normalize(input)
 normalized["甲"][1] = "changed"
 assert(input["甲"][1] == "a" and input["乙"] == "b")
+normalized["中国"][1] = "changed"
+assert(input["中国"][1] == "country" and normalized["きゃ"][1] == "kya")
 print("ok - normalize isolates caller-owned arrays")
 
 local raw_pinyin = require("flash-any.tables.pinyin")
@@ -26,9 +30,9 @@ assert(vim.deep_equal(raw_pinyin, pinyin_before) and vim.deep_equal(raw_rules, r
 print("ok - scheme conversion preserves shared pinyin and rules")
 
 for _, data in ipairs({ pinyin, flypy, fuzzy, load("pinyin", { fuzzy = true }), load("tiger"), load("wubi86") }) do
-  for char, codes in pairs(tables.normalize(require("flash-any.tables.punctuation"))) do
-    assert(vim.deep_equal(data[char], codes), char)
-  end
+	for char, codes in pairs(tables.normalize(require("flash-any.tables.punctuation"))) do
+		assert(vim.deep_equal(data[char], codes), char)
+	end
 end
 local punctuation_copy = load("pinyin", { scheme = "flypy" })
 punctuation_copy["，"][1] = "changed"
@@ -47,9 +51,11 @@ print("ok - lazy entries are converted and cached by their own scheme")
 local full_fuzzy = load("pinyin", { fuzzy = true })
 assert(vim.deep_equal(full_fuzzy["中"], { "zhong", "zong" }))
 local custom_fuzzy = load("pinyin", {
-  fuzzy = { initials = { { "zh", "z" } }, finals = { { "ang", "an" } } },
+	fuzzy = { initials = { { "zh", "z" } }, finals = { { "ang", "an" } } },
 })
-local actual = vim.deepcopy(custom_fuzzy["张"])
+local codes = custom_fuzzy["张"]
+assert(type(codes) == "table")
+local actual = vim.deepcopy(codes)
 table.sort(actual)
 local expected = { "zhang", "zhan", "zang", "zan" }
 table.sort(expected)
@@ -69,7 +75,9 @@ assert(vim.deep_equal(pinyin["㐀"], { "qiu" }))
 print("ok - append_space_below preserves ordinary and lazy default entries")
 
 local lazy = tables.lazy({ ["甲"] = { "a" } }, function(char)
-  if char == "乙" then return { "b" } end
+	if char == "乙" then
+		return { "b" }
+	end
 end)
 local transformed = tables.append_space(lazy, 4)
 assert(transformed ~= lazy and transformed["甲"] ~= lazy["甲"])
@@ -94,16 +102,57 @@ assert(not pcall(load, "tiger", { scheme = "flypy" }))
 print("ok - source registry exposes one pinyin source and rejects unknown schemes")
 
 for _, value in ipairs({ 0, -1, 0.5, "4", false, math.huge }) do
-  assert(not pcall(load, "tiger", { append_space_below = value }))
+	assert(not pcall(load, "tiger", { append_space_below = value }))
 end
 print("ok - append_space_below is validated during configuration")
 
-for _, map in ipairs({ { ["ab"] = "x" }, { ["中"] = 1 }, { ["中"] = { "中" } }, { ["中"] = { "" } } }) do
-  assert(not pcall(tables.normalize, map))
+for _, map in ipairs({ { [""] = "x" }, { ["中"] = 1 }, { ["中"] = { "中" } }, { ["中"] = { "" } } }) do
+	assert(not pcall(tables.normalize, map))
 end
 for _, invalid_fuzzy in ipairs({ "yes", { initials = "zh" }, { finals = { { "ang", 1 } } } }) do
-  assert(not pcall(load, "pinyin", { fuzzy = invalid_fuzzy }))
+	assert(not pcall(load, "pinyin", { fuzzy = invalid_fuzzy }))
 end
 print("ok - code tables and fuzzy groups are validated before matching")
 
 print("all table ownership tests passed")
+
+local definition = {
+	codes = { ["中"] = "zhong", ["中国"] = "country" },
+	prefixes = { ["中"] = true },
+	max_chars = 2,
+}
+local word_table = tables.normalize(definition)
+definition.prefixes["中"] = nil
+definition.codes["中国"] = "changed"
+local word_codes, longer = tables.lookup(word_table, "中")
+assert(word_codes and word_codes[1] == "zhong" and longer == true)
+word_codes, longer = tables.lookup(word_table, "中国")
+assert(word_codes and word_codes[1] == "country" and longer == false, "a leaf with codes must stop immediately")
+assert(tables.max_chars(word_table) == 2 and tables.max_chars(tables.normalize({ ["中"] = "z" })) == 1)
+local copied = tables.normalize(word_table)
+assert(select(2, tables.lookup(copied, "中")) == true and tables.max_chars(copied) == 2)
+local padded_words = tables.append_space(word_table, 9)
+assert(select(2, tables.lookup(padded_words, "中")) == true)
+assert(select(2, tables.lookup(padded_words, "中国")) == false)
+assert(tables.max_chars(padded_words) == 2 and padded_words["中国"][1] == "country ")
+-- Once a full TSV-style loader is attached, its terminal status is authoritative.
+local full = tables.lazy(
+	tables.normalize({
+		codes = { ["中"] = "z" },
+		prefixes = { ["中"] = true },
+		max_chars = 2,
+	}),
+	function()
+		return nil, false
+	end
+)
+assert(select(2, tables.lookup(full, "中")) == false)
+assert(full["中"][1] == "z")
+assert(tables.max_chars(tables.normalize({ codes = { ["中国人"] = "p" }, prefixes = {} })) == 3)
+for _, prefixes in ipairs({ { ["中"] = false }, { ["中"] = 0 }, { [""] = true }, { [1] = true } }) do
+	assert(not pcall(tables.normalize, { codes = {}, prefixes = prefixes }))
+end
+---@type any
+local invalid_codes = { ["中"] = true }
+assert(not pcall(tables.normalize, invalid_codes))
+print("ok - code maps and prefix sets remain independent, copied, precise and loader-authoritative")

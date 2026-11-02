@@ -40,7 +40,7 @@ return function(opts)
   local fuzzy = opts and opts.fuzzy
   assert(fuzzy == nil or type(fuzzy) == "boolean" or type(fuzzy) == "table", "fuzzy must be a boolean or table")
   if not scheme and not fuzzy then
-    return { data = tables.load("pinyin", { extra = punctuation }), matcher = "initial" }
+    return { data = tables.load("pinyin", { extra = punctuation }), matcher = "initial", scope = "chinese" }
   end
   local rules = scheme
     and assert(require("flash-any.tables.schemes")[scheme], "unknown pinyin scheme: " .. tostring(scheme))
@@ -91,5 +91,6 @@ return function(opts)
   return {
     data = tables.load("pinyin", { convert = convert, extra = punctuation }),
     matcher = scheme and "full_code" or "initial",
+    scope = "chinese",
   }
 end

@@ -14,8 +14,10 @@ local Cursor = require("flash-any.cursor")
 
 -- 初始化后的运行时 source；scheme、fuzzy 等配置已用于构建 data 和 matcher。
 ---@class FlashAnySource
----@field data? table<string, string[]>
+---@field data? FlashAnyTable
+---@field max_chars? integer Maximum text codepoints per entry.
 ---@field matcher FlashAnyMatcher
+---@field scope? FlashAnyScopeFn Run before the matcher; false means unknown here.
 ---@field fallback? boolean Only run if every earlier configured source returned false.
 ---@field name? string
 
@@ -39,7 +41,7 @@ end
 local function match_text(text, stream, sources, emit)
   local known = false
   for _, source in ipairs(sources) do
-    if not known or not source.fallback then
+    if (not known or not source.fallback) and (not source.scope or source.scope(text)) then
       if source.matcher(text, stream, source, emit) then known = true end
     end
   end

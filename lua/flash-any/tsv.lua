@@ -24,7 +24,7 @@ end
 
 ---@param path string
 ---@param opts? { separator?: string, decode?: fun(value: string): string[] }
----@return fun(char: string): string[]? loader Owns the file handle; results are not cached here.
+---@return fun(key: string, offset?: number): string[]?, number|false loader Codes and continuation offset; false prunes longer prefixes.
 function M.loader(path, opts)
 	opts = opts or {}
 	local separator = opts.separator or "\t"
@@ -33,17 +33,24 @@ function M.loader(path, opts)
 	end
 	local file = assert(io.open(vim.fn.expand(path), "rb"))
 	local size = file:seek("end")
-	-- Heap indices 1..63 cover the first six binary-search levels.
+	-- Keep the first six binary-search levels and every exact-hit node.
+	-- Per-key continuation offsets belong to table.lookup, alongside decoded codes.
 	---@type table<integer, { key?: string, position: number, after: number }>
 	local nodes = {}
 
-	return function(char)
+	return function(char, offset)
 		-- Keys are UTF-8 sorted by bytes; decoded code-table values are ASCII.
-		local low, high, index = 0, size, 1
-		local found
+		local low, high, index = offset or 0, size, 1
+		local cached = offset == nil
+		-- A parent prefix often leaves us directly on the next candidate row.
+		local _, first = read_at(file, low, true)
+		local first_key = first and split(first, separator)
+		if first_key and first_key >= char then
+			high = low
+		end
 		while high - low > 64 do
 			local middle = math.floor((low + high) / 2)
-			local node = nodes[index]
+			local node = cached and nodes[index]
 			local position, key, after
 			if node then
 				position, key, after = node.position, node.key, node.after
@@ -52,14 +59,11 @@ function M.loader(path, opts)
 				position, line = read_at(file, middle, false)
 				key = line and split(line, separator)
 				after = file:seek()
-				if index < 64 then
+				if cached and (index < 64 or key == char) then
 					nodes[index] = { key = key, position = position, after = after }
 				end
 			end
-			if key == char then
-				found = position
-				break
-			elseif key and key < char then
+			if key and key < char then
 				low = after
 				index = index * 2 + 1
 			else
@@ -70,20 +74,21 @@ function M.loader(path, opts)
 			end
 		end
 
-		local _, line = read_at(file, found or low, true)
+		local position, line = read_at(file, low, true)
 		local result = {}
 		while line do
 			local key, value = split(line, separator)
 			if not key or key > char then
-				break
+				return #result > 0 and result or nil, key ~= nil and key:sub(1, #char) == char and position or false
 			elseif key == char then
 				for _, item in ipairs(decode(value)) do
 					result[#result + 1] = item
 				end
 			end
+			position = file:seek()
 			line = file:read("*l")
 		end
-		return #result > 0 and result or nil
+		return #result > 0 and result or nil, false
 	end
 end
 

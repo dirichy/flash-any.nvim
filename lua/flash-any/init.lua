@@ -4,6 +4,7 @@ local tables = require("flash-any.table")
 local build = require("flash-any.build")
 local codetable = require("flash-any.match.codetable")
 local registry = require("flash-any.source")
+local scopes = require("flash-any.scope")
 local M = {}
 
 vim.api.nvim_create_user_command("FlashAnyBuildTable", function(command)
@@ -11,7 +12,7 @@ vim.api.nvim_create_user_command("FlashAnyBuildTable", function(command)
   build.command({
     source = args[1],
     lua = args[2],
-    tsv = args[3],
+    tsv = args[3] ~= "-" and args[3] or nil,
     common = args[4] ~= "-" and args[4] or nil,
     format = args[5] or "auto",
     encoding = args[6] or "utf-8",
@@ -19,7 +20,7 @@ vim.api.nvim_create_user_command("FlashAnyBuildTable", function(command)
 end, {
   nargs = "+",
   complete = "file",
-  desc = "Build flash-any Lua and sorted TSV tables",
+  desc = "Build flash-any Lua and optional sorted TSV tables",
 })
 -- 用户配置只在本模块解析；match 模块接收构建完成的 FlashAnySource。
 ---@class FlashAnySourceConfig
@@ -27,14 +28,15 @@ end, {
 ---@field matcher? "full_code"|"initial"|"prefix"|FlashAnyMatcher
 ---@field scheme? string
 ---@field fuzzy? boolean|table
+---@field scope? FlashAnyScope
 ---@field fallback? boolean
----@field data? table<string, string|string[]>
+---@field data? FlashAnyTableInput
 ---@field lua? string
 ---@field tsv? string
----@field loader? fun(char: string): string[]?
+---@field loader? FlashAnyTableLoader
 ---@field append_space_below? integer
 
----@alias FlashAnySourceSpec string|FlashAnySourceConfig|table<string, string|string[]>
+---@alias FlashAnySourceSpec string|FlashAnySourceConfig|FlashAnyTableInput
 
 ---@type table?
 local default_opts = nil
@@ -54,7 +56,10 @@ end
 ---@return FlashAnySource[]
 local function load_sources(values)
   assert(type(values) == "table" and vim.islist(values), "opts.sources is required and must be a list")
-  local ret, has_pinyin = { { name = "literal", matcher = source_matcher(registry.load("literal").matcher) } }, false
+  local literal = registry.load("literal")
+  local ret, has_pinyin = { {
+    name = "literal", matcher = source_matcher(literal.matcher), scope = scopes.resolve(literal.scope),
+  } }, false
   for _, value in ipairs(values) do
     assert(type(value) == "string" or type(value) == "table", "source must be a name or configuration table")
     local name = type(value) == "string" and value or value.name
@@ -64,7 +69,7 @@ local function load_sources(values)
     end
     local named_only = type(value) == "string"
     if named_only then value = { name = value } end
-    if value.name or value.matcher or value.data or value.lua or value.loader then
+    if value.name or value.matcher or value.scope ~= nil or value.data or value.lua or value.loader then
       ---@cast value FlashAnySourceConfig
       assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
       assert(value.loader == nil or type(value.loader) == "function", "loader must be a function")
@@ -78,18 +83,23 @@ local function load_sources(values)
       if value.loader then data = tables.lazy(data or {}, value.loader) end
       local matcher = value.matcher
       if matcher == nil then matcher = defaults.matcher end
+      local scope = value.scope
+      if scope == nil then scope = defaults.scope end
       local fallback = value.fallback
       if fallback == nil then fallback = defaults.fallback end
       assert(fallback == nil or type(fallback) == "boolean", "fallback must be a boolean")
       ret[#ret + 1] = {
         data = data,
         matcher = source_matcher(matcher),
+        max_chars = data and tables.max_chars(data) or 1,
+        scope = scopes.resolve(scope),
         name = value.name,
         fallback = fallback,
       }
     else
-      ---@cast value table<string, string|string[]>
-      ret[#ret + 1] = { data = tables.normalize(value), matcher = codetable.full_code }
+      ---@cast value FlashAnyTableInput
+      local data = tables.normalize(value)
+      ret[#ret + 1] = { data = data, matcher = codetable.full_code, max_chars = tables.max_chars(data) }
     end
   end
   return ret

@@ -4,12 +4,15 @@ vim.opt.runtimepath:prepend(vim.uv.cwd())
 local Cursor = require("flash-any.cursor")
 local literal = require("flash-any.sources.literal")()
 local source = { matcher = literal.matcher }
+local scope = require("flash-any.scope").resolve(literal.scope)
 local function check(char, stream, expected_known, expected)
   local values = {}
-  local known = literal.matcher(Cursor.new(char), Cursor.new(stream), source, function(value, chars)
-    assert(chars == nil or chars == 1)
-    values[#values + 1] = value
-  end)
+  local text = Cursor.new(char)
+  local known = (not scope or scope(text))
+    and literal.matcher(text, Cursor.new(stream), source, function(value, chars)
+      assert(chars == nil or chars == 1)
+      values[#values + 1] = value
+    end)
   assert(known == expected_known and vim.deep_equal(values, expected), vim.inspect({ char, stream, known, values }))
 end
 

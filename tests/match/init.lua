@@ -11,7 +11,7 @@ local registry = require("flash-any.source")
 local function load(name, opts) return registry.load(name, opts).data end
 local codetable = require("flash-any.match.codetable")
 local literal = require("flash-any.sources.literal")()
-local literal_source = { name = "literal", matcher = literal.matcher }
+local literal_source = { name = "literal", matcher = literal.matcher, scope = require("flash-any.scope").resolve(literal.scope) }
 
 local function check(name, fn)
   local ok, err = pcall(fn)

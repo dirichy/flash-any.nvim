@@ -6,9 +6,10 @@ vim.opt.runtimepath:prepend(vim.uv.cwd())
 local match = require("flash-any.match")
 local codetable = require("flash-any.match.codetable")
 local literal = require("flash-any.sources.literal")()
+local literal_source = { matcher = literal.matcher, scope = require("flash-any.scope").resolve(literal.scope) }
 local calls = 0
 local sources = {
-  { matcher = literal.matcher },
+  literal_source,
   { data = { ["中"] = { "vs", "va" }, ["珠"] = { "vu" }, ["国"] = { "go" } },
     matcher = function(text, stream, args, emit)
       assert(stream:get() == "v", "char search must not query the next character")
@@ -35,6 +36,6 @@ assert(calls == previous_calls and matches[1].pos[2] == 0)
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "国中" })
 matches = match.char(0, state, range, sources)
 assert(calls > previous_calls and #matches == 1 and matches[1].pos[2] == 3)
-assert(#match.char(0, state, range, { { matcher = literal.matcher } }) == 0)
+assert(#match.char(0, state, range, { literal_source }) == 0)
 assert(#match.char(0, { pattern = function() return "" end }, range, sources) == 0)
 print("single-character matcher tests passed")

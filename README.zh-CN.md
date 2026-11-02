@@ -246,7 +246,7 @@ sources = {
 
 ## 💡 自定义 source
 
-`data` 是“单个 UTF-8 字符 → ASCII 编码或编码数组”，支持一字多码：
+`data` 是“非空 UTF-8 文本 → ASCII 编码或编码数组”，支持一条文本多个编码：
 
 ```lua
 sources = {
@@ -269,47 +269,117 @@ sources = {
 }
 ```
 
-Lua 文件返回与 `data` 相同结构的表；TSV 按 UTF-8 字节序排序，每个字符一行，编码用逗号分隔，支持 LF 和 CRLF。路径相对于当前工作目录，也可使用绝对路径或 `~`。
+Lua 文件返回与 `data` 相同结构的表；TSV 按 UTF-8 字节序排序，每条文本一行，编码用逗号分隔，支持 LF 和 CRLF。路径相对于当前工作目录，也可使用绝对路径或 `~`。
 
-自定义 `matcher` 可以没有码表。回调接收 `char, stream, args`，其中 `args.source` 是运行时 source。例如用 `x` 匹配“中”：
+自定义 `matcher` 可以没有码表。回调接收 `text, stream, source, emit`；`text` 和 `stream` 都是 `Cursor`，`get()` 读取当前位置到末尾的全部内容，`get(n)` 最多读取 n 个码点，`source` 是运行时 source。例如用 `x` 匹配“中”：
 
 ```lua
 sources = {
   {
-    matcher = function(char, stream)
-      if char ~= "中" then return nil end
-      if stream == "" then return { { next = { x = true } } } end
-      if stream:sub(1, 1) == "x" then return { { consumed = 1 } } end
-      return {}
+    matcher = function(text, stream, source, emit)
+      if text:get(1) ~= "中" then return false end
+      if stream:get() == "" then
+        emit("x")
+      elseif stream:get(1) == "x" then
+        emit(1)
+      end
+      return true
     end,
   },
 }
 ```
 
-`nil` 表示不认识字符，`{}` 表示认识但没有匹配分支。成功时返回分支列表，每个分支只有 `consumed`（消费字节数）或 `next`（剩余输入已全部匹配，可继续输入的 ASCII 键集合）之一。空 stream 只查询起始 next。
+认识当前位置返回 `true`，即使输入没有匹配；不认识返回 `false`。成功分支同步输出：
+
+- `emit(bytes, chars?)`：消费指定输入字节，匹配指定文本跨度。
+- `emit(keys, chars?)`：剩余输入全部匹配，ASCII 字符串列出后续可用键；`emit("")` 表示成功但没有后续键。
+
+`chars` 默认 1。例如 `emit(3, 2)` 消费 3 个输入字节，匹配 2 个文本码点。
+空 stream 只查询起始键，不能消费输入。不可保存 emit 或在 matcher 返回后调用。
+
+`get()` 在末尾返回空字符串，`get(n)` 不足 n 个码点时返回剩余全部内容；读取不移动位置。
+text 保存当前行，stream 保存完整输入并指向尚未消费的位置。两者完整复用同一种游标和缓存。
+source 只允许调用 `get`，`shift`（默认移动一个码点）和 `set_offset` 由扫描器使用。详见 [source 开发说明](docs/sources.md#文本读取--text-access)。
 
 matcher 必须满足：长输入能成功，则其字符前缀也能成功；失败分支不会在追加输入后重试。动态返回值由实现者保证，详见 `:help flash-any-matchers` 和[开发文档](docs/development.md)。
+
+## 第三方 source 插件
+
+[dirichy/flash-any-gemoji.nvim](https://github.com/dirichy/flash-any-gemoji.nvim)
+提供 emoji 码表，也可作为编写第三方 source 的示例。安装、配置和编写说明见该项目的 README。
+
+### 字符范围 scope
+
+`scope` 在 matcher 和懒加载之前检查当前位置；未通过时跳过 source，并视为不认识，
+不阻止后续 fallback。可在工厂返回值或用户 source 配置中声明，用户配置优先：
+
+```lua
+sources = {
+  {
+    name = "japan",
+    scope = {
+      { "ぁ", "ヿ" }, -- 区间端点可直接写字符
+      ["あ"] = false, -- 哈希优先：排除区间内的字符
+      ["漢"] = true,  -- 也可加入区间外的字符
+    },
+  },
+}
+```
+
+也可传策略名 `"ascii"`、`"chinese"`、`"unicode"`、`"private_use"`；`"all"` 取消范围限制。
+区间还支持数字码点，例如 `{ { 1, 10000 }, ["a"] = false }`。数字端点只在初始化时
+转成字符；运行时先查字符哈希，再按 UTF-8 字符串顺序比较区间，不逐次转码点。
+自定义函数接收 text 游标，例如 `scope = function(text) return text:get(2) == "きゃ" end`。
+空表不接受任何字符。范围检查通过后，仍由 matcher 决定是否认识及如何匹配。
 
 ## 🛠️ 生成码表与检查
 
 ```vim
-:FlashAnyBuildTable source.dict common.lua full.tsv [common-from.lua|-] [format] [encoding]
+:FlashAnyBuildTable source.dict common.lua [full.tsv|-] [common-from.lua|-] [format] [encoding]
 :checkhealth flash-any
 ```
 
-输入支持 Rime、TSV、CSV 或空白分隔文本。`format` 可为 `auto`（默认）、`rime`、`tsv`、`tab`、`csv`、`space`；`encoding` 默认为 `utf-8`。只收录单字符条目，同一字符的编码会合并、去重。
+仅输入文件和 Lua 输出路径必填。省略第三个参数时只生成 Lua；需要指定后续参数时，
+第三个位置填 `-`。Lua API 同样可省略 `tsv`：`build.table({ source = "source.tsv", lua = "out.lua" })`。
 
-`common-from.lua` 指定用于筛选常用字的 Lua 表。可使用内置的 `lua/flash-any/table/tiger.lua` 作为常用字集，约 3500 字。
-省略第四个参数时，Lua 输出包含全部字符；提供已有 Lua 字表时，Lua 输出只包含该表中已有的字符，完整 TSV 始终包含全部字符。
+```vim
+:FlashAnyBuildTable source.tsv out.lua
+:FlashAnyBuildTable source.tsv out.lua - - tsv utf-8
+```
+
+输入支持 Rime、TSV、CSV 或空白分隔文本。`format` 可为 `auto`（默认）、`rime`、`tsv`、`tab`、`csv`、`space`；`encoding` 默认为 `utf-8`。保留单码点和多码点条目，同一条文本的编码会合并、去重。
+
+TSV 输入（`tsv`、`tab` 或 `auto` 识别的制表符行）的第二列支持逗号分隔的多编码，也可每行只写一个编码：
+
+```text
+中	zhong,chong
+中	zhong
+国	guo
+```
+
+编码两侧空白会去掉，空项忽略，同字跨行编码合并去重。生成的完整 TSV 可以再次作为输入。
+逗号列表只适用于 TSV；CSV、Rime 和空白分隔记录保持单编码列的语义。
+
+多码点文本（如 `中国`、`きゃ`、组合音标或 ZWJ emoji）也会写入输出。
+命令构建成功后，若完整输入含多码点条目，会发出一次 warning 并报告去重后的条目数，是否输出 TSV 不影响统计。
+多码点 Lua 输出自动携带 `codes`、`prefixes`、`max_chars`，内置 matcher 根据这些
+元数据匹配长短词，source 无需配置多码点开关或长度。`max_chars` 按完整输入的
+最长文本码点数计算，常用 Lua 子集为空也会保留。纯 Lua 表的 `prefixes` 是独立的
+可加长键集合，包括自身也有编码的键；叶子省略。普通单码点 Lua 表维持原格式。
+TSV 应包含全部 Lua 编码条目。文本列不可包含制表符或换行。
+
+`common-from.lua` 指定用于筛选常用条目的 Lua 表。可使用内置的 `lua/flash-any/tables/tiger.lua` 作为常用字集，约 3500 字。
+省略第四个参数时，Lua 输出包含全部条目；提供已有 Lua 字表时，Lua 输出只包含该表中已有的文本键，若输出 TSV，它始终包含全部条目。
 大 Lua 码表加载较慢，建议将大字符集保留在 TSV 中，Lua 只存常用字。
 
 需要指定 `format` / `encoding` 而不筛选常用字时，第四个参数填 `-`：
 
 ```vim
 :FlashAnyBuildTable source.csv common.lua full.tsv - csv utf-8
+:FlashAnyBuildTable source.tsv common.lua full.tsv - tsv utf-8
 ```
 
-输出编码必须是 ASCII，且不能包含逗号、制表符或换行；文件会覆盖输出路径，请选择与输入不同的路径。
+单个编码必须是 ASCII，且不能包含逗号、制表符或换行；文件会覆盖输出路径，请选择与输入不同的路径。
 
 当前按 Unicode 码点处理文本，不合并完整 grapheme cluster（例如 ZWJ emoji 和组合音标）。
 

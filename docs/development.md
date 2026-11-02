@@ -4,7 +4,7 @@
 
 - `flash-any.match`（`lua/flash-any/match/init.lua`）：搜索与单字扫描器、增量候选、缓存和搜索标签。
 - `flash-any.match.codetable`（`lua/flash-any/match/codetable.lua`）：码表匹配及其三个模式。
-- `flash-any.match.literal`（`lua/flash-any/match/literal.lua`）：配置层默认前置的 ASCII 字面 source，遵守统一协议。
+- `flash-any.sources.literal`（`lua/flash-any/sources/literal.lua`）：配置层默认前置的 ASCII 字面 source，遵守统一协议。
 
 码表的三个模式共用查询、前缀比较、next 生成、完整编码消费和去重。额外消费边界
 显式区分：full_code 只接受完整编码，initial 还接受首码点，prefix 还接受任意非空
@@ -20,7 +20,7 @@ boundaries are explicit: first byte for initial, every matched byte for prefix.
 All code-table encodings (including custom tables) are ASCII, so codepoint and
 byte boundaries coincide; code-table matching needs no UTF-8 calls. Buffer text
 uses UTF-8; the built-in literal source recognizes ASCII only.
-`flash-any.match.literal` is a regular ASCII source prepended by configuration. Code-table
+`flash-any.sources.literal` is a regular ASCII source prepended by configuration. Code-table
 modes never fall back to the character itself.
 
 ## Flash 字符模式
@@ -28,7 +28,7 @@ modes never fall back to the character itself.
 `flash-any.char(win, state, range)` 接入 Flash 的 `modes.char.matcher`，共用 setup
 构建的 sources。顶层 `match.get` 负责 s 的跨字符推进、next 和标签；`match.char`
 只用一键查询每个字符，不建立 continuation、不查询下一字符，也不分配标签。
-两者共用底层 match_char 的 source 顺序、fallback 与 matcher 协议。s 缓存范围内的
+两者共用底层 match_text 的 source 顺序、fallback 与 matcher 协议。s 缓存范围内的
 文本和增量分支；f 按需缓存访问过的行，各扫描器维护自己的缓存生命周期。
 
 `flash-any.char` 适配器在 `lua/flash-any/char.lua`。get() 只查询 Flash 请求的可见
@@ -55,64 +55,110 @@ when upgrading Flash. Native key handling, filtering, and labeling remain in pla
 
 ## Matcher 协议
 
-匹配函数为 `results = matcher(char, stream, { source = source })`。source 可以没有
-码表；`args.source` 是构建完成的运行时对象，只保留 data、matcher、name 和
-fallback。scheme、fuzzy 等配置在初始化时消费，不存入运行时 source。
-只有内置 matcher 自行读取 `source.data`。扫描器不读取 codes，不判断编码
-长度，也不识别 full_code/initial/prefix 的完成条件，只按 matcher 返回的分支推进。
+匹配函数为 `known = matcher(text, stream, source, emit)`。运行时 source 直接传入，
+只保留 data、matcher、max_chars、name、scope、fallback，配置选项在初始化时消费。
+matcher 返回 true 表示认识当前位置，false 表示不认识；认识与否不随 stream 改变。
+认识但输入不匹配时不输出，仍返回 true。fallback 仅在前面都返回 false 时运行。
 
-每个分支恰有一个字段：
+分支直接输出，不创建结果数组、分支表或 source 参数包装：
 
-- `{ consumed = n }`：当前字符消耗 n 字节，进入下一个字符。必须消耗正整数个
-  字节且不超过当前 stream 长度；恰好消耗完时只查询后一个字符的起始 next。
-- `{ next = keys }`：当前 stream 已全部匹配，keys 为后续 ASCII 键集合，可以为空。
+- `emit(bytes, chars?)` 消费 bytes 个输入字节，越过 chars 个文本码点。
+- `emit(keys, chars?)` 输入前缀全部匹配，字符串 keys 给出可继续的 ASCII 键。
+  空串仍是成功。chars 默认 1，消费字节数必须为 1..#stream:get() 的整数，末尾必须是输入码点边界。
 
-`nil` 表示不认识字符，空列表表示认识但 stream 不匹配。是否认识只由字符决定，
-不随 stream 改变。列表允许一字多码与前缀策略产生多个消费边界；消费字节
-数相同的内置分支在 matcher 内去重。空 stream 只用于起始键查询，不能再消费。
-`consumed` 与 `next` 互斥；旧 `complete` 和 `args.codes` 已移除。
+空 stream 仅用于起始键查询，不可消费输入。source 同步调用 emit，不保存回调，
+不在返回后调用。每次行扫描只创建一个 emitter，捕获当前 col、输入 offset、
+stream、起点与候选状态；跨位置和 source 复用。字符模式一次查询共用一个 emitter，
+只记录当前位置是否成功。动态协议由 source 实现及测试保证，不增加热路径验证。
 
-matcher 必须满足前缀约定：长输入能成功，则其短输入字符前缀也必须成功；
-失败不能在追加输入后变为成功。consumed 提交的字符边界在追加时保持有效。
-若同一字符还能接受更长编码，必须同时保留 next 分支，供后续输入继续该字符。
+内置 literal 和码表 matcher 不创建临时结果表。码表直接输出完整编码及后续键；
+prefix 模式的消费区间都从 1 开始，只需最大公共前缀长度即可输出区间并集。
+重复输出允许存在，由扫描器的请求和终点索引合并，不要求 source 创建去重集合。
+范围预检在统一 match_text 分发中执行，所有 source 均可声明 scope；
+未通过时不调用 matcher，不触发数据读取，也不标记 known。通过不代表认识，
+仍以 matcher 的布尔返回值决定是否阻止 fallback。配置层用 scope.resolve 将
+策略、混合表或函数归一为 predicate；源名称不参与匹配规则。
 
-`fallback = true` 只在前面的配置 source 均返回 nil 时才参与；返回空列表
-也表示字符已被覆盖。空 stream 查询遵守同一规则。内置 source 的字符范围预检
-由码表 matcher 在读取 data 前完成，避免无关字符触发懒加载；不再保留 table.filter
-入口或为每个 source 创建范围包装闭包。扫描器不处理 filter。
-自定义函数自行返回 nil 判断范围。literal 与码表 source 遵守相同的顺序和覆盖规则。
+Matchers synchronously emit numeric input consumption or string next keys, with an
+optional codepoint span. Return true for recognized positions and false for unknown;
+fallback depends on recognition, independently of the input. Empty-string emissions
+are successful branches with no next keys. Do not retain or defer the emitter.
 
-A matcher returns nil for an unknown character, an empty list for a recognized
-character with no matching branches, or a nonempty list for success. Recognition
-must be independent of the stream. A source with `fallback = true` runs
-only if all previous configured sources returned nil, including on empty-input
-queries. Code-table matchers check built-in character scopes before reading data; there
-is no table.filter entry point or per-source scope wrapper. The scanner has no
-separate filter. The literal source follows the same coverage policy.
+A line scan creates one emitter and reuses it across positions, offsets and sources.
+Character searches share one emitter per call. No temporary result arrays, branch
+records or source argument wrappers are created. Prefix consumption intervals share
+a lower bound of 1, so their union needs only the maximum matching prefix length.
+Duplicate emissions are allowed and merged by scanner indexes. Matchers own the
+dynamic protocol; the scanner does not validate it in the hot path.
 
-扫描请求记录起点与完整 pattern 中的 byte offset。matcher 返回 n 后只累计
-`offset + n`；只有实际调用下一个 matcher 时才获取后缀。后缀缓存由 `M.get`
-管理，按当前 pattern 与 offset 保存，跨起点、行和窗口共用；输入变化时替换。
-相同下一字符、相同 offset 的请求未来行为相同，保留最早起点，防止分支膨胀。
-扫描当前字符时，所有成功分支当场合成一个同终点的显示结果：起点取最小值，next
-取并集，不建立按起止位置索引的去重表。不同 offset 的待续状态仍独立保留，不能
-用显示结果的最早起点覆盖其他进度的起点。扫描后只按起点、终点排序，标签不受
-分支枚举顺序影响。matcher 直接分配 label，外层使用空 labeler。
+扫描请求记录文本字节列、输入 offset 和最早起点，相同下一位置与输入 offset 的
+请求合并。成功分支按末尾码点字节列合并显示范围，起点取最小值，next 取并集。
+多码点分支可提前产生远处终点，等待表在后继位置到达时查询其起始键。
 
-每个窗口保存原始行文本、匹配结果和可继续的请求，按行、buffer 字节列、输入 offset
-记录最早起点。next 分支保存当前字符的请求；恰好消费完输入的分支保存下一个
-字符、offset=#pattern 的请求。追加时只恢复这些请求，不重试失败位置，也不
-重做已提交的字符消费。多个消费边界与继续当前字符的请求可同时保留。
+数字输出仅累计输入字节 offset；扫描器将同一个 stream 游标移动到该位置。
+stream 的字符串和码点缓存由 Cursor 自身持有，跨起点、行和窗口共用，输入变化时替换。
+字符串输出在原匹配位置保存待续请求；恰好消费完输入则在文本跨度之后保存请求。
+追加输入仅恢复这些请求，不重试失败位置或重新消费已提交文本；不同 offset 的
+进度不能被显示范围的最早起点覆盖。结果按起点、终点排序，标签不依赖输出顺序。
 
-buffer 身份、changedtick 或行范围变化时重新读取行文本；删除、替换输入或 source
-列表变化时重新扫描缓存文本。新字节修复了之前截断的非法码点时也重建
-匹配，避免沿用已变化的字符边界。相同输入复用匹配结果，但重算 label。
+buffer、changedtick 或搜索行范围变化时替换行快照；删除、替换输入或 source
+变化时重扫缓存文本。追加字节修复旧输入末尾截断码点时也重扫。相同输入复用
+匹配结果但重算标签。扫描器分配标签，Flash 外层使用空 labeler。
+
+## Source scope
+
+`flash-any.scope` 编译 scope 声明。预置函数共享，用户函数原样使用；混合表拆为
+字符布尔哈希与 UTF-8 字符串区间。字符键先查询，显式 false 不能回落到区间。
+数值端点只在初始化时 nr2char，运行时利用 UTF-8 有序性比较字符串，不调用 char2nr。
+编译时复制声明，调用方不维护过滤缓存。中文范围复用 tables/punctuation.lua 的键，
+码表加载仍复用同一标点数据。scope = "all" 编译为 nil，运行层没有额外 predicate。
+
+Scope declarations compile into predicates before scanning. Mixed tables split
+into a character boolean hash and UTF-8 string ranges. Explicit hash entries win,
+including false. Numeric bounds convert once via nr2char; the hot path compares
+strings without char2nr. Presets share functions, user functions pass through, and
+compiled tables own their copies. All source kinds share the same dispatch check;
+no per-source matcher wrapper or name-based scope registry is used.
+
+## 行文本缓存
+
+`flash-any.cursor` 的每个对象持有完整字符串 value、当前字节 offset、按需扩展的码点边界数组、
+字节边界到数组下标的索引，以及“长度 → 起始码点下标 → 字符串”的读取缓存。
+按长度分桶，常见的 get(1) 在所有位置共用一个子表，不再为每个位置建表。
+每个边界最多解码一次；get 的长度增长只扩展缺失边界，移动到后续位置复用同一数组。
+`get(n)` 返回字符串、片段之后的字节列、最后一个码点的起始字节列；不足 n 个
+码点时返回剩余全部内容，不返回边界；shift(n) 仍要求足额才移动。get() 直接 sub 并按当前位置缓存后缀，不解码
+码点、只返回字符串，末尾返回空串；缓存中的长度 0 专门表示整个后缀。
+shift() 仍默认移动 1 个码点。shift(n) 用 get(n) 的结果移动，set_offset 校验字节边界。
+text 与 stream 完全复用 Cursor，不做 ASCII 特判。每个 pattern 在 state 上持有一个
+stream 游标，输入变化时替换；后缀缓存并入 Cursor。source 对两者只允许 get；移动由扫描器完成，不保存恢复 source 位置，不创建只读包装。
+
+搜索窗口行快照保留对象，输入追加、删除、替换和 sources 变化只重新匹配。
+buffer、changedtick 或搜索行范围变化时替换快照。字符扫描器按需读取并保存行对象，
+pattern/sources 改变只清理候选列表；buffer 或 changedtick 改变才替换行对象。
+两种扫描器分别拥有快照，不额外建立全局缓存。
+
+Both buffer text and input streams use FlashAnyCursor. Each cached line owns one
+text cursor; each state/pattern owns one shared input cursor. get() reads all remaining
+content with a direct cached substring and no codepoint decoding; it returns only
+the string. get(n) reads up to n codepoints, returning the available suffix when short.
+Only complete reads include boundary metadata; shifts still require the full count. shift()
+defaults to one codepoint.
+There is no ASCII fast path. Each cached line owns one mutable text object. All positions share lazily decoded
+codepoint boundaries, reverse byte indexes, and requested strings. String caches
+are grouped by requested length, then start index, so many positions reading a few
+lengths share the same bucket tables; length 0 holds whole suffixes. Repeated reads
+reuse strings; longer reads extend only missing boundaries. Sources may only call
+get; the scanner owns shift/set_offset. There are no per-source wrappers or cursor
+save/restore steps. Text snapshots outlive pattern changes and are replaced when
+their owning buffer snapshot becomes invalid. Character searches retain loaded
+line objects across pattern changes while discarding only their match lists.
 
 ## 字面匹配规则
 
 literal 由配置层默认加在所有 source 前面，不属于扫描器特例。它只认识 ASCII buffer 字符，空 stream
-返回字符自身作为 next，首字节匹配则消费 1 字节，否则返回空列表；非 ASCII 字符
-一律返回 nil。所有 source 使用同一顺序和 fallback 规则，普通 source 在前项成功后
+emit 字符自身作为起始键，首字节匹配则 emit(1)。ASCII 始终返回 true，
+输入未匹配时不输出；非 ASCII 一律返回 false。所有 source 使用同一顺序和 fallback 规则，普通 source 在前项成功后
 仍参与，fallback source 仅在前项均不认识字符时参与。配置的空 source 列表仍包含默认 literal；运行层只处理构建好的列表。
 位置统一使用 Neovim 的 0-based byte column；相同终点的结果合并为最早起点。
 
@@ -145,18 +191,18 @@ and retains only byte positions for matches and incremental continuation.
 
 ## 码表所有权
 
-中文 source 的标点键位统一保存在 `table/punctuation.lua`。`file_source` 在拼音
-转换完成后加入标点，码表 matcher 的中文范围预检也读取同一份映射，避免标点
+中文 source 的标点键位统一保存在 `tables/punctuation.lua`。`table.load` 在拼音
+转换完成后加入标点，通用 chinese scope 也读取同一份映射，避免标点
 触发 TSV 查询或参与双拼、模糊音转换。`append_space_below` 仍统一作用于所有编码。
 
-Chinese sources share `table/punctuation.lua`. File loading adds punctuation
-after pinyin conversion; matcher scope checks use the same map. Punctuation
+Chinese sources share `tables/punctuation.lua`. File loading adds punctuation
+after pinyin conversion; the chinese scope uses the same map. Punctuation
 avoids TSV lookups and pinyin transformations. Space padding applies to all codes.
 
 `require("flash-any.tsv").loader(path, opts)` 创建按字符查询的加载函数，可配置
 separator 和 decode。它打开并持有文件句柄，返回编码数组或 nil，不缓存查询结果；
 命中与未命中缓存由 `table.lazy` 统一管理。loader 按需缓存二分树前 6 层的
-比较键、行起点和下一行位置，最多 63 个节点，与文件句柄同生命周期。
+比较键、行起点和下一行位置；额外保留深层精确命中节点，与文件句柄同生命周期。
 剩余区间不超过 64 字节时，从已对齐的下界顺序扫描，避免按字节二分反复跳到同一行。
 模块级 `read_at(file, position, aligned)`
 接收文件句柄，不为每个 loader 额外创建辅助闭包。
@@ -165,8 +211,8 @@ separator 和 decode。它打开并持有文件句柄，返回编码数组或 ni
 a character lookup function that owns an open file handle, not the handle itself.
 The loader does not cache results; `table.lazy` owns positive and negative caches.
 It lazily caches comparison keys, row starts and next-row offsets for the first
-six binary-search levels (at most 63 nodes), with the same lifetime as its file
-handle. Remaining intervals of at most 64 bytes are scanned from the aligned
+six binary-search levels and deeper exact-hit nodes, with the same lifetime as
+its file handle. Remaining intervals of at most 64 bytes are scanned from the aligned
 lower bound, avoiding repeated reads of the same row near the end of a search.
 The shared `read_at` helper takes the file explicitly instead of capturing it.
 
@@ -174,7 +220,7 @@ The shared `read_at` helper takes the file explicitly instead of capturing it.
 `normalize` 复制输入 map 和编码数组，建立私有边界；`append_space` 生成独立
 编码数组与派生缓存，防止追加的空格污染调用方或默认方案。
 
-全拼模糊音与双拼转换共用 `from_pinyin`：全拼直接拼接展开的声母、韵母，
+全拼模糊音与双拼转换共用 `sources/pinyin.lua`：全拼直接拼接展开的声母、韵母，
 双拼按方案转换；不启用模糊音的全拼直接加载原表。
 
 拼音转换在文件 source 的私有副本上原地替换编码，不再保留一整份原始拼音副本
@@ -200,32 +246,42 @@ from their input tables.
 
 运行时先查 `syllables[syllable]`；未命中时才从统一拼音表得到音节，拆分最长声母，分别查表并拼接。多个候选编码会做笛卡尔组合。
 
-Full-pinyin fuzzy expansion and double-pinyin conversion share `from_pinyin`.
+Full-pinyin fuzzy expansion and double-pinyin conversion share `sources/pinyin.lua`.
 Full pinyin joins expanded initials and finals directly; double-pinyin schemes
 map them to keys. Full pinyin without fuzzy options loads the original table.
 
-码表统一通过 `table.load(name, opts)` 加载，移除单独的 `table.flypy(opts)` 入口。
-`loaders` 只保存加载函数；无 opts 时按名称缓存，有 opts 时构建独立实例。
-常用字在加载方案时读入，TSV 生僻字在首次按字符查询时读取并缓存。
+source 统一通过 `source.load(name, opts)` 加载；工厂在 `sources/<name>.lua`，
+数据在 `tables/`。工厂可返回 `codetable = "name"`，由 source.load 统一加载为 data
+并应用补空格策略；与预先构建的 data 互斥。需要转换时仍可直接提供 data。
+无 opts 时按名称缓存 source，有 opts 时调用工厂构建独立实例。
+`table.load(name, opts)` 只加载数据，每次创建独立的常用字副本与 TSV 懒加载缓存；
+`convert` 同时用于常用字和 TSV，`extra` 在转换后合入。
+扩展协议见 [source 开发说明](sources.md)。
 
-Use `table.load(name, opts)` for all schemes; the separate `table.flypy(opts)`
-entry point has been removed. The loader registry holds functions only. Calls
-without options cache by name; calls with options build independent instances.
-Common entries load with the scheme; TSV entries load and cache on first lookup.
+Sources load through `source.load(name, opts)` with factories in `sources/` and
+data in `tables/`. A factory may declare `codetable = "name"`; source.load resolves
+it to data before applying padding. Prepared data remains available for custom
+transformations; the two fields are mutually exclusive. Only option-free source
+instances are cached by name.
+`table.load` creates private data and lazy caches on every call. Its `convert`
+option applies to both common and TSV entries; `extra` merges after conversion.
+See the [source author guide](sources.md).
 
 ## UTF-8 调用边界
 
 buffer 行文本和自定义 matcher 输入可以是 UTF-8；内置 literal source、码表编码、拼音声母
 韵母和保留给 Flash 的 next 键是 ASCII。UTF-8 文本的字节前缀比较、CSV/TSV 的
-ASCII 分隔符识别无需解码；字符遍历使用 iter_char，单码点字段检查使用 iter_offset。
-字符范围判断仍需 char2nr 获取码点。utf8.len/sub/byteidx 保留原生随机访问语义，
+ASCII 分隔符识别无需解码；字符遍历使用 iter_char；builder 用 iter_offset 遍历去重后的键，统计多码点条目和完整码表的最大词长，
+不为每个编码新建 Cursor。
+字符范围在初始化时规范为 UTF-8 区间，运行时直接比较字符串。utf8.len/sub/byteidx 保留原生随机访问语义，
 同时作为迭代器测试的独立对照，不用于生产代码的逐字符遍历。
 
 Buffer text and custom matcher input may be UTF-8; the built-in literal source,
 code-table encodings, pinyin components, and reserved next keys use ASCII. Byte-prefix
 comparisons and ASCII CSV/TSV delimiter parsing preserve UTF-8 without decoding.
-Use iter_char for traversal and iter_offset to check a single-codepoint field.
-Range checks still require char2nr. Native len/sub/byteidx helpers retain their
+Use iter_char for traversal. The builder traverses distinct keys with iter_offset to count multi-codepoint
+entries and the full table’s maximum word length, without creating a Cursor per code.
+Range checks compare precompiled UTF-8 strings. Native len/sub/byteidx helpers retain their
 random-access behavior and serve as independent iterator test references.
 
 旧 `table.from_flypy` 及其方括号字符列表解析已移除；所有双拼均由统一拼音表转换。
@@ -234,19 +290,16 @@ removed; all double-pinyin schemes derive from the shared pinyin table.
 
 ## 拼音 source 与编码方案
 
-码表注册表包含 pinyin、tiger、wubi86、unicode、nerdfont；literal source 不需要码表。全拼和双拼共用 pinyin
-source，通过 opts.scheme 选择一种编码；省略为全拼。from_pinyin 直接作为 pinyin
-loader，不再为每种双拼注册独立入口。无 opts 的全拼复用默认缓存，有 opts 的加载
-各自持有转换后的常用字与 TSV 缓存；不同方案不会共用转换结果。
-初始化 source 列表时拒绝重复的 pinyin source。全拼默认 initial，双拼默认 full_code，
-显式 matcher 优先；scheme 只属于 pinyin source，没有顶层简写入口。
+内置 source 与第三方 source 共用工厂协议；主插件不维护名称注册表。
+拼音工厂读取 opts.scheme/fuzzy，提供全拼 initial、双拼 full_code 的默认值；
+Unicode 工厂提供 prefix 与 fallback，Nerd Font 工厂提供 prefix。
+配置层保留同一次配置只能选择一个 pinyin source 的约束，显式 matcher 优先。
 
-The registry exposes one pinyin source, with opts.scheme choosing one encoding
-and omission selecting full pinyin. Standalone double-pinyin source names are
-removed. Each configured load owns its converted data and lazy cache. Source
-loading rejects duplicate pinyin entries. Full pinyin defaults to initial and
-double pinyin to full_code; explicit matcher options take precedence. The scheme
-option belongs only to the pinyin source, without a top-level shorthand.
+Built-in and third-party sources use the same factory protocol, without a name
+registry. The pinyin factory consumes scheme/fuzzy options and supplies initial
+or full_code defaults. Unicode supplies prefix/fallback defaults; Nerd Font
+supplies prefix. Configuration still rejects duplicate pinyin entries, and
+explicit matcher options take precedence.
 
 ## 模糊音索引
 
@@ -260,9 +313,9 @@ arrays. The first group wins when groups overlap; ungrouped known components
 get singleton candidates once per load. Common and lazy conversions share the
 read-only indexes. Components remain ASCII strings, without integer enums.
 
-`FlashAnySource` describes the runtime object: data, matcher, name, and
-fallback. Initialization consumes scheme/fuzzy options. fallback=true makes a
-source run only when every earlier configured source returned nil.
+`FlashAnySource` describes the runtime object: data, matcher, max_chars, name,
+scope and fallback. Initialization consumes scheme/fuzzy options. fallback=true makes a
+source run only when every earlier configured source returned false.
 
 配置层的 matcher 可为模式名或函数；初始化后统一为 FlashAnyMatcher 函数，
 扫描器不再解析字符串模式名。
@@ -275,13 +328,13 @@ FlashAnySourceConfig/FlashAnySourceSpec 定义在插件入口，只描述用户�
 FlashAnySource 定义在 match/init.lua，只描述编译后的运行时对象。setup 时构建
 默认配置并保存，jump 的完整独立配置则在启动 Flash 前构建。配置校验和模式名解析
 不进入扫描路径。默认 source 在多次跳转间共享码表及其懒加载缓存，setup 替换配置
-时自然替换所属对象。matcher 的动态分支返回值是受信任的协议，不通过热路径断言
-验证；合法消费范围、consumed/next 互斥和前缀约定由实现及测试保证。
+时自然替换所属对象。matcher 的动态输出是受信任的协议，不通过热路径断言
+验证；合法消费范围、同步 emit 和前缀约定由实现及测试保证。
 
 Configuration types live at the plugin entry point; runtime source types live
 in match/init.lua. Setup builds the complete defaults once, while complete
 per-jump configurations are built before Flash starts. The scanner neither parses configuration nor
-validates dynamic matcher branches. Implementations and tests own the return
+validates dynamic matcher branches. Implementations and tests own the emission
 contract. Repeated jumps reuse source data and lazy caches; setup replaces their
 owner when configuration changes.
 
@@ -315,18 +368,37 @@ and restoration. No keymap is installed automatically.
 校验覆盖静态码表、模糊音分组及策略参数；动态 matcher/loader 仍由实现者保证协议。
 TSV 二分时上界使用 middle，避免跳到下一行后的 position 不变而遗漏中间字符。
 TSV 行支持 LF/CRLF，码表生成支持空常用字子集，不通过正则解析 Lua 字表。
+Builder 的 TSV/tab/auto-Tab 解析标记值列为编码列表，按逗号拆分后复用 add 的
+清理、校验及去重；Rime columns 和 CSV 保留单编码语义。生成 TSV 可无损回读。
+Builder 保留非空多码点键，从完整输入统计去重后的多码点条目数，作为
+第三个返回值。build.table 负责写文件与计数；command 在成功后发一次 WARN 汇总，
+普通构建为 INFO，失败为 ERROR。仅 source、lua 路径必填；tsv 可省略，命令第三位置
+支持 - 占位。不输出 TSV 时仍返回完整输入计数，通知只列实际输出。常用 Lua 筛选
+不影响完整输入和 warning 计数。
+Rime 的 --- / ... 头部区间不作为数据解析，避免名称、版本等被误收录为词条。
+normalize 接受 {codes, prefixes, max_chars}，运行层根据码表元数据开启文本前缀查询。
+单码点 source 保持直接 data[text:get(1)]，不构建前缀索引。
 
 Release API: dirichy/flash-any.nvim, Neovim 0.11+, setup with a complete sources
 list, and jump returning the native Flash state. Static source data is validated
 during construction. TSV upper-bound updates shrink by byte midpoint; LF and
-CRLF are supported. Builder common subsets are read as Lua tables, including an
+CRLF are supported. Builder TSV values accept comma-separated codes, with
+per-code cleanup/validation/deduplication shared with single-code rows. Rime/CSV
+fields retain single-code semantics; generated TSV round-trips through the builder.
+Nonempty multi-codepoint keys are preserved and counted after deduplication in
+the complete input. build.table returns Lua/full-input/multi-input counts; TSV
+output is optional without changing these counts. The command supports a - TSV
+placeholder and reports only outputs actually written. The command owns
+INFO/WARN/ERROR notifications. Rime header sections are excluded from data rows.
+Normalization accepts {codes, prefixes, max_chars}; table metadata selects built-in
+text-prefix lookup; single-codepoint sources retain direct map reads. Builder common subsets are read as Lua tables, including an
 empty subset, rather than inferred from source formatting.
 
 测试（独立 Neovim 进程；Flash checkout 放在 .dev/flash.nvim，可用指向安装目录的
 符号链接，或为 tests/flash.lua 显式传入路径）：
 
 ```sh
-for test in tests/init.lua tests/table.lua tests/utf8.lua tests/tsv.lua tests/build.lua tests/health.lua tests/match/*.lua; do
+for test in tests/init.lua tests/source.lua tests/scope.lua tests/cursor.lua tests/table.lua tests/utf8.lua tests/tsv.lua tests/build.lua tests/health.lua tests/match/*.lua; do
   NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l "$test" || exit
 done
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
@@ -336,3 +408,38 @@ nvim --clean --headless '+helptags doc' '+qa'
 ```
 
 LuaLS 保留真实 Neovim runtime 和 .dev/flash.nvim/lua，检查全部诊断，不关闭类别。
+
+### 多码点缓存 / Multi-codepoint caches
+
+多码点文件返回 {codes, prefixes, max_chars}。normalize 复制编码映射，并将 prefixes
+复制进码表所有的独立 continuation 缓存；max_chars 单独按同一所有者保存。source
+初始化只从数据推导运行时 max_chars，不接收 multi_code/长度选项。编码数组不携带前缀
+语义；纯 Lua 缓存中 true 表示可加长，缺失表示终止，无须显式 false 或运行时建索引。
+TSV 缓存中 nil 表示未查询，数字是继续的文件位置，false 缓存终止结果。
+完整 TSV 应包含 Lua 编码条目，挂接 loader 时清空 Lua 前缀副本，以文件结果为准。
+单码点简表默认上限 1，保留直接 hash 读取。补空格和规范化复制会保留独立元数据。
+builder 按完整输入计算 max_chars，即使 Lua 常用子集为空也输出此元数据；
+只从选中的 Lua 编码条目生成真前缀集合，包含自身也有编码的可继续键。
+前缀不计入 common/full 数量，不为每个匹配查询构造结果 table。
+
+TSV 二分节点缓存与前缀缓存分开：前 6 层节点无条件保留，深层精确命中节点也保留，
+记录 key、position、after，供其他查询比较。offset = false 只作用于前缀加长，
+不会删除二分节点。带 offset 的查询从该行开始，必要时在后续范围二分，
+不使用对应整份文件划分的节点编号，避免错误复用节点。
+
+Multi-codepoint files return {codes, prefixes, max_chars}. normalize copies code
+maps and installs a private continuation set plus a full-table length bound.
+Runtime source metadata is inferred from the table, without multi_code or length
+configuration. Lua-only continuation sets contain true for extendable keys and
+omit terminal ones. Code arrays have no continuation semantics; no runtime prefix
+index is built. TSV caches use nil for unqueried, numeric file offsets to continue,
+and false to prune. Full TSV data includes every Lua code entry, so attaching a
+loader discards the static Lua prefix copy instead of merging it. Compact maps
+default to a one-codepoint bound. Normalization and padding preserve metadata.
+The builder computes the full table's bound even with an empty Lua subset, and
+generates proper prefixes only for selected Lua codes, including keys with codes.
+Prefixes do not count as code entries; queries allocate no temporary result table.
+The first six binary-search levels are cached regardless of continuation, together
+with deeper exact-hit nodes. These comparison nodes retain key/position/after
+independently of prefix pruning. Searches starting from a saved offset do not use
+whole-file heap indices because their binary partitions differ.
