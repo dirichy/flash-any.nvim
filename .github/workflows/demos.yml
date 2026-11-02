@@ -76,7 +76,9 @@ jobs:
       - name: Install Lua checker
         run: sudo apt-get update && sudo apt-get install -y lua5.4
       - name: record
-        run: demos/record.sh
+        run: |
+          demos/record.sh
+          demos/record.sh char
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -87,6 +87,33 @@ jump 返回 Flash 的跳转 state。传入 opts 时 sources 必须提供。例�
 其他 Flash 选项直接传递。插件管理顶层 matcher 和 labeler；匹配规则通过 source
 的 matcher 设置。labels 等字段由 Flash 自身提供默认值，不由本插件补齐。
 
+首码跳转：                                                   *flash-any-char*
+
+首码匹配默认不开启，仅调用 flash-any.setup() 不会启用。
+先调用 flash-any.setup()，再在 flash.nvim 配置中设置字符 matcher： >lua
+    require("flash").setup({
+      modes = {
+        char = {
+          matcher = function(win, state, range)
+            return require("flash-any").char(win, state, range)
+          end,
+          -- multi_line = false, -- 只匹配当前行
+        },
+      },
+    })
+<
+关闭首码匹配：从 Flash 配置中删除 modes.char.matcher，重启 Neovim 后恢复
+Flash 原生字面字符匹配。关闭整个 Flash 字符模式则设 modes.char.enabled = false。
+两种方式均不影响 s 搜索；没有单独的 disable() API。
+
+f 后输入一键，匹配编码以该键开头的字符，以及该 ASCII 字符本身。全拼 fz 匹配
+“中、这、字”和 z；小鹤双拼 fv 匹配“中”和 v。复用 setup 的 sources 和码表缓存，
+但只匹配单个文本字符。自定义 source 使用自己的 matcher。
+F/t/T、计数、;/,、操作符和可选标签由 Flash 原生字符模式处理。
+无需额外映射按键；s 的标签规则不变，字符模式使用 Flash 自己的 labeler。
+显示标签只扫描可见区域；屏幕外目标按跳转方向逐行查询，找到指定数量后停止。
+multi_line = false 将范围限制在当前行。
+
 ===============================================================================
 3. source                                                  *flash-any-sources*
 

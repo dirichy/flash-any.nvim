@@ -231,4 +231,42 @@ function M.get(win, state, opts, sources)
   return ret
 end
 
+---Single-character search; lines are loaded and cached only when requested.
+---@param win integer
+---@param state table
+---@param opts table
+---@param sources FlashAnySource[]
+---@return FlashAnyDisplayMatch[]
+function M.char(win, state, opts, sources)
+  local pattern = state.pattern()
+  if pattern == "" then return {} end
+  local buf = vim.api.nvim_win_get_buf(win)
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  state._flash_any_char_cache = state._flash_any_char_cache or {}
+  local cache = state._flash_any_char_cache[win]
+  if not cache or cache.buf ~= buf or cache.tick ~= tick or cache.pattern ~= pattern or cache.sources ~= sources then
+    cache = { buf = buf, tick = tick, pattern = pattern, sources = sources, lines = {} }
+    state._flash_any_char_cache[win] = cache
+  end
+  local ret = {}
+  local last = math.min(opts.to[1], vim.api.nvim_buf_line_count(buf))
+  for row = math.max(1, opts.from[1]), last do
+    local matches = cache.lines[row]
+    if not matches then
+      matches = {}
+      local text = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+      for next_col, char in utf8.iter_char(text) do
+        if next_col and char and #match_char(char, pattern, sources) > 0 then
+          matches[#matches + 1] = next_col - #char
+        end
+      end
+      cache.lines[row] = matches
+    end
+    for _, col in ipairs(matches) do
+      ret[#ret + 1] = { win = win, pos = { row, col }, end_pos = { row, col }, next = {} }
+    end
+  end
+  return ret
+end
+
 return M

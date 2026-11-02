@@ -1,0 +1,11 @@
+First-code jumps / 首码跳转
+
+f + z  →  中 / 这 / 字 / z
+
+  中文     这里     字母     z
+
+f      →  next match
+;      →  next match
+,      →  previous match
+
+One key, every matching first code.

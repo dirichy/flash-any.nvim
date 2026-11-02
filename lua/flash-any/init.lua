@@ -38,6 +38,8 @@ end, {
 
 ---@type table?
 local default_opts = nil
+---@type FlashAnySource[]?
+local default_sources = nil
 
 -- Unicode and Nerd Font names are meant to be discoverable from any prefix;
 -- ordinary code tables require an exact code unless they opt into another
@@ -110,6 +112,7 @@ end
 ---完整配置在此校验、构建；运行层不合并默认配置或解释简写。
 ---@param opts table? sources 必须显式提供，其余字段直接传给 Flash。
 ---@return table
+---@return FlashAnySource[]
 local function build_opts(opts)
   assert(type(opts) == "table", "provide complete opts or call setup before jump()")
   opts = vim.deepcopy(opts)
@@ -119,18 +122,42 @@ local function build_opts(opts)
   opts.matcher = function(win, state, range)
     return match.get(win, state, range, sources)
   end
-  return opts
+  return opts, sources
 end
 
 ---@param opts table
 function M.setup(opts)
-  default_opts = build_opts(opts)
+  default_opts, default_sources = build_opts(opts)
 end
 
 ---@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
 ---@return Flash.State
 function M.jump(opts)
-  return flash.jump(opts == nil and default_opts or build_opts(opts))
+  local config = opts == nil and default_opts or build_opts(opts)
+  return flash.jump(config)
+end
+
+---Use as flash.nvim's modes.char.matcher; Flash owns keys, repeats and labels.
+---@param win integer
+---@param state Flash.State
+---@param range table
+---@return Flash.Match[]
+function M.char(win, state, range)
+  assert(default_sources, "call setup before using the char matcher")
+  local matcher = state:get_matcher(win)
+  -- HACK: Flash wraps callbacks with Matcher.from(), whose find() only searches
+  -- the last visible list. Replace this instance's find() to scan on demand.
+  -- Depends on State:get_matcher() and the get/find protocol in flash.search.matcher.
+  ---@class FlashAnyCharMatcher: Flash.Matcher
+  ---@field _flash_any_char? Flash.Matcher
+  ---@cast matcher FlashAnyCharMatcher
+  local char = matcher._flash_any_char
+  if not char then
+    char = require("flash-any.char").new(win, state, default_sources)
+    matcher._flash_any_char = char
+    matcher.find = char.find
+  end
+  return char:get(range)
 end
 
 return M

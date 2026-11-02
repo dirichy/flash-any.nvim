@@ -11,12 +11,28 @@
 混输只开启一次搜索：`hun` 是“混”的全拼，`s` 是“输”的简拼首字母，`ascii` 按字面匹配，
 `grin` 是 😀 的 Unicode 名称前缀。分段停顿仅用于阅读，不切换输入模式。
 
+`f` 模式单独录制，使用 `sources = { "pinyin" }` 和 Flash 原生字符按键：
+
+| 场景 / Scene | 输入 / Input | 目标 / Target |
+| --- | --- | --- |
+| 首码 / First code | `fz` | 中、这、字、z 全部高亮，落在“中” |
+| 连跳 / Repeat | `f` → `;` → `;` | 这 → 字 → z |
+| 反向 / Previous | `,` | 字 |
+
+`char.tape` 使用真实 `f`、`;`、`,` 映射；不替换原生按键。录制进程观察每次落点
+和全部四个候选，并在退出前验证样例未修改。
+
+The separate character-mode clip shows `fz`, repeated forward jumps with `f` and
+`;`, and a backward jump with `,`. Live playback verifies every cursor position
+and all four first-code candidates without replacing Flash's keymaps.
+
 ## 录制 / Record
 
 从仓库根目录运行：
 
 ```sh
-sh demos/record.sh
+sh demos/record.sh       # s: 全拼、简拼、混输
+sh demos/record.sh char  # f: 首码与连跳
 ```
 
 需要 Neovim、VHS、ttyd、Chromium/Chrome、FFmpeg（含 ffprobe）、Python 3、fontconfig，
@@ -29,10 +45,12 @@ TOKYONIGHT_PATH=/path/to/tokyonight.nvim \
 sh demos/record.sh
 ```
 
-录制通过 `init.lua` 和 `sample.lua` 隔离个人配置。样式、启动命令和三次搜索统一放在
-[demo.tape](demo.tape)，全程只启动一次 Neovim。
+录制通过 `init.lua` 和 `sample.lua` 隔离个人配置。样式由 [common/style.tape](common/style.tape) 共用。
+[demo.tape](demo.tape) 录制三次 s 搜索；[char.tape](char.tape) 单独录制 f 模式，
+使用 `char-init.lua` 和 `char-sample.txt`。每段各启动一次 Neovim。
 本地产物、config/state/cache、日志、调色板及验证报告都保存在已忽略的 `demos/output/`，
-脚本不上传文件。
+脚本不上传文件。两段分别生成 `demo.*` 与 `char.*`；
+`demos/output/README.local.md` 提供本地 GIF 和 MP4 链接。
 
 Requires Neovim, VHS, ttyd, Chromium/Chrome, FFmpeg/ffprobe, Python 3, fontconfig,
 JetBrainsMono Nerd Font Mono, Noto CJK, and Noto Color Emoji. Run from the repository
@@ -56,7 +74,9 @@ GIF 从 MP4 两遍转换，保留 1920×1080、20fps，变化区域调色板与�
 生成后仍须目视检查关键帧的字体、emoji、裁切和标签。
 
 The recording produces `demo.mp4`, `demo.gif`, `demo.png`, `verification.json`,
-and `media.json`. Live TUI assertions check intermediate matches, the selected label,
+and `media.json`; character-mode files use the `char` prefix, including
+`char-verification.json` and `char-media.json`. `README.local.md` links locally
+recorded clips without release URLs. Live TUI assertions check intermediate matches, the selected label,
 all three final queries and cursor positions, and the unchanged fixture. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
@@ -67,12 +87,12 @@ so indentation and comment placement do not invalidate the assertions.
 
 [工作流](../.github/workflows/demos.yml) 在 `master` 的插件、录制素材、README 和相关测试变化时
 自动运行，也可手动运行。工具与插件版本固定在工作流中，字体包括 CJK 和 emoji fallback。
-录制后保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体附件，
+分别录制 s 与 f 两段，保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体附件，
 最后检查附件 URL。不提交生成媒体，不将 demo Release 标为 latest。
 验证失败时也保存已生成的媒体和 JSON，便于检查实际查询、落点及预期位置；失败不发布。
 
 README 引用 `releases/download/demos/demo.gif` 和 `demo.mp4`；
-本地录制不更新远端附件，提交后 CI 才会发布新版演示。
+f 模式附件为 `char.gif` 和 `char.mp4`。本地录制不更新远端附件，提交后 CI 才会发布新版演示。
 
 The workflow records the continuous demo, verifies playback and media, saves artifacts,
 and updates the `demos` prerelease on the default branch. README media URLs become

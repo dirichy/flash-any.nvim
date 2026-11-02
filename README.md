@@ -81,6 +81,46 @@ The mixed example uses `sources = { "pinyin", "unicode" }`. ASCII matches
 literally, and `grin` is a prefix of the emoji's Unicode name.
 An initial is the **first letter**, so 输 uses `s`, not `sh`.
 
+### First-code jumps with `f/F/t/T`
+
+![First-code matching and repeated jumps with f](https://github.com/dirichy/flash-any.nvim/releases/download/demos/char.gif)
+
+[HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/char.mp4) · [Record the demo](demos/README.md)
+
+First-code matching is **disabled by default**; `flash-any.setup()` alone does not
+enable it. After calling `flash-any.setup()` as above, add this matcher to your
+**flash.nvim configuration**:
+
+```lua
+require("flash").setup({
+  modes = {
+    char = {
+      matcher = function(win, state, range)
+        return require("flash-any").char(win, state, range)
+      end,
+      -- multi_line = false, -- Current line only
+    },
+  },
+})
+```
+
+To disable first-code matching, remove `modes.char.matcher` from your Flash
+configuration and restart Neovim; Flash resumes its literal character matching.
+To disable Flash's entire character mode, set `modes.char.enabled = false` instead.
+Neither change affects `s` searches. There is no separate `disable()` API.
+
+Press `f` followed by one letter to match characters whose configured codes start
+with that letter, plus the literal ASCII character. With full pinyin, `fz` matches
+中, 这, 字, and `z`; with Flypy, `fv` matches 中 and `v`.
+This shares sources, pinyin schemes, fuzzy spelling, and fallback rules with `s`,
+but matches only one text character at a time. Custom sources retain their matchers.
+
+Flash's character mode handles `F/t/T`, counts, `;`/`,`, operators, and optional
+labels; no extra keymaps are needed. It uses Flash's native labeler; `s` keeps
+its existing label rules. Only the visible range is scanned for labels; offscreen
+targets are scanned line by line when needed, stopping once the requested count
+is found. Set `multi_line = false` to stay on the current line.
+
 ## Built-in sources
 
 Use a name string or a configuration object with `name`:

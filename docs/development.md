@@ -2,7 +2,7 @@
 
 ## 模块布局
 
-- `flash-any.match`（`lua/flash-any/match/init.lua`）：字符扫描、增量候选、缓存和标签。
+- `flash-any.match`（`lua/flash-any/match/init.lua`）：搜索与单字扫描器、增量候选、缓存和搜索标签。
 - `flash-any.match.codetable`（`lua/flash-any/match/codetable.lua`）：码表匹配及其三个模式。
 - `flash-any.match.literal`（`lua/flash-any/match/literal.lua`）：配置层默认前置的 ASCII 字面 source，遵守统一协议。
 
@@ -22,6 +22,36 @@ byte boundaries coincide; code-table matching needs no UTF-8 calls. Buffer text
 uses UTF-8; the built-in literal source recognizes ASCII only.
 `flash-any.match.literal` is a regular ASCII source prepended by configuration. Code-table
 modes never fall back to the character itself.
+
+## Flash 字符模式
+
+`flash-any.char(win, state, range)` 接入 Flash 的 `modes.char.matcher`，共用 setup
+构建的 sources。顶层 `match.get` 负责 s 的跨字符推进、next 和标签；`match.char`
+只用一键查询每个字符，不建立 continuation、不查询下一字符，也不分配标签。
+两者共用底层 match_char 的 source 顺序、fallback 与 matcher 协议。s 缓存范围内的
+文本和增量分支；f 按需缓存访问过的行，各扫描器维护自己的缓存生命周期。
+
+`flash-any.char` 适配器在 `lua/flash-any/char.lua`。get() 只查询 Flash 请求的可见
+行范围；find() 从起点沿方向逐行查询，计数满足即停止。匹配结果按行缓存，buffer、
+changedtick、pattern 或 sources 变化时由单字扫描器统一失效；无匹配的空列表也缓存。
+未访问的行不读取、不查码表。无目标时仍可能查到文件末尾，wrap 时也可能遍历全文。
+t/T 按 UTF-8 字符边界平移，不跨行；其余按键、计数、操作符及标签交给 Flash。
+
+HACK：Flash 的公开 matcher 回调经 Matcher.from() 包装后，find() 只能查询上次
+生成的列表。适配器在回调首次执行时，通过 State:get_matcher(win) 取得当前实例，
+替换其 find()，保留外层 get/filter/labels。依赖 flash.state 的实例创建顺序，以及
+flash.search.matcher 的 get/find 协议；升级 Flash 后应跑 tests/char.lua 验证。
+不修改全局方法。
+
+`flash-any.char` adapts Flash's visible-range get() and directional find(). The
+latter scans lines only until the requested count is found, including offscreen
+targets. Single-character scanning owns per-line caches and their invalidation.
+No-match searches and wrapping can still visit the whole buffer.
+
+HACK: the callback replaces only the current window matcher's find() method.
+This depends on State:get_matcher(), instance initialization order, and the
+get/find protocol in flash.search.matcher. Run the real Flash integration tests
+when upgrading Flash. Native key handling, filtering, and labeling remain in place.
 
 ## Matcher 协议
 
@@ -282,6 +312,7 @@ for test in tests/init.lua tests/table.lua tests/utf8.lua tests/tsv.lua tests/bu
   NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l "$test" || exit
 done
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
 nvim --clean --headless '+helptags doc' '+qa'
 ```
 

@@ -78,6 +78,42 @@ end)
 混输示例使用 `sources = { "pinyin", "unicode" }`。ASCII 按字面匹配，`grin` 是 emoji 的 Unicode 名称前缀。
 简拼取**首字母**，因此“输”用 `s`，不是 `sh`。
 
+### `f/F/t/T` 首码跳转
+
+![f 首码匹配与连续跳转](https://github.com/dirichy/flash-any.nvim/releases/download/demos/char.gif)
+
+[高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/char.mp4) · [重新录制](demos/README.md)
+
+首码匹配**默认不开启**，仅调用 `flash-any.setup()` 不会启用。
+先按上文调用 `flash-any.setup()`，再在 **flash.nvim 的配置**中加入 matcher：
+
+```lua
+require("flash").setup({
+  modes = {
+    char = {
+      matcher = function(win, state, range)
+        return require("flash-any").char(win, state, range)
+      end,
+      -- multi_line = false, -- 只匹配当前行
+    },
+  },
+})
+```
+
+关闭首码匹配：从 Flash 配置中删除 `modes.char.matcher`，重启 Neovim 后恢复
+Flash 原生的字面字符匹配。若要关闭 Flash 整个字符模式，设置
+`modes.char.enabled = false`。两种方式均不影响 `s` 搜索，没有单独的 `disable()` API。
+
+`f` 后输入一个字母，匹配所配置编码以该字母开头的所有字符，以及该 ASCII
+字符本身。例如全拼下 `fz` 匹配“中、这、字”和 `z`；小鹤双拼下 `fv` 匹配“中”和 `v`。
+与 `s` 共用 sources、双拼、模糊音及 fallback 规则，但每次只匹配一个文本字符。
+自定义 source 继续使用自己的 matcher。
+
+`F/t/T`、计数、`;`/`,`、操作符和可选标签由 Flash 字符模式处理，无需另设按键。
+标签使用 Flash 原生 labeler；`s` 的标签规则保持不变。
+只扫描可见区域来显示标签；需要屏幕外目标时，再沿跳转方向逐行扫描，找到指定数量后停止。
+`multi_line = false` 将范围限制在当前行。
+
 ## 内置 source
 
 source 可写成名称字符串或带 `name` 的配置对象：

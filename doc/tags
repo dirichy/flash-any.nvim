@@ -2,6 +2,7 @@ flash-any	flash-any.txt	/*flash-any*
 flash-any-abc	flash-any.txt	/*flash-any-abc*
 flash-any-append-space	flash-any.txt	/*flash-any-append-space*
 flash-any-build-table	flash-any.txt	/*flash-any-build-table*
+flash-any-char	flash-any.txt	/*flash-any-char*
 flash-any-contents	flash-any.txt	/*flash-any-contents*
 flash-any-custom-table	flash-any.txt	/*flash-any-custom-table*
 flash-any-flypy	flash-any.txt	/*flash-any-flypy*

@@ -2,6 +2,13 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+scene=${1:-demo}
+case "$scene" in
+  demo) verification=verification.json ;;
+  char) verification=char-verification.json ;;
+  *) printf 'Usage: %s [demo|char]\n' "$0" >&2; exit 1 ;;
+esac
+
 mkdir -p demos/output
 for tool in nvim vhs ttyd ffmpeg ffprobe python3 fc-match; do
   command -v "$tool" >/dev/null || { printf 'Install %s before recording.\n' "$tool" >&2; exit 1; }
@@ -19,21 +26,23 @@ for plugin in "$FLASH_NVIM_PATH" "$TOKYONIGHT_PATH"; do
 done
 
 # Empty old evidence so an interrupted recording cannot reuse a previous success.
-: > demos/output/verification.json
-vhs demos/demo.tape
-python3 - <<'PYTHON'
+: > "demos/output/$verification"
+vhs "demos/$scene.tape"
+python3 - "$scene" "$verification" <<'PYTHON'
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 output = Path('demos/output')
-report = json.loads((output / 'verification.json').read_text())
+scene, verification = sys.argv[1:]
+report = json.loads((output / verification).read_text())
 assert report['verified'], report.get('error', 'demo verification failed')
-print('Verified live candidates, labels, all three jumps, and unchanged fixture.')
+print(f'Verified {scene} live playback and unchanged fixture.')
 
 # Two passes bound memory and keep the static gradient stable between frames.
-video = str(output / 'demo.mp4')
-palette = str(output / 'palette.png')
+video = str(output / f'{scene}.mp4')
+palette = str(output / f'{scene}-palette.png')
 gif_filter = 'fps=20,scale=1920:-1:flags=lanczos'
 subprocess.run([
     'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', video,
@@ -42,7 +51,7 @@ subprocess.run([
 subprocess.run([
     'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', video, '-i', palette,
     '-filter_complex', gif_filter + '[video];[video][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle',
-    '-loop', '0', str(output / 'demo.gif'),
+    '-loop', '0', str(output / f'{scene}.gif'),
 ], check=True)
 
 media = {}
@@ -50,7 +59,7 @@ for extension, codec in [('mp4', 'h264'), ('gif', 'gif')]:
     info = json.loads(subprocess.check_output([
         'ffprobe', '-v', 'error', '-select_streams', 'v:0',
         '-show_entries', 'stream=codec_name,width,height,r_frame_rate,avg_frame_rate:format=duration,size',
-        '-of', 'json', str(output / f'demo.{extension}'),
+        '-of', 'json', str(output / f'{scene}.{extension}'),
     ]))
     stream = info['streams'][0]
     assert stream['codec_name'] == codec, info
@@ -58,10 +67,16 @@ for extension, codec in [('mp4', 'h264'), ('gif', 'gif')]:
     assert float(info['format']['duration']) > 0, info
     assert int(info['format']['size']) > 0, info
     media[extension] = info
-(output / 'media.json').write_text(json.dumps(media, indent=2) + '\n')
+(output / ('media.json' if scene == 'demo' else f'{scene}-media.json')).write_text(json.dumps(media, indent=2) + '\n')
 print(json.dumps(media, indent=2))
 subprocess.run([
     'ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-sseof', '-2', '-i', video,
-    '-frames:v', '1', str(output / 'demo.png'),
+    '-frames:v', '1', str(output / f'{scene}.png'),
 ], check=True)
+# Keep local preview links usable without release assets.
+previews = ['# Local demos', '']
+for name, title in [('demo', 'Pinyin and mixed input'), ('char', 'First-code f jumps')]:
+    if (output / f'{name}.gif').exists():
+        previews.extend([f'## {title}', '', f'![{title}]({name}.gif)', '', f'[MP4]({name}.mp4)', ''])
+(output / 'README.local.md').write_text('\n'.join(previews))
 PYTHON
