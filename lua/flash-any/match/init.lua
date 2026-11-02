@@ -5,7 +5,7 @@ local Cursor = require("flash-any.cursor")
 ---@alias FlashAnyNext table<string, boolean>
 
 -- Emit a consumed input byte count, or a string of possible next ASCII keys.
--- chars is the matched buffer span in codepoints, defaulting to 1.
+-- chars is the matched buffer span in graphemes, defaulting to 1.
 ---@alias FlashAnyEmit fun(value: integer|string, chars?: integer)
 
 -- Return true for a known position, even when no branch matched; false means unknown.
@@ -15,7 +15,7 @@ local Cursor = require("flash-any.cursor")
 -- 初始化后的运行时 source；scheme、fuzzy 等配置已用于构建 data 和 matcher。
 ---@class FlashAnySource
 ---@field data? FlashAnyTable
----@field max_chars? integer Maximum text codepoints per entry.
+---@field max_chars? integer Maximum text graphemes per entry.
 ---@field matcher FlashAnyMatcher
 ---@field scope? FlashAnyScopeFn Run before the matcher; false means unknown here.
 ---@field fallback? boolean Only run if every earlier configured source returned false.
@@ -88,13 +88,13 @@ local function scan_line(text, line, pattern, sources, stream, resume)
       for offset, start in pairs(offsets) do add_request(requests, col, offset, start) end
     end
   end
-  -- A multi-codepoint branch may finish ahead of the current scan position.
+  -- A multi-grapheme branch may finish ahead of the current scan position.
   ---@type table<integer, FlashAnyInternalMatch>
   local ends, waiting = {}, {}
   local offset, start = 0, 0
   local col = first
-  ---@type integer?
-  local next_col
+  ---@type integer?, integer?
+  local next_col, last_col
   ---@type FlashAnyInternalMatch?
   local completed
 
@@ -102,7 +102,7 @@ local function scan_line(text, line, pattern, sources, stream, resume)
   ---@type FlashAnyEmit
   local function emit(value, chars)
     ---@type integer?, integer?
-    local after, last = next_col, col
+    local after, last = next_col, last_col
     if chars and chars ~= 1 then
       local _
       _, after, last = text:get(chars)
@@ -143,7 +143,7 @@ local function scan_line(text, line, pattern, sources, stream, resume)
   text:set_offset(first)
   while true do
     local char
-    char, next_col = text:get(1)
+    char, next_col, last_col = text:get(1)
     if not char or not next_col then break end
     col = text.offset
     completed = waiting[col]
@@ -207,10 +207,9 @@ function M.get(win, state, opts, sources)
     local incremental = cache.sources == sources
       and previous and previous ~= "" and #pattern > #previous and pattern:sub(1, #previous) == previous
     if incremental then
-      -- A newly appended continuation byte can repair a previously invalid
-      -- codepoint; that is an input replacement rather than character append.
-      local byte = pattern:byte(#previous + 1)
-      incremental = byte < 0x80 or byte >= 0xC0
+      -- Appends can merge the old final cluster (accents, ZWJ, RI), or
+      -- repair truncated UTF-8. Resume only when the old end is still a boundary.
+      incremental = pcall(stream.set_offset, stream, #previous)
     end
     local matches, frontiers = {}, {}
     for i, text in ipairs(cache.lines) do
@@ -256,8 +255,9 @@ end
 ---@param state table
 ---@param opts table
 ---@param sources FlashAnySource[]
+---@param motion? string t/T return the adjacent grapheme start.
 ---@return FlashAnyDisplayMatch[]
-function M.char(win, state, opts, sources)
+function M.char(win, state, opts, sources, motion)
   local pattern = state.pattern()
   if pattern == "" then return {} end
   local stream = stream_for(state, pattern)
@@ -284,6 +284,7 @@ function M.char(win, state, opts, sources)
   end
   local last = math.min(opts.to[1], vim.api.nvim_buf_line_count(buf))
   for row = math.max(1, opts.from[1]), last do
+    ---@type {col: integer, before?: integer, after?: integer}[]?
     local matches = cache.matches[row]
     if not matches then
       matches = {}
@@ -293,19 +294,26 @@ function M.char(win, state, opts, sources)
         cache.lines[row] = text
       end
       text:set_offset(0)
+      ---@type integer?
+      local before
       while true do
         local char, after = text:get(1)
         if not char or not after then break end
         found = false
         stream:set_offset(0)
         match_text(text, stream, sources, emit)
-        if found then matches[#matches + 1] = text.offset end
+        if found then
+          matches[#matches + 1] = { col = text.offset, before = before, after = after < #text.value and after or nil }
+        end
+        before = text.offset
         text:set_offset(after)
       end
       cache.matches[row] = matches
     end
-    for _, col in ipairs(matches) do
-      ret[#ret + 1] = { win = win, pos = { row, col }, end_pos = { row, col }, next = {} }
+    for _, item in ipairs(matches) do
+      local col = item.col
+      if motion == "t" then col = item.before elseif motion == "T" then col = item.after end
+      if col then ret[#ret + 1] = { win = win, pos = { row, col }, end_pos = { row, col }, next = {} } end
     end
   end
   return ret

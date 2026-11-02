@@ -1,114 +1,102 @@
-#!/usr/bin/env -S nvim -l
-
+-- nvim --clean -l tests/cursor.lua [host-root]
 vim.opt.runtimepath:prepend(vim.uv.cwd())
-local utf8 = require("flash-any.utf8")
--- Count actual UTF-8 decoding, not calls to get or cursor movement.
-local iter_offset, decodes = utf8.iter_offset, 0
-rawset(utf8, "iter_offset", function(...)
-  local iter, str, offset = iter_offset(...)
-  return function(value, col)
-    decodes = decodes + 1
-    return iter(value, col)
-  end, str, offset
+local grapheme = require("flash-any.grapheme")
+local original_each, runs, decoded = grapheme.each, 0, 0
+rawset(grapheme, "each", function(value, emit)
+	runs = runs + 1
+	original_each(value, function(first, after, count, last)
+		decoded = decoded + count
+		emit(first, after, count, last)
+	end)
 end)
 local Cursor = require("flash-any.cursor")
-rawset(utf8, "iter_offset", iter_offset)
-
-local text = Cursor.new("あい🙂é")
-assert(text.offset == 0 and decodes == 0)
-assert(vim.deep_equal({ text:get(2) }, { "あい", 6, 3 }))
-assert(text.offset == 0 and decodes == 2)
-assert(text:get(2) == "あい" and decodes == 2)
-assert(text:get(3) == "あい🙂" and decodes == 3)
-assert(text:shift(2) and text.offset == 6 and decodes == 3)
-assert(text:get(1) == "🙂" and decodes == 3)
-assert(text:get(2) == "🙂e" and decodes == 4)
-text:set_offset(3)
-assert(text:get(3) == "い🙂e" and decodes == 4)
-text:set_offset(0)
-assert(text:get(3) == "あい🙂" and decodes == 4)
-assert(text:shift(3) and text.offset == 10 and decodes == 4)
-assert(text:shift() and text.offset == 11 and decodes == 4)
-assert(text:get(1) == "́" and decodes == 5)
-assert(not text:shift(2) and text.offset == 11 and decodes == 5)
-assert(text:shift() and text.offset == #text.value and decodes == 5)
-assert(text:get(1) == "" and not text:shift() and decodes == 5)
-assert(text:get(99) == "" and decodes == 5)
-print("ok - get, shift and set_offset share decoded boundaries across offsets and lengths")
-
-local empty = Cursor.new("")
-assert(empty:get() == "" and empty:get(1) == "" and not empty:shift())
-empty:set_offset(0)
-for _, invalid in ipairs({ 0, -1, 0.5, "1", false, math.huge }) do
-  assert(not pcall(text.get, text, invalid))
-  assert(not pcall(text.shift, text, invalid))
+rawset(grapheme, "each", original_each)
+local utf8 = require("flash-any.utf8")
+local function equal(a, b, context)
+	assert(vim.deep_equal(a, b), context .. "\nactual=" .. vim.inspect(a) .. "\nexpected=" .. vim.inspect(b))
 end
-for _, invalid in ipairs({ -1, 1, 0.5, "1", false, #text.value + 1, math.huge }) do
-  assert(not pcall(text.set_offset, text, invalid))
-  assert(text.offset == #text.value)
-end
-print("ok - failed reads and moves preserve the cursor; offsets must be byte boundaries")
 
--- Compare every requested span against Neovim's codepoint boundaries, including
--- malformed sequences; no grapheme-cluster interpretation is involved.
-for _, value in ipairs({
-  "abc",
-  "a\0中🙂",
-  "é👩‍💻",
-  string.char(0xE4, 0xB8),
-  "a" .. string.char(0xFF) .. "中",
-}) do
-  local view = Cursor.new(value)
-  local count = utf8.len(value)
-  for index = 0, count do
-    view:set_offset(math.min(#value, utf8.byteidx(value, index)))
-    for n = 1, count + 1 do
-      local span, after, last = view:get(n)
-      if index + n <= count then
-        assert(span == utf8.sub(value, index, n))
-        assert(after == math.min(#value, utf8.byteidx(value, index + n)))
-        assert(last == math.min(#value, utf8.byteidx(value, index + n - 1)))
-      else
-        local start = math.min(#value, utf8.byteidx(value, index))
-        assert(span == value:sub(start + 1) and after == nil and last == nil)
-      end
-    end
-  end
+local view = Cursor.new("👩‍💻🇨🇳áx")
+local before_runs, before_decoded = runs, decoded
+equal({ view:get(1) }, { "👩‍💻", #"👩‍💻", #"👩‍" }, "whole cluster with final codepoint endpoint")
+equal({ view:get(2) }, { "👩‍💻🇨🇳", #"👩‍💻🇨🇳", #"👩‍💻🇨" }, "two clusters")
+assert(view:shift(2) and view.offset == #"👩‍💻🇨🇳")
+equal({ view:get(1) }, { "á", #"👩‍💻🇨🇳á", #"👩‍💻🇨🇳a" }, "combining accent")
+assert(not pcall(view.set_offset, view, #"👩‍"), "cluster-internal boundary must be rejected")
+view:set_offset(0)
+assert(view:get(99) == view.value and not view:shift(99) and view.offset == 0)
+assert(select("#", view:get()) == 1)
+assert(view:shift(4) and view.offset == #view.value and not view:shift())
+equal({ view:get(1) }, { "" }, "read at end")
+equal({ runs, decoded }, { before_runs, before_decoded }, "all revisits reuse a single segmentation")
+for _, invalid in ipairs({ 0, -1, 0.5, false, "1", math.huge }) do
+	assert(not pcall(view.get, view, invalid))
+	assert(not pcall(view.shift, view, invalid))
 end
-local before = decodes
-local stream = Cursor.new("a中🙂")
-assert(stream:get(1) == "a" and decodes == before + 1)
-assert(vim.deep_equal({ stream:get() }, { "a中🙂" }))
-assert(decodes == before + 1 and stream.offset == 0)
-assert(stream:get(3) == "a中🙂" and decodes == before + 3)
-assert(stream:shift() and stream.offset == 1)
-assert(stream:get() == "中🙂" and decodes == before + 3)
-assert(stream:shift() and stream.offset == 4)
-assert(stream:get() == "🙂" and decodes == before + 3)
-stream:set_offset(0)
-assert(stream:get() == "a中🙂" and decodes == before + 3)
-assert(stream:shift(3) and stream:get() == "" and stream:get(1) == "")
-assert(not stream:shift() and stream.offset == 8)
-print("ok - get defaults to all remaining Unicode; shift still defaults to one codepoint")
+for _, invalid in ipairs({ -1, 0.5, false, "1", #view.value + 1, math.huge }) do
+	assert(not pcall(view.set_offset, view, invalid))
+end
 
-local suffixes = Cursor.new("a中🙂")
-before = decodes
-assert(suffixes:get() == "a中🙂" and decodes == before)
-assert(suffixes:get() == "a中🙂" and decodes == before)
-assert(suffixes:get(1) == "a" and decodes == before + 1)
-assert(suffixes:shift() and decodes == before + 1)
-assert(suffixes:get() == "中🙂" and decodes == before + 1)
-assert(suffixes:get(2) == "中🙂" and decodes == before + 3)
-assert(suffixes:get() == "中🙂" and decodes == before + 3)
-print("ok - whole-suffix reads never decode Unicode; bounded reads remain lazy")
-local short = Cursor.new("中🙂")
-before = decodes
-assert(vim.deep_equal({ short:get(9) }, { "中🙂" }))
-assert(short.offset == 0 and decodes == before + 2)
-assert(short:get(99) == "中🙂" and decodes == before + 2)
-assert(not short:shift(3) and short.offset == 0)
-assert(short:shift() and short:get(9) == "🙂")
-assert(not short:shift(2) and short.offset == 3)
-assert(short:shift() and short:get(9) == "" and not short:shift())
-print("ok - short reads return the available suffix; shifts still require the full count")
-print("all cursor tests passed")
+local cases = 0
+local function check(value, expected)
+	equal(grapheme.split(value), expected, "split clusters")
+	assert(grapheme.len(value) == #expected)
+	local text, positions = Cursor.new(value), { 0 }
+	for i, cluster in ipairs(expected) do
+		positions[i + 1] = positions[i] + #cluster
+	end
+	for index = 0, #expected do
+		text:set_offset(positions[index + 1])
+		assert(text:get() == value:sub(text.offset + 1))
+		for count = 1, #expected + 1 do
+			local actual = { text:get(count) }
+			local want = table.concat(expected, "", index + 1, math.min(index + count, #expected))
+			if index + count > #expected then
+				equal(actual, { want }, "short cluster read")
+			else
+				local last = expected[index + count]
+				local last_byte = positions[index + count] + utf8.byteidx(last, utf8.len(last) - 1)
+				equal(actual, { want, positions[index + count + 1], last_byte }, "bounded cluster read")
+			end
+		end
+	end
+	for offset = 0, #value do
+		local allowed = vim.tbl_contains(positions, offset)
+		assert(pcall(text.set_offset, text, offset) == allowed, "offset validation: " .. offset)
+	end
+	cases = cases + 1
+end
+for line in io.lines("tests/data/GraphemeBreakTest-17.0.0.txt") do
+	local body = line:match("^([^#]+)")
+	if body and body:find("÷", 1, true) then
+		local clusters, current, marker = {}, "", nil
+		for token in body:gmatch("%S+") do
+			if token == "÷" or token == "×" then
+				marker = token
+			else
+				local cp = assert(tonumber(token, 16))
+				if marker == "÷" and current ~= "" then
+					clusters[#clusters + 1], current = current, ""
+				end
+				current = current .. (cp == 0 and "\0" or vim.fn.nr2char(cp))
+			end
+		end
+		if current ~= "" then
+			clusters[#clusters + 1] = current
+		end
+		check(table.concat(clusters), clusters)
+	end
+end
+check("", {})
+check("\255x\240\159", { "\255", "x", "\240", "\159" })
+
+check("👩🏽‍💻🇦🇧🇨1️⃣á", { "👩🏽‍💻", "🇦🇧", "🇨", "1️⃣", "á" })
+check("a" .. ("́"):rep(100), { "a" .. ("́"):rep(100) })
+for _, value in ipairs({ "\192\128", "\237\160\128", "\244\144\128\128", "\248\128\128\128\128", "\228\184" }) do
+	local bytes = {}
+	for i = 1, #value do
+		bytes[i] = value:sub(i, i)
+	end
+	check(value, bytes)
+end
+print("all cursor tests passed (" .. cases .. " Unicode and edge cases)")

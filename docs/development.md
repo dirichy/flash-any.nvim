@@ -7,8 +7,8 @@
 - `flash-any.sources.literal`（`lua/flash-any/sources/literal.lua`）：配置层默认前置的 ASCII 字面 source，遵守统一协议。
 
 码表的三个模式共用查询、前缀比较、next 生成、完整编码消费和去重。额外消费边界
-显式区分：full_code 只接受完整编码，initial 还接受首码点，prefix 还接受任意非空
-码点前缀；这些边界规则全部留在 codetable，扫描器不参与判断。
+显式区分：full_code 只接受完整编码，initial 还接受编码首字节，prefix 还接受任意非空
+编码前缀；这些边界规则全部留在 codetable，扫描器不参与判断。
 码表编码约定为 ASCII，因此码点边界就是字节边界：initial 可消费 1 字节，
 prefix 直接遍历已匹配前缀的字节位置，codetable 无需调用 UTF-8 函数。
 该约定也适用于自定义码表；buffer 字符仍使用 UTF-8；内置 literal source 只认识 ASCII。
@@ -62,9 +62,9 @@ matcher 返回 true 表示认识当前位置，false 表示不认识；认识与
 
 分支直接输出，不创建结果数组、分支表或 source 参数包装：
 
-- `emit(bytes, chars?)` 消费 bytes 个输入字节，越过 chars 个文本码点。
+- `emit(bytes, chars?)` 消费 bytes 个输入字节，越过 chars 个文本字素。
 - `emit(keys, chars?)` 输入前缀全部匹配，字符串 keys 给出可继续的 ASCII 键。
-  空串仍是成功。chars 默认 1，消费字节数必须为 1..#stream:get() 的整数，末尾必须是输入码点边界。
+  空串仍是成功。chars 默认 1，消费字节数必须为 1..#stream:get() 的整数，末尾必须是输入字素边界。
 
 空 stream 仅用于起始键查询，不可消费输入。source 同步调用 emit，不保存回调，
 不在返回后调用。每次行扫描只创建一个 emitter，捕获当前 col、输入 offset、
@@ -80,7 +80,7 @@ prefix 模式的消费区间都从 1 开始，只需最大公共前缀长度即�
 策略、混合表或函数归一为 predicate；源名称不参与匹配规则。
 
 Matchers synchronously emit numeric input consumption or string next keys, with an
-optional codepoint span. Return true for recognized positions and false for unknown;
+optional grapheme span. Return true for recognized positions and false for unknown;
 fallback depends on recognition, independently of the input. Empty-string emissions
 are successful branches with no next keys. Do not retain or defer the emitter.
 
@@ -93,22 +93,22 @@ dynamic protocol; the scanner does not validate it in the hot path.
 
 扫描请求记录文本字节列、输入 offset 和最早起点，相同下一位置与输入 offset 的
 请求合并。成功分支按末尾码点字节列合并显示范围，起点取最小值，next 取并集。
-多码点分支可提前产生远处终点，等待表在后继位置到达时查询其起始键。
+多字素分支可提前产生远处终点，等待表在后继位置到达时查询其起始键。
 
 数字输出仅累计输入字节 offset；扫描器将同一个 stream 游标移动到该位置。
-stream 的字符串和码点缓存由 Cursor 自身持有，跨起点、行和窗口共用，输入变化时替换。
+stream 的字符串和字素缓存由 Cursor 自身持有，跨起点、行和窗口共用，输入变化时替换。
 字符串输出在原匹配位置保存待续请求；恰好消费完输入则在文本跨度之后保存请求。
 追加输入仅恢复这些请求，不重试失败位置或重新消费已提交文本；不同 offset 的
 进度不能被显示范围的最早起点覆盖。结果按起点、终点排序，标签不依赖输出顺序。
 
 buffer、changedtick 或搜索行范围变化时替换行快照；删除、替换输入或 source
-变化时重扫缓存文本。追加字节修复旧输入末尾截断码点时也重扫。相同输入复用
+变化时重扫缓存文本。追加输入合并旧末尾字素或修复截断 UTF-8 时也重扫。相同输入复用
 匹配结果但重算标签。扫描器分配标签，Flash 外层使用空 labeler。
 
 ## Source scope
 
 `flash-any.scope` 编译 scope 声明。预置函数共享，用户函数原样使用；混合表拆为
-字符布尔哈希与 UTF-8 字符串区间。声明值按 Lua 真假规范化，因此可直接传单码点
+字符布尔哈希与 UTF-8 字符串区间。声明值按 Lua 真假规范化，因此可直接传单字素
 extra 编码表。字符键先查询，显式 false 不能回落到区间。
 数值端点只在初始化时 nr2char，运行时利用 UTF-8 有序性比较字符串，不调用 char2nr。
 编译时复制声明，调用方不维护过滤缓存。中文范围复用 tables/punctuation.lua 的键，
@@ -116,7 +116,7 @@ extra 编码表。字符键先查询，显式 false 不能回落到区间。
 
 Scope declarations compile into predicates before scanning. Mixed tables split
 into a character boolean hash and UTF-8 string ranges. Hash declaration values
-use Lua truthiness, allowing single-codepoint extra encoding maps directly. Explicit hash entries win,
+use Lua truthiness, allowing single-grapheme extra encoding maps directly. Explicit hash entries win,
 including false. Numeric bounds convert once via nr2char; the hot path compares
 strings without char2nr. Presets share functions, user functions pass through, and
 compiled tables own their copies. All source kinds share the same dispatch check;
@@ -124,72 +124,60 @@ no per-source matcher wrapper or name-based scope registry is used.
 
 ## 行文本缓存
 
-`flash-any.cursor` 的每个对象持有完整字符串 value、当前字节 offset、按需扩展的码点边界数组、
-字节边界到数组下标的索引，以及“长度 → 起始码点下标 → 字符串”的读取缓存。
-按长度分桶，常见的 get(1) 在所有位置共用一个子表，不再为每个位置建表。
-每个边界最多解码一次；get 的长度增长只扩展缺失边界，移动到后续位置复用同一数组。
-`get(n)` 返回字符串、片段之后的字节列、最后一个码点的起始字节列；不足 n 个
-码点时返回剩余全部内容，不返回边界；shift(n) 仍要求足额才移动。get() 直接 sub 并按当前位置缓存后缀，不解码
-码点、只返回字符串，末尾返回空串；缓存中的长度 0 专门表示整个后缀。
-shift() 仍默认移动 1 个码点。shift(n) 用 get(n) 的结果移动，set_offset 校验字节边界。
-text 与 stream 完全复用 Cursor，不做 ASCII 特判。每个 pattern 在 state 上持有一个
-stream 游标，输入变化时替换；后缀缓存并入 Cursor。source 对两者只允许 get；移动由扫描器完成，不保存恢复 source 位置，不创建只读包装。
+`flash-any.cursor` 的每个对象持有完整字符串 value、当前字节 offset、字素边界数组、
+字节边界到数组下标的索引、每簇最后码点的起始字节，以及“长度 → 起始字素下标 → 字符串”的缓存。
+创建时复用 `flash-any.grapheme.each`，从行首一次分段，保留 RI 配对、Indic 连字和 ZWJ 上下文。
+这是预先分段，代价是创建时遍历整行、保存所有边界；后续输入变化和读取不再分段。
+`get(n)` 最多读取 n 个字素，只有足额读取才额外返回片段之后、末尾码点起始的字节偏移。
+`get()` 直接截取缓存后缀，只返回字符串。长度 0 是后缀缓存桶；其余按长度分桶，跨位置复用。
+`shift(n)` 直接访问边界数组，默认移动一个字素；不足时位置不变。`set_offset` 只接受字素边界。
+text 与 stream 使用同一个 Cursor；每份输入在 state 上持有一个 stream，输入变化时替换。
+source 对两者只允许 get；移动由扫描器完成，不做位置保存恢复或只读包装。
 
 搜索窗口行快照保留对象，输入追加、删除、替换和 sources 变化只重新匹配。
 buffer、changedtick 或搜索行范围变化时替换快照。字符扫描器按需读取并保存行对象，
 pattern/sources 改变只清理候选列表；buffer 或 changedtick 改变才替换行对象。
-两种扫描器分别拥有快照，不额外建立全局缓存。
+追加输入可能合并旧末尾字素或修复截断 UTF-8；扫描器验证旧输入末尾仍是新 Cursor 的边界后才复用待续状态。
 
-Both buffer text and input streams use FlashAnyCursor. Each cached line owns one
-text cursor; each state/pattern owns one shared input cursor. get() reads all remaining
-content with a direct cached substring and no codepoint decoding; it returns only
-the string. get(n) reads up to n codepoints, returning the available suffix when short.
-Only complete reads include boundary metadata; shifts still require the full count. shift()
-defaults to one codepoint.
-There is no ASCII fast path. Each cached line owns one mutable text object. All positions share lazily decoded
-codepoint boundaries, reverse byte indexes, and requested strings. String caches
-are grouped by requested length, then start index, so many positions reading a few
-lengths share the same bucket tables; length 0 holds whole suffixes. Repeated reads
-reuse strings; longer reads extend only missing boundaries. Sources may only call
-get; the scanner owns shift/set_offset. There are no per-source wrappers or cursor
-save/restore steps. Text snapshots outlive pattern changes and are replaced when
-their owning buffer snapshot becomes invalid. Character searches retain loaded
-line objects across pattern changes while discarding only their match lists.
+Both text and stream use FlashAnyCursor. Construction segments the complete string once,
+recording grapheme boundaries, reverse byte indexes and final codepoint starts. This eager
+pass preserves RI parity and Indic/ZWJ context; it trades initial whole-line work and boundary
+storage for reuse across pattern changes. Strings are cached by requested length, then start
+index; length 0 holds complete suffixes. Only complete get(n) reads include endpoint metadata;
+short reads return the available suffix. shift() defaults to one grapheme and moves by direct
+boundary lookup. Sources only call get; the scanner owns shift/set_offset. Cached line snapshots
+outlive input changes and expire with buffer identity, changedtick or the search range.
+Character searches load lines on demand. Input appends resume only if the previous input end
+remains a grapheme boundary, otherwise they trigger a fresh scan.
 
 ## 字面匹配规则
 
-literal 由配置层默认加在所有 source 前面，不属于扫描器特例。它只认识 ASCII buffer 字符，空 stream
+literal 由配置层默认加在所有 source 前面，不属于扫描器特例。它只认识单字节 ASCII buffer 字素，空 stream
 emit 字符自身作为起始键，首字节匹配则 emit(1)。ASCII 始终返回 true，
 输入未匹配时不输出；非 ASCII 一律返回 false。所有 source 使用同一顺序和 fallback 规则，普通 source 在前项成功后
 仍参与，fallback source 仅在前项均不认识字符时参与。配置的空 source 列表仍包含默认 literal；运行层只处理构建好的列表。
 位置统一使用 Neovim 的 0-based byte column；相同终点的结果合并为最早起点。
 
-## 第一版范围
+## 字素分段 / Grapheme segmentation
 
-第一版按 Unicode codepoint 处理文本。完整 grapheme cluster（特别是 ZWJ
-emoji 和组合音标）记录在仓库根目录的 `TODO.md`，暂不作为发布阻塞项。
+`flash-any.grapheme` 来自 gemoji Cursor demo，按 Unicode 17.0.0 / UAX #29 rev. 47
+分段；不做字体 shaping 或 Unicode 规范化。非法 UTF-8（包括截断、过长、代理项和超出标量范围）
+逐字节隔离。属性页保存在 `grapheme_data.lua`，Hangul 音节用算术规则。
+`scripts/build_grapheme.py INPUT_DIR` 可重新生成属性页；目录需包含
+`GraphemeBreakProperty-17.0.0.txt`、`DerivedCoreProperties-17.0.0.txt`、`emoji-data-17.0.0.txt`。
+Unicode 许可见 `licenses/Unicode-3.0.txt`，官方分段用例随仓库保存。
 
-## UTF-8 行扫描
+`utf8` 模块保留码点工具，供测试中的原生 Neovim 边界对照使用；其字节解码规则
+与字素分段器的严格标量解码不同。文本扫描与词条计数使用字素分段器。
 
-`utf8.iter_char(str, offset?)` 返回 Lua 通用 for 三元组：固定的迭代函数、原字符串、
-初始字节 offset（默认 0）。迭代函数签名为 `iter(str, offset) -> next_offset, char`，
-无闭包、无预建位置表。next_offset 指向当前字符结束之后，当前字符的起始列为
-`next_offset - #char`。从指定 offset 原样开始解析，不向前对齐字符边界。
-
-扫描器把新起点和上个字符余下的输入放进同一请求队列，每个 buffer 字符单趟处理。
-完成匹配时先记录当前范围，再由下一轮字符补充起始 next，不前瞻解码。追加输入可
-直接从最早待续请求的字节列开始迭代，处理完所有待续请求和 next 查询后停止。
-匹配只保留起止字节列，不再引用整行字符数组。
-
-首字节长度和续字节检查遵循 Neovim 的 utf8len_tab / utf_ptr2len_len 规则，包括
-历史的 5/6 字节序列；错误续字节只前进一字节，行尾截断序列保留剩余字节。这是
-原生字节结构处理，不是严格的 Unicode 标量值校验，也不合并 grapheme cluster。
-
-`utf8.iter_char(str, offset?)` returns `(iter, str, offset or 0)` without closures
-or position arrays. `iter(str, offset)` yields the following byte offset and the
-current character. Its starting column is `next_offset - #char`. The scanner
-decodes each visited character once, combines new starts and remaining streams,
-and retains only byte positions for matches and incremental continuation.
+The segmenter follows Unicode 17.0.0 / UAX #29 revision 47, ported from the gemoji
+Cursor demo. It performs neither normalization nor font shaping. Invalid UTF-8 bytes
+are isolated, including truncated, overlong, surrogate and out-of-range sequences.
+Generated property pages and arithmetic Hangul rules drive segmentation. Regenerate
+with `python scripts/build_grapheme.py INPUT_DIR`, using the three versioned property
+files listed above. The Unicode license and official conformance cases are bundled.
+The utf8 module remains a codepoint utility for native Neovim boundary reference tests;
+its Neovim decoding rules differ from the segmenter's strict scalar validation.
 
 ## 码表所有权
 
@@ -273,7 +261,7 @@ See the [source author guide](sources.md).
 
 buffer 行文本和自定义 matcher 输入可以是 UTF-8；内置 literal source、码表编码、拼音声母
 韵母和保留给 Flash 的 next 键是 ASCII。UTF-8 文本的字节前缀比较、CSV/TSV 的
-ASCII 分隔符识别无需解码；字符遍历使用 iter_char；builder 用 iter_offset 遍历去重后的键，统计多码点条目和完整码表的最大词长，
+ASCII 分隔符识别无需解码；文本遍历使用 grapheme.each；builder 用 grapheme.each 遍历去重后的键，统计多字素词条和完整码表的最大词长，
 不为每个编码新建 Cursor。
 字符范围在初始化时规范为 UTF-8 区间，运行时直接比较字符串。utf8.len/sub/byteidx 保留原生随机访问语义，
 同时作为迭代器测试的独立对照，不用于生产代码的逐字符遍历。
@@ -281,7 +269,7 @@ ASCII 分隔符识别无需解码；字符遍历使用 iter_char；builder 用 i
 Buffer text and custom matcher input may be UTF-8; the built-in literal source,
 code-table encodings, pinyin components, and reserved next keys use ASCII. Byte-prefix
 comparisons and ASCII CSV/TSV delimiter parsing preserve UTF-8 without decoding.
-Use iter_char for traversal. The builder traverses distinct keys with iter_offset to count multi-codepoint
+Use grapheme.each for text traversal. The builder traverses distinct keys with grapheme.each to count multi-grapheme
 entries and the full table’s maximum word length, without creating a Cursor per code.
 Range checks compare precompiled UTF-8 strings. Native len/sub/byteidx helpers retain their
 random-access behavior and serve as independent iterator test references.
@@ -372,14 +360,14 @@ TSV 二分时上界使用 middle，避免跳到下一行后的 position 不变�
 TSV 行支持 LF/CRLF，码表生成支持空常用字子集，不通过正则解析 Lua 字表。
 Builder 的 TSV/tab/auto-Tab 解析标记值列为编码列表，按逗号拆分后复用 add 的
 清理、校验及去重；Rime columns 和 CSV 保留单编码语义。生成 TSV 可无损回读。
-Builder 保留非空多码点键，从完整输入统计去重后的多码点条目数，作为
+Builder 保留全部非空文本键，从完整输入统计去重后的多字素条目数，作为
 第三个返回值。build.table 负责写文件与计数；command 在成功后发一次 WARN 汇总，
 普通构建为 INFO，失败为 ERROR。仅 source、lua 路径必填；tsv 可省略，命令第三位置
 支持 - 占位。不输出 TSV 时仍返回完整输入计数，通知只列实际输出。常用 Lua 筛选
 不影响完整输入和 warning 计数。
 Rime 的 --- / ... 头部区间不作为数据解析，避免名称、版本等被误收录为词条。
 normalize 接受 {codes, prefixes, max_chars}，运行层根据码表元数据开启文本前缀查询。
-单码点 source 保持直接 data[text:get(1)]，不构建前缀索引。
+单字素 source 保持直接 data[text:get(1)]，不构建前缀索引。
 
 Release API: dirichy/flash-any.nvim, Neovim 0.11+, setup with a complete sources
 list, and jump returning the native Flash state. Static source data is validated
@@ -387,13 +375,13 @@ during construction. TSV upper-bound updates shrink by byte midpoint; LF and
 CRLF are supported. Builder TSV values accept comma-separated codes, with
 per-code cleanup/validation/deduplication shared with single-code rows. Rime/CSV
 fields retain single-code semantics; generated TSV round-trips through the builder.
-Nonempty multi-codepoint keys are preserved and counted after deduplication in
+Nonempty multi-grapheme keys are preserved and counted after deduplication in
 the complete input. build.table returns Lua/full-input/multi-input counts; TSV
 output is optional without changing these counts. The command supports a - TSV
 placeholder and reports only outputs actually written. The command owns
 INFO/WARN/ERROR notifications. Rime header sections are excluded from data rows.
 Normalization accepts {codes, prefixes, max_chars}; table metadata selects built-in
-text-prefix lookup; single-codepoint sources retain direct map reads. Builder common subsets are read as Lua tables, including an
+text-prefix lookup; single-grapheme sources retain direct map reads. Builder common subsets are read as Lua tables, including an
 empty subset, rather than inferred from source formatting.
 
 测试（独立 Neovim 进程；Flash checkout 放在 .dev/flash.nvim，可用指向安装目录的
@@ -411,9 +399,9 @@ nvim --clean --headless '+helptags doc' '+qa'
 
 LuaLS 保留真实 Neovim runtime 和 .dev/flash.nvim/lua，检查全部诊断，不关闭类别。
 
-### 多码点缓存 / Multi-codepoint caches
+### 多字素缓存 / Multi-grapheme caches
 
-Builder 总是输出 {codes, prefixes, max_chars, scope}，包括单码点表和空表。
+Builder 总是输出 {codes, prefixes, max_chars, scope}，包括单字素表和空表。
 normalize 也接受仅带 codes 的结构，以及直接编码映射。prefixes 复制进独立
 continuation 缓存；max_chars/scope 存在同一码表所有的 metadata 中，由 metadata(data)
 只读访问，避免调用方管理生命周期。source
@@ -421,7 +409,7 @@ continuation 缓存；max_chars/scope 存在同一码表所有的 metadata 中�
 语义；纯 Lua 缓存中 true 表示可加长，缺失表示终止，无须显式 false 或运行时建索引。
 TSV 缓存中 nil 表示未查询，数字是继续的文件位置，false 缓存终止结果。
 完整 TSV 应包含 Lua 编码条目，挂接 loader 时清空 Lua 前缀副本，以文件结果为准。
-单码点简表默认上限 1，保留直接 hash 读取。补空格和规范化复制会保留独立元数据。
+单字素简表默认上限 1，保留直接 hash 读取。补空格和规范化复制会保留独立元数据。
 builder 按完整输入计算 max_chars，即使 Lua 常用子集为空也输出此元数据；
 只从选中的 Lua 编码条目生成真前缀集合，包含自身也有编码的可继续键。
 前缀不计入 common/full 数量，不为每个匹配查询构造结果 table。
@@ -432,7 +420,7 @@ TSV 二分节点缓存与前缀缓存分开：前 6 层节点无条件保留，�
 不使用对应整份文件划分的节点编号，避免错误复用节点。
 
 The builder always emits {codes, prefixes, max_chars, scope}, including empty and
-single-codepoint tables. normalize also accepts codes-only descriptors and direct
+single-grapheme tables. normalize also accepts codes-only descriptors and direct
 maps. Prefix sets have a private continuation cache; max_chars/scope are owned by
 the same code map and exposed through read-only metadata(data).
 Runtime source metadata is inferred from the table, without multi_code or length
@@ -441,7 +429,7 @@ omit terminal ones. Code arrays have no continuation semantics; no runtime prefi
 index is built. TSV caches use nil for unqueried, numeric file offsets to continue,
 and false to prune. Full TSV data includes every Lua code entry, so attaching a
 loader discards the static Lua prefix copy instead of merging it. Compact maps
-default to a one-codepoint bound. Normalization and padding preserve metadata.
+default to a one-grapheme bound. Normalization and padding preserve metadata.
 The builder computes the full table's bound even with an empty Lua subset, and
 generates proper prefixes only for selected Lua codes, including keys with codes.
 Prefixes do not count as code entries; queries allocate no temporary result table.
@@ -450,15 +438,26 @@ with deeper exact-hit nodes. These comparison nodes retain key/position/after
 independently of prefix pruning. Searches starting from a saved offset do not use
 whole-file heap indices because their binary partitions differ.
 
-生成的 scope 使用完整输入首码点的最小、最大 UTF-8 字符，直接作为既有 scope 区间表，
-不增加运行时策略。UTF-8 字节排序同时给出首码点边界；无需转换数值码点。空输入为
+生成的 scope 使用完整输入首字素的最小、最大 UTF-8 字符，直接作为既有 scope 区间表，
+不增加运行时策略。构建时遍历各条目的首字素求最小/最大值，不能从完整键排序两端推断。空输入为
 空范围。用户声明优先于工厂声明，再优先于文件元数据；显式 all 可取消初筛。
-补空格保留私有 metadata；extra 插入的首码点会作为 hash=true 加入文件范围，
+补空格保留私有 metadata；extra 插入的首字素会作为 hash=true 加入文件范围，
 不扩大其他码表实例的 scope。
 
-Generated scopes use the complete input's minimum and maximum first-codepoint
-characters with the existing range-table compiler. UTF-8 byte ordering supplies
-the bounds without numeric codepoint conversion. Empty input emits an empty set.
+Generated scopes use the complete input's minimum and maximum first-grapheme
+characters with the existing range-table compiler. The builder visits every first
+grapheme to compute extrema; whole-key ordering can differ from first-grapheme ordering. Empty input emits an empty set.
 User declarations override factory declarations, then file metadata; explicit all
-clears the filter. Padding preserves metadata. Extra entries add first-codepoint
+clears the filter. Padding preserves metadata. Extra entries add first-grapheme
 hash inclusions to the owning map's scope without changing other instances.
+
+## 字符 motion 的相邻位置 / Adjacent positions for character motions
+
+字符扫描器在识别目标时记录该字素起点及前后相邻字素起点，与候选缓存共同失效。
+char 适配层传入 f/F/t/T；t/T 只选择相邻位置，不再把字节列转换为码点下标，也不重复分段。
+行首没有前驱、行末没有后继的目标忽略，候选识别缓存可跨 motion 复用。
+
+The character scanner caches each recognized grapheme start and its neighboring starts.
+The adapter passes f/F/t/T; till motions select the adjacent position without codepoint
+conversion or repeated segmentation. Targets without a predecessor/successor are skipped.
+Recognition caches can be reused across motions and expire with their owning snapshots.

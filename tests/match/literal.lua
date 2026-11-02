@@ -20,7 +20,7 @@ check("", "", false, {})
 check("a", "abc", true, { 1 })
 check("a", "", true, { "a" })
 check("a", "b", true, {})
-for _, char in ipairs({ "中", "😀", string.char(0x80), string.char(0xE4, 0xB8) }) do
+for _, char in ipairs({ "中", "😀", "á", "1️⃣", "*️⃣", string.char(0x80), string.char(0xE4, 0xB8) }) do
   for _, stream in ipairs({ "", "z", char }) do
     check(char, stream, false, {})
   end

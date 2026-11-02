@@ -133,10 +133,10 @@ end))
 assert(spans[2] and lazy["中国"][1] == "ab" and #calls == 3)
 local combining = tables.normalize({
 	codes = { ["é"] = "e", ["👩‍💻"] = "dev" },
-	prefixes = { e = true, ["👩"] = true, ["👩‍"] = true },
-	max_chars = 3,
+	prefixes = {},
+	max_chars = 1,
 })
-for _, pair in ipairs({ { "é", "e", 2 }, { "👩‍💻", "dev", 3 } }) do
+for _, pair in ipairs({ { "é", "e", 1 }, { "👩‍💻", "dev", 1 } }) do
 	local matched
 	assert(codetable.full_code(Cursor.new(pair[1]), Cursor.new(pair[2]), {
 		data = combining,

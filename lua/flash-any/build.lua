@@ -1,5 +1,5 @@
 local M = {}
-local utf8 = require("flash-any.utf8")
+local grapheme = require("flash-any.grapheme")
 
 local function add(rows, char, code)
   char = char and char:gsub("^%s+", ""):gsub("%s+$", "")
@@ -128,7 +128,7 @@ end
 ---@param opts table
 ---@return integer common Number of entries written to Lua.
 ---@return integer full Number of distinct entries in the complete input.
----@return integer multi Number of distinct multi-codepoint entries in the complete input.
+---@return integer multi Number of distinct multi-grapheme entries in the complete input.
 function M.table(opts)
   assert(opts and opts.source and opts.lua, "source and lua are required")
   local separator = opts.format or opts.separator or "auto"
@@ -140,11 +140,17 @@ function M.table(opts)
   local all = vim.tbl_keys(rows)
   table.sort(all)
   local multi, maximum = 0, 1
+  local first, last
   for _, key in ipairs(all) do
     local count = 0
-    for _ in utf8.iter_offset(key) do
+    grapheme.each(key, function(start, after)
       count = count + 1
-    end
+      if start == 0 then
+        local char = key:sub(1, after)
+        if not first or char < first then first = char end
+        if not last or char > last then last = char end
+      end
+    end)
     if count > 1 then
       multi = multi + 1
     end
@@ -165,11 +171,11 @@ function M.table(opts)
   for _, key in ipairs(keys) do
     if rows[key] then
       common = common + 1
-      for offset in utf8.iter_offset(key) do
+      grapheme.each(key, function(_, offset)
         if offset < #key then
           prefixes[key:sub(1, offset)] = true
         end
-      end
+      end)
     end
   end
   local lua = assert(io.open(vim.fn.expand(opts.lua), "wb"))
@@ -190,9 +196,8 @@ function M.table(opts)
     lua:write(string.format("    [%s] = true,\n", quote(key)))
   end
   lua:write(("  },\n  max_chars = %d,\n"):format(maximum))
-  if #all > 0 then
-    -- Sorted UTF-8 keys also order their first codepoints; scope filters starts.
-    local first, last = utf8.sub(all[1], 0, 1), utf8.sub(all[#all], 0, 1)
+  if first then
+    -- Whole-key order can differ from first-grapheme order (a💻 vs á).
     lua:write(("  scope = { { %s, %s } },\n"):format(quote(first), quote(last)))
   else
     lua:write("  scope = {},\n")
@@ -222,7 +227,7 @@ function M.command(opts)
   if opts.tsv then message = message .. (" and %d TSV entries"):format(full) end
   local level = vim.log.levels.INFO
   if multi > 0 then
-    message = message .. ("; %d multi-codepoint entries use word-prefix matching"):format(multi)
+    message = message .. ("; %d multi-grapheme entries use word-prefix matching"):format(multi)
     level = vim.log.levels.WARN
   end
   vim.notify(message, level)

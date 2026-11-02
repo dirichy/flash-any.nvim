@@ -11,7 +11,7 @@ local function words(entries)
       local known = false
       for _, entry in ipairs(entries) do
         local word, code = entry[1], entry[2]
-        local chars = vim.str_utfindex(word, "utf-32")
+        local chars = require("flash-any.grapheme").len(word)
         if text:get(chars) == word then
           known = true
           if #stream:get() < #code and code:sub(1, #stream:get()) == stream:get() then
@@ -59,7 +59,7 @@ assert(#run("き", "x", { {
 } }) == 0)
 found = run("🙂́x", "ex", { words({ { "🙂́", "e" }, { "x", "x" } }) })
 assert(#found == 1 and found[1].pos[2] == 0 and found[1].end_pos[2] == 6)
-print("ok - word branches consume text codepoints independently of input bytes")
+print("ok - word branches consume text graphemes independently of input bytes")
 
 -- Different spans may end at the same codepoint; merge ranges and next keys.
 found = run("甲乙丙", "x", { words({ { "甲乙", "x" }, { "乙", "xy" }, { "丙", "z" } }) })
@@ -119,7 +119,7 @@ for _, pattern in ipairs({ "abcd", "abx", "abcab", "aa", "bcda" }) do
     assert(vim.deep_equal(incremental, fresh), value .. ": " .. vim.inspect({ incremental, fresh }))
   end
 end
-print("ok - overlapping multi-codepoint branches agree in fresh and incremental scans")
+print("ok - overlapping multi-grapheme branches agree in fresh and incremental scans")
 
 local seen
 local observing = {
@@ -245,4 +245,4 @@ char_state.pattern = function()
 end
 match.char(0, char_state, range, sources)
 assert(char_state._flash_any_char_cache[0].lines[1] == line)
-print("all multi-codepoint matcher tests passed")
+print("all multi-grapheme matcher tests passed")

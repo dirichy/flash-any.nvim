@@ -203,3 +203,174 @@ changing only reuse of the prior text prefix's offset. This measures local CPU f
 fixture saves about 37%; distant siblings still need binary search. Real matchers
 also cache codes and continuation offsets per key; false terminates extension.
 Binary comparison-node caching remains separate from prefix pruning.
+
+## 字素 Cursor 对照（2026-11-02）
+
+本节及后续对照测于 scope 仍截取首码点的阶段；当前 scope 已改为完整字素比较，
+并同步修改 builder/extra 及 t/T。以下数据保留为历史记录，不代表这些后续改动的最新性能。
+
+**复核说明：以下是多个 fixture/工作负载顺序预热的整套配置对照，不能据此认定普通
+中英文正文有稳定的 38% 提速。两版的 emoji source 分别走多码点前缀查询和单字素
+直接查询，且隔离执行时 JIT 结果会改变。关闭该 source、每个样本新进程的结果见后文。**
+
+基线是改动前的 `e0bd48e`，对照为本次字素 Cursor 工作区。Neovim 0.12.6，
+LuaJIT 2.1.1793383622；固定 CPU 0，前后各三个独立进程，串行交替运行。
+每个工作负载清空 JIT traces、预热 100 次，校准至每批至少约 30 ms，7 批取中位数；
+下表再取三个进程中位数的中位数，GC 开启。
+
+每个 fixture 为 40 行，每行固定文本重复两次；sources 为 ASCII literal、默认全拼
+initial（chinese scope）及脚本内 14 项 emoji prefix 表。前后文本、ASCII 编码、
+source 顺序一致；emoji 的 prefixes/max_chars 分别按各版本的计数单位构建。
+本次同时改变了分段、扫描终点、scope 首码点读取和码表跨度，数字代表整套改动，
+不能全部归因为分段算法。旧版仍允许簇内起点；本次 fresh-c 的显示候选数量相同，
+但并非一般情况下语义完全等价的替换。
+
+完整扫描包含 Cursor 创建、buffer API、状态推进、匹配、结果表和标签分配；
+不含进程启动、source 配置、首次 TSV 冷加载、UI 绘制或真实键盘事件，不能当作端到端按键延迟。
+逐键输入数字为从空 state 输入完整单词的总耗时，每个词分别从新 state 开始。
+单位 ms；括号为耗时变化，负数表示减少。
+
+| 40 行场景 | 首次扫描 c：码点 → 字素 | 逐键 shi，总计 | 逐键 coder，总计 |
+| --- | ---: | ---: | ---: |
+| 纯 ASCII | 1.541 → 1.764（+14.5%） | 1.967 → 2.561（+30.2%） | 3.139 → 2.998（-4.5%） |
+| 中英文正文 | 4.272 → 2.655（-37.8%） | 5.763 → 3.785（-34.3%） | 4.721 → 3.363（-28.8%） |
+| 正文混合 emoji | 5.175 → 2.961（-42.8%） | 5.229 → 3.061（-41.5%） | 8.294 → 5.337（-35.7%） |
+| 密集 ZWJ emoji | 4.654 → 1.294（-72.2%） | 5.094 → 1.502（-70.5%） | 10.530 → 4.699（-55.4%） |
+
+JIT 路径有明显波动。以首次扫描为例，三个进程的中位数范围如下（ms）：
+
+| 场景 | 码点版范围 | 字素版范围 |
+| --- | ---: | ---: |
+| 纯 ASCII | 1.411–1.554 | 1.580–1.843 |
+| 中英文正文 | 3.194–4.352 | 2.165–2.955 |
+| 正文混合 emoji | 4.736–5.418 | 2.936–3.274 |
+| 密集 ZWJ emoji | 4.186–4.719 | 1.288–1.306 |
+
+局部 CPU 与保留内存分开看：下表前两列不运行 source/扫描器；创建列仅构造
+40 个 Cursor，遍历列包含创建和对每个位置执行 get(1)/shift。旧版创建尚未分段，
+因此不能只比较创建时间就判断整体性能。内存为 fresh-c state 及返回结果在完整 GC
+后保留的 Lua 堆差值，不是 RSS。
+
+| 场景 | 仅创建 40 个 Cursor，ms | 创建并遍历，ms | 保留 Lua 堆，KiB，码点 → 字素 |
+| --- | ---: | ---: | ---: |
+| 纯 ASCII | 0.006 → 0.160（+2604.6%） | 0.206 → 0.257（+24.5%） | 391.6 → 474.7 |
+| 中英文正文 | 0.006 → 0.217（+3602.2%） | 0.853 → 0.295（-65.4%） | 262.1 → 305.1 |
+| 正文混合 emoji | 0.006 → 0.315（+5270.6%） | 1.281 → 0.395（-69.2%） | 426.0 → 444.5 |
+| 密集 ZWJ emoji | 0.006 → 0.168（+2757.3%） | 1.398 → 0.504（-64.0%） | 497.5 → 280.9 |
+
+字素版提前分段并增加每簇最后码点的索引，因此纯文本保留内存增多。ZWJ fixture
+扫描起点从 3,360 减至 800，缓存与候选推进相应减少，内存也下降。ASCII 起点数量
+仍为 5,200，无扫描位置减少的收益；首次扫描及 shi 连续输入出现回退，coder 的
+小幅中位数变化不足以说明普遍收益。这里只报告实测，未据此添加优化或特判。
+
+复现脚本：[scripts/bench_grapheme.lua](../scripts/bench_grapheme.lua)。把改动前
+版本展开到独立目录，使用当前同一脚本分别运行；每次启动新进程，串行重复三轮：
+
+```sh
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_grapheme.lua /path/to/before
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_grapheme.lua "$PWD"
+```
+
+## 关闭多码点 source 的冷启动复核（2026-11-02）
+
+完全移除 emoji source，包括它的码表构建与 Cursor 预遍历；只保留 ASCII literal
+和默认全拼 initial（chinese scope），两者文本跨度均为 1。每个样本启动一个独立
+`nvim --clean` 进程，不预热、不预扫描、不复用 state，每进程只调用一次 matcher.get。
+保持 40 行相同 fixture、查询 c 和标签分配；固定 CPU 0，每场景每版本 30 个样本，
+前后顺序交替。保留默认 JIT/GC 设置；不清操作系统文件缓存。
+
+source 初始化包括 require、码表加载与 scope 构建；首次扫描包括新 Cursor、首次
+查表、状态推进与结果/标签分配。进程总耗时由 Python 从启动命令至退出测量，含
+Neovim 启动、source 初始化、buffer 准备、扫描、JSON 输出及退出；这是 headless
+进程总时间，仍不是带 UI 的按键延迟。下表为中位数，单位 ms。
+
+| 场景 | 阶段 | 码点版 | 字素版 | 耗时变化 |
+| --- | --- | ---: | ---: | ---: |
+| 纯 ASCII | 首次扫描 | 3.599 | 3.742 | +4.0% |
+| 纯 ASCII | source 初始化 | 3.415 | 3.601 | +5.4% |
+| 纯 ASCII | 进程总耗时 | 11.237 | 11.558 | +2.9% |
+| 中英文正文 | 首次扫描 | 4.846 | 4.449 | -8.2% |
+| 中英文正文 | source 初始化 | 3.406 | 3.601 | +5.7% |
+| 中英文正文 | 进程总耗时 | 12.580 | 12.281 | -2.4% |
+
+中英文首次扫描的样本范围：码点版 3.976–7.501 ms，字素版 3.794–5.497 ms；
+ASCII 分别为 3.105–4.419 ms 和 3.066–4.603 ms，存在明显重叠。此配置下普通
+中英文扫描耗时中位数减少约 8%，进程总耗时只减少约 2%；不能沿用之前的 38%。
+
+原因复核：
+
+- 原中英文 fixture 两版都是 4,160 个扫描起点。逐次计数得到 get 调用均为 28,080，
+  set_offset 均为 8,440；不存在字素合并减少扫描位置的收益。
+- 原基准中的 emoji source：旧版 max_chars=8，每次扫描执行 4,240 次 table.lookup；
+  新版 max_chars=1，直接查表。即便正文没有 emoji，这条分支仍会运行；移除该 source
+  后这项差异消失。
+- Cursor 同时从惰性扩展改为预建边界，get 不再扩展边界；旧版本 fixture 调用
+  _extend 4,201 次，新版不调用。另有 scope 首码点截取成本和 JIT 路径变化。
+  这说明“没有多码点字素”不代表两套实现做相同的工作，但不能把剩余 8% 全归给某一项。
+
+此外，单独运行中英文 fresh-c 的预热复测为 1.248 → 1.568 ms（各 3 个独立
+进程中位数），与之前在其它工作负载之后执行时的方向相反。原脚本虽在每项前
+调用 jit.flush，测量依然表现出执行历史敏感性；因此增加 fixture/workload 选择参数，
+以后做局部 CPU 对照应每个进程只执行一项。该预热结果与上面的冷启动结果分开解释。
+
+冷启动复现（每次命令一个样本，前后交替重复 30 次）：
+
+```sh
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_grapheme_cold.lua /path/to/before chinese
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_grapheme_cold.lua "$PWD" chinese
+```
+
+将 chinese 改为 ascii 即为 ASCII 场景。预热单项隔离可用
+`scripts/bench_grapheme.lua ROOT chinese fresh-c`，末尾再加 off 可关闭 JIT。
+
+## 旧版预建码点边界的冷启动对照（2026-11-02）
+
+在旧版临时副本中，只修改 Cursor.new：一次遍历填充原有 _offsets/_indices，
+保留旧 get、set_offset、shift、扫描器、scope 和 source。复用旧 next_offset 迭代函数，
+不添加字素规则，也不创建字符串缓存或新增最后码点索引。新增的构造逻辑为：
+
+```lua
+local offsets, indices = { 0 }, { [0] = 1 }
+for after in next_offset, value, 0 do
+  offsets[#offsets + 1] = after
+  indices[after] = #offsets
+end
+-- 构造对象时 _offsets = offsets，_indices = indices，其余保持旧版。
+```
+
+沿用上节冷启动脚本和两种 fixture：40 行，literal + 单码点拼音，无 emoji source，
+每进程只扫描一次，不预热。为降低波动，每场景每版本改为 100 个独立进程，
+三种实现的运行顺序在六种排列之间轮换，固定 CPU 0，默认 JIT/GC。
+这次三个版本在同一批次重新测量，不能与上节不同批次直接相减归因。
+
+首次完整扫描中位数（含 Cursor 创建，未含 source 初始化和进程启动），单位 ms：
+
+| 文本 | 旧版惰性码点 | 旧版预建码点 | 当前字素版 |
+| --- | ---: | ---: | ---: |
+| 纯 ASCII | 3.522 | 3.034 | 3.657 |
+| 中英文正文 | 4.869 | 3.600 | 4.306 |
+
+旧版仅预建边界后，ASCII 扫描耗时减少约 14%，中英文减少约 26%；
+当前字素版相对预建码点版，两个场景的扫描耗时中位数分别增加约 21%、20%。
+这组数据支持“预建边界本身已有收益”，不支持“没有复合字素的正文因字素规则而更快”。
+当前字素版还包含 scope 首码点截取和其它读取路径改动，不能把差值全部当作分段器成本。
+
+首次扫描的四分位区间（P25–P75），单位 ms：
+
+| 文本 | 旧版惰性码点 | 旧版预建码点 | 当前字素版 |
+| --- | ---: | ---: | ---: |
+| 纯 ASCII | 3.269–3.784 | 2.797–3.203 | 3.411–3.814 |
+| 中英文正文 | 4.544–5.397 | 3.365–4.561 | 4.111–4.675 |
+
+尤其是中英文预建码点版仍有明显波动，区间与字素版重叠；以上比例仅描述这批
+冷启动样本的中位数，不能外推到所有输入或 UI 延迟。
+
+headless 进程总时间中位数（包含启动、初始化、准备 buffer、首次扫描、输出与退出），单位 ms：
+
+| 文本 | 旧版惰性码点 | 旧版预建码点 | 当前字素版 |
+| --- | ---: | ---: | ---: |
+| 纯 ASCII | 11.110 | 10.577 | 11.442 |
+| 中英文正文 | 12.404 | 11.214 | 12.115 |
+
+本实验仅修改 /tmp 下的旧版副本，没有改动当前生产 Cursor。对照用上述补丁构建
+旧版预建副本，再以同一个 scripts/bench_grapheme_cold.lua 分别传入三个实现目录。

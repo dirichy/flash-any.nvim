@@ -136,7 +136,8 @@ This shares sources, pinyin schemes, fuzzy spelling, and fallback rules with `s`
 but matches only one text character at a time. Custom sources retain their matchers.
 
 Flash's character mode handles `F/t/T`, counts, `;`/`,`, operators, and optional
-labels; no extra keymaps are needed. It uses Flash's native labeler; `s` keeps
+labels; no extra keymaps are needed. `t/T` stop at the previous/next grapheme
+boundary, including around combining sequences and ZWJ emoji. It uses Flash's native labeler; `s` keeps
 its existing label rules. Only the visible range is scanned for labels; offscreen
 targets are scanned line by line when needed, stopping once the requested count
 is found. Set `multi_line = false` to stay on the current line.
@@ -298,7 +299,7 @@ with one text entry per row and comma-separated codes; LF and CRLF are supported
 the current directory, absolute, or start with `~`.
 
 A custom matcher does not need a table. It receives `text, stream, source, emit`. Both `text` and `stream` are `Cursor` objects. Read
-all remaining content with `get()`, or up to n codepoints with `get(n)`; `source` is the runtime source. For example, match 中 with `x`:
+all remaining content with `get()`, or up to n graphemes with `get(n)`; `source` is the runtime source. For example, match 中 with `x`:
 
 ```lua
 sources = {
@@ -324,14 +325,14 @@ Return `true` for a recognized position, even if the input does not match; retur
   next keys. `emit("")` is success with no further keys.
 
 `chars` defaults to 1. For example, `emit(3, 2)` consumes 3 input bytes and matches
-2 buffer codepoints. An empty stream only queries next keys; it must not consume
+2 buffer graphemes. An empty stream only queries next keys; it must not consume
 input. Do not retain `emit` or call it after the matcher returns.
 
 `get()` returns all remaining content, including an empty string at the end.
-`get(n)` returns all remaining content when fewer than n codepoints remain. `text` holds a buffer
+`get(n)` returns all remaining content when fewer than n graphemes remain. `text` holds a buffer
 line; `stream` holds the complete input and points at its unconsumed portion.
 Reads share cached boundaries and strings without moving the cursor. Sources may
-only call `get`; `shift` (default 1 codepoint) and `set_offset` belong to the scanner. See the
+only call `get`; `shift` (default 1 grapheme) and `set_offset` belong to the scanner. See the
 [source author guide](docs/sources.md#文本读取--text-access) for the full contract.
 
 Every character prefix of a successful input must also succeed. Failed branches
@@ -366,10 +367,12 @@ sources = {
 Strategy names are `"ascii"`, `"chinese"`, `"unicode"`, and `"private_use"`; `"all"`
 removes the restriction. Numeric codepoint bounds also work, for example
 `{ { 1, 10000 }, a = false }`. Numeric bounds convert once during initialization.
+String keys and string bounds must each contain one grapheme.
 Character hash values use Lua truthiness: false excludes, while code strings and
-arrays include, so a single-codepoint extra table can also serve directly as scope.
-Matching checks the character hash first, then compares UTF-8 strings without
-converting codepoints on each call. Custom functions receive the text cursor,
+arrays include, so a single-grapheme extra table can also serve directly as scope.
+Matching checks the complete grapheme hash first, then compares complete UTF-8
+strings. Ranges use byte order: `{ { "a", "z" } }` includes `á` but excludes `ź`;
+`{ ["a"] = true }` only includes the exact grapheme `a`. Custom functions receive the text cursor,
 e.g. `scope = function(text) return text:get(2) == "きゃ" end`. An empty table accepts
 nothing. Passing scope does not claim recognition; the matcher still decides.
 
@@ -408,12 +411,12 @@ TSV; CSV, Rime and whitespace-separated records retain their single-code fields.
 
 Multi-codepoint text such as `中国`, `きゃ`, combining sequences, and ZWJ emoji is
 retained. After a successful build, the command emits one warning with the count
-of distinct multi-codepoint entries in the complete input, with or without TSV output. Lua output always wraps encodings in `codes` and carries
+of distinct multi-grapheme entries in the complete input, with or without TSV output. Lua output always wraps encodings in `codes` and carries
 `prefixes`, `max_chars`, and `scope`; built-in matchers infer word support from this
-metadata without source flags or length options. The bound counts text codepoints
+metadata without source flags or length options. The bound counts text graphemes
 in the complete input, even when the common Lua subset is empty. Lua-only prefixes
 are a separate set of extendable keys, including keys with codes; omit leaves.
-The generated scope spans the minimum and maximum first codepoints of all input
+The generated scope spans the minimum and maximum first graphemes of all input
 entries, providing a coarse filter before matching or TSV reads. Explicit source
 scopes take precedence. The loader also accepts direct encoding maps. TSV must
 contain all Lua code entries. Text keys cannot contain tabs or newlines.
@@ -436,8 +439,9 @@ common characters:
 Individual codes must be ASCII without commas, tabs, or newlines. Output files are
 overwritten; choose paths different from the input.
 
-Text is processed as Unicode codepoints, not complete grapheme clusters such as
-ZWJ emoji or combining sequences.
+Text and input use Unicode 17 extended grapheme clusters: ZWJ emoji and combining
+sequences each count as one grapheme. Matching starts only at grapheme boundaries;
+byte offsets remain compatible with Neovim. No Unicode normalization is applied.
 
 ## 📄 License and sources
 

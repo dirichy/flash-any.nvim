@@ -634,4 +634,142 @@ check("exclude next labels globally", function()
   assert(not used.b and not used.c and not used.d and not used.f)
 end)
 
+check("grapheme spans cover final codepoints and never visit internal positions", function()
+  local Cursor = require("flash-any.cursor")
+  local value = "á👩🏽‍💻🇨🇳1️⃣💻"
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { value })
+  local starts, expected =
+    {}, { 0, #"á", #"á👩🏽‍💻", #"á👩🏽‍💻🇨🇳", #"á👩🏽‍💻🇨🇳1️⃣" }
+  local sources =
+    { {
+      matcher = function(text, _, _, emit)
+        starts[text.offset] = true
+        emit(1)
+        return true
+      end,
+    } }
+  local opts = { from = { 1, 0 }, to = { 1, 0 } }
+  local state = {
+    pattern = function()
+      return "x"
+    end,
+  }
+  local matches = matcher.get(0, state, opts, sources)
+  assert(#matches == #expected and vim.tbl_count(starts) == #expected)
+  local text = Cursor.new(value)
+  for i, col in ipairs(expected) do
+    assert(starts[col] and matches[i].pos[2] == col)
+    text:set_offset(col)
+    local _, _, last = text:get(1)
+    assert(matches[i].end_pos[2] == last)
+  end
+  starts = {}
+  local chars = matcher.char(0, state, opts, sources)
+  assert(#chars == #expected and vim.tbl_count(starts) == #expected)
+  for i, col in ipairs(expected) do
+    assert(chars[i].pos[2] == col and chars[i].end_pos[2] == col)
+  end
+end)
+
+check("grapheme words agree across fresh, incremental, deleted and replaced input", function()
+  local value = "👩‍💻á👩‍💻💻1️⃣"
+  local data = tables.normalize({
+    codes = {
+      ["👩‍💻"] = "dev",
+      ["👩‍💻á"] = "word",
+      ["á"] = "accent",
+      ["💻"] = "pc",
+      ["1️⃣"] = "one",
+    },
+    prefixes = { ["👩‍💻"] = true },
+    max_chars = 2,
+  })
+  local sources = {
+    literal_source,
+    {
+      data = data,
+      matcher = codetable.full_code,
+      scope = require("flash-any.scope").resolve({ ["👩‍💻"] = true, ["á"] = true, ["💻"] = true, ["1️⃣"] = true }),
+    },
+  }
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { value })
+  local opts = { from = { 1, 0 }, to = { 1, 0 } }
+  local query = "d"
+  local state = {
+    pattern = function()
+      return query
+    end,
+  }
+  for _, input in ipairs({ "d", "de", "dev", "deva", "devaccent", "word", "wordd", "worddev", "pc", "one", "1", "d" }) do
+    query = input
+    assert(
+      vim.deep_equal(
+        matcher.get(0, state, opts, sources),
+        matcher.get(0, {
+          pattern = function()
+            return input
+          end,
+        }, opts, sources)
+      ),
+      input
+    )
+  end
+  query = "word"
+  local matches = matcher.get(0, state, opts, sources)
+  assert(#matches == 1 and matches[1].pos[2] == 0 and matches[1].end_pos[2] == #"👩‍💻a")
+  query = "pc"
+  matches = matcher.get(0, state, opts, sources)
+  assert(#matches == 1 and matches[1].pos[2] == #"👩‍💻á👩‍💻")
+  query = "1"
+  assert(#matcher.get(0, state, opts, sources) == 0)
+  local cached = state._flash_any_cache[0].lines[1]
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "💻" })
+  query = "pc"
+  assert(#matcher.get(0, state, opts, sources) == 1 and state._flash_any_cache[0].lines[1] ~= cached)
+end)
+
+check("input appends that merge graphemes rebuild continuation states", function()
+  local opts = { from = { 1, 0 }, to = { 1, 0 } }
+  local sources = {
+    {
+      matcher = function(_, stream, _, emit)
+        local input, after = stream:get(1)
+        if after then
+          emit(#input)
+        else
+          emit("")
+        end
+        return true
+      end,
+    },
+  }
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲乙丙" })
+  for _, inputs in ipairs({
+    { "a", "á", "áb" },
+    { "👩", "👩‍", "👩‍💻", "👩‍💻x" },
+    { "🇨", "🇨🇳", "🇨🇳🇺", "🇨🇳🇺🇸" },
+  }) do
+    local query
+    local state = {
+      pattern = function()
+        return query
+      end,
+    }
+    for _, input in ipairs(inputs) do
+      query = input
+      assert(
+        vim.deep_equal(
+          matcher.get(0, state, opts, sources),
+          matcher.get(0, {
+            pattern = function()
+              return input
+            end,
+          }, opts, sources)
+        ),
+        input
+      )
+    end
+  end
+end)
+
 print("all matcher tests passed")

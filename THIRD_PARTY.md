@@ -11,6 +11,7 @@ and encoding tables, not font files or input-method binaries.
 |---|---|---|
 | `tables/pinyin.lua`, `pinyin.tsv`, `pinyin_parts.lua` | [mozillazg/pinyin-data](https://github.com/mozillazg/pinyin-data) | [MIT, copyright 2016 mozillazg](licenses/pinyin-data-MIT.txt) |
 | `tables/wubi86.lua`, `wubi86.tsv` | [rime/rime-wubi](https://github.com/rime/rime-wubi), `wubi86.dict.yaml` | [LGPL-3.0](licenses/rime-wubi-LGPL-3.0.txt), [GPL-3.0 text incorporated by LGPL](licenses/GPL-3.0.txt) |
+| `lua/flash-any/grapheme_data.lua`, `tests/data/GraphemeBreakTest-17.0.0.txt` | Unicode 17.0.0 grapheme, Indic conjunct and emoji properties / 字素、连字与 emoji 属性 | [Unicode License V3](licenses/Unicode-3.0.txt) |
 | `tables/unicode.lua`, `unicode.tsv` | [UnicodeData.txt](https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt) | [Unicode License V3](licenses/Unicode-3.0.txt) |
 | `tables/nerdfont.lua`, `nerdfont.tsv` | [Nerd Fonts glyphnames.json](https://github.com/ryanoasis/nerd-fonts/blob/master/glyphnames.json) | [Nerd Fonts upstream licensing notice](licenses/nerd-fonts.txt) |
 

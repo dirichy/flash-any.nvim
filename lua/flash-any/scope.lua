@@ -1,12 +1,12 @@
 local M = {}
-local utf8 = require("flash-any.utf8")
+local grapheme = require("flash-any.grapheme")
 
 ---@alias FlashAnyScopeFn fun(text: FlashAnyCursor): boolean
 ---@alias FlashAnyScopeBound integer|string
----@alias FlashAnyScopeTable table<integer|string, any> Numeric keys contain ranges; character keys use Lua truthiness.
+---@alias FlashAnyScopeTable table<integer|string, any> Numeric keys contain ranges; grapheme keys use Lua truthiness.
 ---@alias FlashAnyScope "all"|"ascii"|"chinese"|"unicode"|"private_use"|FlashAnyScopeTable|FlashAnyScopeFn
 
----Normalize bounds once; valid UTF-8 byte order preserves codepoint order.
+---Normalize bounds once; ranges compare complete graphemes in UTF-8 byte order.
 ---@param value FlashAnyScopeBound
 ---@return string
 local function bound(value)
@@ -14,9 +14,8 @@ local function bound(value)
     assert(value >= 0 and value <= 0x10FFFF and value % 1 == 0, "scope codepoints must be integers in 0..0x10FFFF")
     return vim.fn.nr2char(value)
   end
-  assert(type(value) == "string" and value ~= "", "scope bounds must be single characters or codepoints")
-  local iter, str, offset = utf8.iter_offset(value)
-  assert(iter(str, offset) == #value, "scope bounds and character keys must contain one codepoint")
+  assert(type(value) == "string" and value ~= "", "scope bounds must be single graphemes or numeric codepoints")
+  assert(grapheme.len(value) == 1, "scope bounds and character keys must contain one grapheme")
   return value
 end
 

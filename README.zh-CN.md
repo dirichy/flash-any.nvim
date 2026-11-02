@@ -130,6 +130,7 @@ Flash 原生的字面字符匹配。若要关闭 Flash 整个字符模式，设�
 自定义 source 继续使用自己的 matcher。
 
 `F/t/T`、计数、`;`/`,`、操作符和可选标签由 Flash 字符模式处理，无需另设按键。
+`t/T` 停在前一个/后一个字素边界，组合音标和 ZWJ emoji 不会被拆开。
 标签使用 Flash 原生 labeler；`s` 的标签规则保持不变。
 只扫描可见区域来显示标签；需要屏幕外目标时，再沿跳转方向逐行扫描，找到指定数量后停止。
 `multi_line = false` 将范围限制在当前行。
@@ -271,7 +272,7 @@ sources = {
 
 Lua 文件返回与 `data` 相同结构的表；TSV 按 UTF-8 字节序排序，每条文本一行，编码用逗号分隔，支持 LF 和 CRLF。路径相对于当前工作目录，也可使用绝对路径或 `~`。
 
-自定义 `matcher` 可以没有码表。回调接收 `text, stream, source, emit`；`text` 和 `stream` 都是 `Cursor`，`get()` 读取当前位置到末尾的全部内容，`get(n)` 最多读取 n 个码点，`source` 是运行时 source。例如用 `x` 匹配“中”：
+自定义 `matcher` 可以没有码表。回调接收 `text, stream, source, emit`；`text` 和 `stream` 都是 `Cursor`，`get()` 读取当前位置到末尾的全部内容，`get(n)` 最多读取 n 个字素，`source` 是运行时 source。例如用 `x` 匹配“中”：
 
 ```lua
 sources = {
@@ -294,12 +295,12 @@ sources = {
 - `emit(bytes, chars?)`：消费指定输入字节，匹配指定文本跨度。
 - `emit(keys, chars?)`：剩余输入全部匹配，ASCII 字符串列出后续可用键；`emit("")` 表示成功但没有后续键。
 
-`chars` 默认 1。例如 `emit(3, 2)` 消费 3 个输入字节，匹配 2 个文本码点。
+`chars` 默认 1。例如 `emit(3, 2)` 消费 3 个输入字节，匹配 2 个文本字素。
 空 stream 只查询起始键，不能消费输入。不可保存 emit 或在 matcher 返回后调用。
 
-`get()` 在末尾返回空字符串，`get(n)` 不足 n 个码点时返回剩余全部内容；读取不移动位置。
+`get()` 在末尾返回空字符串，`get(n)` 不足 n 个字素时返回剩余全部内容；读取不移动位置。
 text 保存当前行，stream 保存完整输入并指向尚未消费的位置。两者完整复用同一种游标和缓存。
-source 只允许调用 `get`，`shift`（默认移动一个码点）和 `set_offset` 由扫描器使用。详见 [source 开发说明](docs/sources.md#文本读取--text-access)。
+source 只允许调用 `get`，`shift`（默认移动一个字素）和 `set_offset` 由扫描器使用。详见 [source 开发说明](docs/sources.md#文本读取--text-access)。
 
 matcher 必须满足：长输入能成功，则其字符前缀也能成功；失败分支不会在追加输入后重试。动态返回值由实现者保证，详见 `:help flash-any-matchers` 和[开发文档](docs/development.md)。
 
@@ -328,9 +329,10 @@ sources = {
 
 也可传策略名 `"ascii"`、`"chinese"`、`"unicode"`、`"private_use"`；`"all"` 取消范围限制。
 区间还支持数字码点，例如 `{ { 1, 10000 }, ["a"] = false }`。数字端点只在初始化时
-转成字符；运行时先查字符哈希，再按 UTF-8 字符串顺序比较区间，不逐次转码点。
+转成字符；字符串键和端点各须为一个字素。运行时先查完整字素哈希，再按 UTF-8 字节顺序比较区间。
+例如 `{ { "a", "z" } }` 包含 `á`，不包含 `ź`；`{ ["a"] = true }` 只包含精确的 `a`。
 自定义函数接收 text 游标，例如 `scope = function(text) return text:get(2) == "きゃ" end`。
-字符 hash 值按 Lua 真假判断：false 排除，编码字符串/数组等真值包含，因此单码点 extra
+字符 hash 值按 Lua 真假判断：false 排除，编码字符串/数组等真值包含，因此单字素 extra
 表可直接作为 scope。空表不接受任何字符。范围检查通过后，仍由 matcher 决定是否认识及如何匹配。
 
 ## 🛠️ 生成码表与检查
@@ -362,11 +364,11 @@ TSV 输入（`tsv`、`tab` 或 `auto` 识别的制表符行）的第二列支持
 逗号列表只适用于 TSV；CSV、Rime 和空白分隔记录保持单编码列的语义。
 
 多码点文本（如 `中国`、`きゃ`、组合音标或 ZWJ emoji）也会写入输出。
-命令构建成功后，若完整输入含多码点条目，会发出一次 warning 并报告去重后的条目数，是否输出 TSV 不影响统计。
+命令构建成功后，若完整输入含多字素词条，会发出一次 warning 并报告去重后的条目数，是否输出 TSV 不影响统计。
 Lua 输出统一使用 `codes` 保存编码，并自动携带 `prefixes`、`max_chars`、`scope`，内置 matcher 根据这些
-元数据匹配长短词，source 无需配置多码点开关或长度。`max_chars` 按完整输入的
-最长文本码点数计算，常用 Lua 子集为空也会保留。纯 Lua 表的 `prefixes` 是独立的
-可加长键集合，包括自身也有编码的键；叶子省略。生成的 `scope` 取完整输入条目首码点的
+元数据匹配长短词，source 无需配置词条开关或长度。`max_chars` 按完整输入的
+最长文本字素数计算，常用 Lua 子集为空也会保留。纯 Lua 表的 `prefixes` 是独立的
+可加长键集合，包括自身也有编码的键；叶子省略。生成的 `scope` 取完整输入条目首字素的
 最小、最大字符，作为匹配和 TSV 查询前的宽范围初筛；显式 source scope 优先。
 加载器仍可读取直接编码映射。
 TSV 应包含全部 Lua 编码条目。文本列不可包含制表符或换行。
@@ -384,7 +386,8 @@ TSV 应包含全部 Lua 编码条目。文本列不可包含制表符或换行�
 
 单个编码必须是 ASCII，且不能包含逗号、制表符或换行；文件会覆盖输出路径，请选择与输入不同的路径。
 
-当前按 Unicode 码点处理文本，不合并完整 grapheme cluster（例如 ZWJ emoji 和组合音标）。
+文本和输入按 Unicode 17 扩展字素簇处理：ZWJ emoji 和组合音标各算一个字素，只在字素边界开始匹配。
+位置仍采用 Neovim 字节偏移，不做 Unicode 规范化。
 
 ## 📄 许可与来源
 

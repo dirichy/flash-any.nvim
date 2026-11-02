@@ -1,7 +1,6 @@
 local Match = require("flash-any.match")
 local Matcher = require("flash.search.matcher")
 local Pos = require("flash.search.pos")
-local utf8 = require("flash-any.utf8")
 local M = {}
 
 ---@param win integer
@@ -21,23 +20,7 @@ function M.new(win, state, sources)
   end
 
   local function get_line(row, filter)
-    local matches = Match.char(win, state, { from = { row, 0 }, to = { row, 0 } }, sources)
-    if motion == "t" or motion == "T" then
-      local text = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), row - 1, row, false)[1]
-      local shifted = {}
-      for _, item in ipairs(matches) do
-        local col = item.pos[2]
-        local index = vim.str_utfindex(text, "utf-32", col) + (motion == "t" and -1 or 1)
-        if index >= 0 then
-          local target = utf8.byteidx(text, index)
-          if target < #text then
-            item.pos[2], item.end_pos[2] = target, target
-            shifted[#shifted + 1] = item
-          end
-        end
-      end
-      matches = shifted
-    end
+    local matches = Match.char(win, state, { from = { row, 0 }, to = { row, 0 } }, sources, motion)
     if filter and state.opts.filter then matches = state.opts.filter(matches, state) or matches end
     for _, item in ipairs(matches) do
       item.pos, item.end_pos = Pos(item.pos), Pos(item.end_pos)

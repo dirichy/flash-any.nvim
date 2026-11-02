@@ -103,28 +103,33 @@ scope = function(text) return text:get(2) == "きゃ" end
 | `unicode` | U+00A0–U+10FFFF |
 | `private_use` | Unicode 三段私用区 / Unicode private-use areas |
 
-表格中的数值键是区间条目，每项必须为两个端点；端点可为单个字符或数字码点，
-闭区间，起点不可大于终点。字符串键必须是单个字符，值按 Lua 真假判断：false 排除，
-其他真值包含，所以单码点 extra 码表可直接用作 scope，无需转换编码字符串/数组。
+表格中的数值键是区间条目，每项必须为两个端点；端点可为单个字素或数字码点，
+闭区间，起点不可大于终点。字符串键必须是单个字素，值按 Lua 真假判断：false 排除，
+其他真值包含，所以单字素 extra 码表可直接用作 scope，无需转换编码字符串/数组。
 先查哈希：真值直接接受，false 直接拒绝，只有没有该键时才查区间；没有匹配则拒绝。
 空表拒绝全部。声明会复制，不在运行时读取调用方修改的表。
 
 Numeric table keys contain two-bound inclusive ranges. Bounds may be single
-characters or numeric codepoints, with start <= end. String keys are single
-characters whose values use Lua truthiness. Hash entries win: truthy values
-accept and false rejects; a single-codepoint extra code map can be used directly,
+graphemes or numeric codepoints, with start <= end. String keys are single
+graphemes whose values use Lua truthiness. Hash entries win: truthy values
+accept and false rejects; a single-grapheme extra code map can be used directly,
 without converting its strings or encoding arrays to booleans;
 only absent keys fall through to ranges. No match rejects, as does an empty table.
 Declarations are copied rather than consulted dynamically after setup.
 
-数字端点只在初始化时转换成 UTF-8；字符端点原样使用。有效 UTF-8 字节顺序与码点
-顺序一致，因此区间运行时比较字符串，不需要 char2nr。预置策略复用已编译函数；
+区间端点按完整字素字符串比较：`{ { "a", "z" } }` 包含 `á`，但不包含 `ź`；
+`{ ["a"] = true }` 只接受精确的 `a`。例如 `{ ["👩‍💻"] = true }` 可直接筛选一个 ZWJ 字素。
+
+Ranges compare complete graphemes: `{ { "a", "z" } }` includes `á` but excludes
+`ź`; `{ ["a"] = true }` only accepts exactly `a`. A ZWJ grapheme can be used
+directly as a key, for example `{ ["👩‍💻"] = true }`.
+
+数字端点只在初始化时转换成 UTF-8；字素端点原样使用。区间按完整字素的 UTF-8 字节顺序比较，不做语言排序或 Unicode 规范化。预置策略复用已编译函数；
 自定义函数直接调用，参数为只读 Cursor，不能移动游标。scope 只限制尝试范围，
 不能让 matcher 识别原本不支持的字符。
 
-Numeric bounds convert to UTF-8 once; character bounds are used directly. Valid
-UTF-8 byte order follows codepoint order, so range matching compares strings
-without per-call char2nr conversion. Presets share compiled predicates; custom
+Numeric bounds convert to UTF-8 once; character bounds are used directly. Ranges compare complete graphemes by UTF-8 byte order, without linguistic collation
+or Unicode normalization. Presets share compiled predicates; custom
 functions run directly with a read-only Cursor. Do not move it. Scope only limits
 where a matcher is attempted; it does not expand the matcher's capabilities.
 
@@ -160,30 +165,33 @@ end
 | 接口 / API | 约定 / Contract |
 | --- | --- |
 | `cursor:get()` | 读取当前位置到末尾，末尾返回空字符串 / Read all remaining content; empty string at the end |
-| `cursor:get(n)` | 最多读取 n 个码点，不足返回全部剩余内容 / Read up to n codepoints; return the available suffix if shorter |
+| `cursor:get(n)` | 最多读取 n 个字素，不足返回全部剩余内容 / Read up to n graphemes; return the available suffix if shorter |
 | `cursor.value` | 完整字符串，只读 / Complete string, read-only |
 | `cursor.offset` | 当前 0-based 字节偏移，只读 / Current 0-based byte offset, read-only |
-| `cursor:set_offset(offset)` | 扫描器专用，移动到字节边界 / Scanner only; move to a byte boundary |
-| `cursor:shift(n?)` | 扫描器专用，默认前移 1 个码点；成功 true，否则 false 且不移动 / Scanner only; default 1 codepoint; false leaves cursor unchanged |
+| `cursor:set_offset(offset)` | 扫描器专用，移动到字素边界 / Scanner only; move to a grapheme boundary |
+| `cursor:shift(n?)` | 扫描器专用，默认前移 1 个字素；成功 true，否则 false 且不移动 / Scanner only; default 1 grapheme; false leaves cursor unchanged |
 
 构造方法为 `require("flash-any.cursor").new(value)`。text 和 stream 使用同一个类，
 没有输入专用的包装层或 ASCII 特判。显式 n 必须为正整数；get() 默认读取全部，
-shift() 默认移动一个码点。仅足额读取的 get(n) 额外返回片段之后的字节偏移和最后码点的起始偏移；
+shift() 默认移动一个字素。仅足额读取的 get(n) 额外返回片段之后的字节偏移和最后码点的起始偏移；
 不足时只返回字符串。空字符串表示没有剩余内容，shift(n) 不足时仍保持位置不变。
-get() 直接截取并缓存后缀，只返回字符串，不解码码点。Unicode 码点不等于字素。
+创建 Cursor 时一次建立 Unicode 17 扩展字素簇边界；get() 直接截取并缓存后缀，只返回字符串。
+ZWJ emoji、组合音标等完整序列算一个字素；无效 UTF-8 每字节单独处理，不做规范化。
 
 Construct with `require("flash-any.cursor").new(value)`. Text and stream use the
 same class without input-specific wrappers or ASCII fast paths. Explicit counts
-must be positive. get() reads all remaining content; shift() moves one codepoint.
+must be positive. get() reads all remaining content; shift() moves one grapheme.
 Only complete get(n) reads additionally return byte offsets after the span and at its
 last codepoint. Short reads return only the available string, including an empty string
-at the end. shift(n) still leaves the position unchanged when too few codepoints remain.
-get() slices and caches the suffix directly, returns only the string, and never decodes
-codepoints. Codepoints are not graphemes.
+at the end. shift(n) still leaves the position unchanged when too few graphemes remain.
+Cursor construction segments Unicode 17 extended grapheme clusters once. get()
+slices and caches the suffix directly and returns only the string. ZWJ emoji and
+combining sequences each count as one grapheme; invalid UTF-8 bytes stand alone.
+No normalization is applied.
 
 每条缓存行只有一个 text 游标，输入改变时保留，行快照失效时替换。每份输入只有
-一个 stream 游标，跨位置、行和窗口复用，输入改变时替换。get、shift 共用已解码
-边界和字符串缓存；get() 与 get(n) 读取相同片段时也共享结果。source 对两个游标
+一个 stream 游标，跨位置、行和窗口复用，输入改变时替换。get、shift 共用已分段
+边界，读取复用字符串缓存；get() 与 get(n) 读取相同片段时也共享结果。source 对两个游标
 **只允许调用 get**，不允许移动、修改或保存对当前 offset 的假设。
 
 Each cached line owns one text cursor, retained across input changes until its
@@ -195,12 +203,12 @@ assumption about their current offsets.
 
 输出协议：
 
-- `emit(bytes, chars?)`：bytes 为消费的输入字节数，必须是 1..#stream:get() 的整数，且消费后必须位于输入码点边界。
+- `emit(bytes, chars?)`：bytes 为消费的输入字节数，必须是 1..#stream:get() 的整数，且消费后必须位于输入字素边界。
 - `emit(keys, chars?)`：输入前缀全部匹配，keys 是后续可用 ASCII 键的字符串，
-  例如 `emit("au", 2)` 表示后续可用 a 或 u，显示范围覆盖 2 个文本码点。
+  例如 `emit("au", 2)` 表示后续可用 a 或 u，显示范围覆盖 2 个文本字素。
   空字符串也表示匹配成功，只是没有后续键。
 
-chars 为正整数，默认 1，决定文本跨度和消费后的后继位置。行内不足指定码点的
+chars 为正整数，默认 1，决定文本跨度和消费后的后继位置。行内不足指定字素的
 分支会忽略。扫描器合并重复分支和键；空 stream 只查询起始键，不可消费输入。
 matcher 返回 true 表示认识当前位置；认识但不匹配时不 emit，仍返回 true。
 返回 false 表示不认识。认识与否必须与 stream 无关，决定后续 fallback 是否运行。
@@ -209,9 +217,9 @@ source 直接作为第三参传入，不再包装成 args.source。
 
 Output protocol:
 
-- `emit(bytes, chars?)`: consume an integer number of input bytes in 1..#stream:get(), ending at a codepoint boundary.
+- `emit(bytes, chars?)`: consume an integer number of input bytes in 1..#stream:get(), ending at a grapheme boundary.
 - `emit(keys, chars?)`: all remaining input matched; an ASCII string lists possible
-  next keys. For example, `emit("au", 2)` allows a or u over 2 text codepoints.
+  next keys. For example, `emit("au", 2)` allows a or u over 2 text graphemes.
   An empty string still means success, with no further keys.
 
 chars is a positive integer, default 1, defining the text span and successor position.
@@ -223,10 +231,10 @@ Do not retain emit, emit asynchronously, or call it after returning. Legacy resu
 tables are unsupported. The third argument is the source directly, without args.source.
 
 已消费的文本边界在追加输入时必须保持有效；失败分支不会追加重试。
-字符模式仍只跳到匹配起点，不把多码点跨度扩成原生字符 motion 的范围。
+字符模式以匹配起点为目标，t/T 再移动到前一个/后一个字素起点，不扩大为多字素词条跨度。
 
 Committed text boundaries must remain valid after input appends; failed branches
-are not retried. Native character mode targets only the start position.
+are not retried. Character mode targets the start position; t/T shift to the adjacent grapheme start.
 
 ## 数据 / Data
 
@@ -263,10 +271,10 @@ return {
 `codes` 只存编码。`prefixes` 列出所有可继续加长的文本键，值为 true；即使这个键
 自身有编码，也应列入。叶子和不存在的前缀均省略，不存 false。纯 Lua 查询直接
 读这两张 hash 表，不在运行时扫描或生成前缀，也不因编码数组存在而继续试探。
-`max_chars` 是完整码表（包括 TSV）的最长文本码点数，与 ASCII 编码长度无关。
+`max_chars` 是完整码表（包括 TSV）的最长文本字素数，与 ASCII 编码长度无关。
 可省略时从 Lua 编码键和前缀长度计算；若 TSV 含更长条目，必须显式给出完整上限。
 `scope` 是可选的字符/区间表，作为 source 的默认初筛范围。builder 用完整输入所有条目
-首码点的最小、最大字符生成一个宽区间；不会把组合序列后续码点算入边界。
+首字素的最小、最大字符生成一个宽区间；组合序列作为一个完整字素参与比较。
 范围允许误命中，最终仍由 matcher 决定；用户 scope 优先于工厂 scope，再优先于码表 scope。
 空输入生成空 scope。加载器仍接受直接编码映射，builder 始终输出统一结构。
 编码、前缀和元数据均为私有副本，运行时 source.data 仍只包含编码映射。
@@ -277,21 +285,20 @@ builder always emits the structured format. `codes` contains only encodings; `pr
 contains every extendable text key with value true, including keys that also have
 codes. Omit terminal prefixes rather than storing false. Lua-only lookup reads
 the two hash tables directly, without building a prefix index or probing past
-leaves. `max_chars` bounds Unicode text codepoints in the complete table,
+leaves. `max_chars` bounds Unicode text graphemes in the complete table,
 including TSV; it is independent of ASCII code length. When omitted, it is
 inferred from Lua code keys and prefix lengths, so providers must supply the full
 bound if TSV includes longer entries. Loading copies the codes, prefixes and
 metadata; runtime source.data remains an encoding map. A table's `scope` is a
 character/range table used as the default coarse filter. The builder takes the
-minimum and maximum first codepoints from the complete input, excluding later
-codepoints in compound sequences. Empty input emits an empty scope. Explicit user
+minimum and maximum complete first graphemes from the input. Empty input emits an empty scope. Explicit user
 scope overrides factory scope, which overrides table scope; matching still decides
 recognition after filtering.
 
 source 只需声明 `codetable = "japan"` 和编码匹配模式，无需 multi_code 或长度配置。
 三种内置 matcher 根据码表元数据自动查询文本前缀，保留所有长短词分支；
 `matcher = "prefix"` 仍表示 ASCII 编码前缀匹配，与文本前缀查询独立。
-单码点简表默认 max_chars=1，继续直接查询一个码点。
+单字素简表默认 max_chars=1，继续直接查询一个字素。
 builder 自动生成独立的 prefixes 和完整输入的 max_chars，不计入编码条目数；
 可省略 TSV 路径，仅生成 Lua。
 即使常用 Lua 子集为空，也保留完整 TSV 的最大长度。公共 normalize 同样接受此结构，
@@ -301,7 +308,7 @@ Sources only declare the table name and encoding match mode; no multi_code or
 length options are required. Built-in matchers infer word support from table
 metadata and retain all matching word lengths. `matcher = "prefix"` still selects
 ASCII code-prefix matching independently of text-prefix lookup. Compact maps
-default to max_chars=1 and retain direct single-codepoint reads. The builder optionally emits TSV; Lua-only output retains
+default to max_chars=1 and retain direct single-grapheme reads. The builder optionally emits TSV; Lua-only output retains
 independent prefixes and the full input's maximum length, including with an empty
 common subset; prefix entries do not count as code entries. normalize also accepts
 this structure, including inline user `data` configuration.
@@ -309,7 +316,7 @@ this structure, including inline user `data` configuration.
 自定义 loader 的前缀查询可返回 `codes, continuation`：数字表示更长文本键的 TSV
 继续位置，true 表示无文件位置的可继续状态，false（或省略）表示不能加长。
 无编码的中间前缀也可继续。参数为 `(key, offset?, prefix_lookup?)`，第三参为 true
-时需要提供前缀信息；普通单码点读取只传 key。`table.lookup` 使用同样的返回协议，
+时需要提供前缀信息；普通单字素读取只传 key。`table.lookup` 使用同样的返回协议，
 文件查询缓存未命中和终止结果。存在 TSV 时，约定它完整包含 Lua 编码条目，
 其前缀查询结果是唯一依据，不和 Lua 前缀集合合并。码表应视为只读，替换时创建新表。
 
@@ -317,7 +324,7 @@ Prefix-aware custom loaders return `codes, continuation`: a number is a TSV
 continuation position, true continues without a file offset, and false or an
 omitted continuation stops extension. Prefixes without codes may continue.
 Loader arguments are `key, offset?, prefix_lookup?`; the third argument is true
-for prefix-aware reads. Ordinary single-codepoint reads pass only key.
+for prefix-aware reads. Ordinary single-grapheme reads pass only key.
 `table.lookup` follows the same protocol and caches negative and terminal file
 queries. TSV is assumed to contain every Lua code entry; its prefix state is
 authoritative and never merged with the Lua prefix set. Treat maps as immutable
@@ -336,13 +343,13 @@ and create a new map when replacing data.
 
 `load` 的可选 `convert(codes)` 转换常用表和 TSV 的编码，返回编码数组或 nil。
 `extra` 是转换后加入的额外字符映射，覆盖常用表中的同名字符；适合标点等不应参与
-转换的数据；其首码点自动加入已有的码表 scope，避免被初筛误排除。`load` 不缓存整个表，每次创建私有副本，不能再用它选择双拼方案；
+转换的数据；其首字素自动加入已有的码表 scope，避免被初筛误排除。`load` 不缓存整个表，每次创建私有副本，不能再用它选择双拼方案；
 方案属于 `source.load("pinyin", opts)`。
 
 `load` accepts `convert(codes)`, returning converted codes or nil, for both common
 and TSV entries. Its `extra` map merges after conversion and overrides common
 entries, useful for punctuation that should bypass conversion. Extra entries
-extend any table scope with their first codepoints. Every call creates
+extend any table scope with their first graphemes. Every call creates
 private data. Pinyin scheme selection belongs to `source.load("pinyin", opts)`,
 not `table.load`.
 
@@ -390,4 +397,18 @@ get() 默认返回全部剩余内容；旧的默认单码点调用改为 get(1)�
 
 The Text class/module is renamed Cursor / flash-any.cursor, with value replacing line.
 Stream is now the same cursor type; use stream:get() for remaining input strings.
-get() now reads all remaining content; replace implicit single-codepoint reads with get(1).
+get() now reads all remaining content; replace implicit single-grapheme reads with get(1).
+
+### 字素 Cursor 迁移 / Grapheme Cursor migration
+
+`get(n)`、`shift(n)`、`emit(..., chars)` 和 `max_chars` 现在按 Unicode 17 扩展字素簇计数，
+`set_offset` 只接受字素边界。`get(n)` 第三个返回值仍是最后一个码点的起始字节，
+用于完整高亮。scope 的字符 hash 和区间直接比较完整字素；自定义 scope 收到完整 Cursor。
+旧的含组合序列码表应重新构建，以更新 `prefixes`、`max_chars` 和 `scope`。
+
+Counts in `get(n)`, `shift(n)`, `emit(..., chars)` and `max_chars` now mean Unicode 17
+extended grapheme clusters; `set_offset` accepts only grapheme boundaries. The third
+result of `get(n)` remains the last codepoint's byte start for complete highlighting.
+Scope hashes and ranges compare complete first graphemes; custom
+scope functions receive the complete Cursor. Rebuild older tables containing compound
+sequences to update `prefixes`, `max_chars` and `scope`.

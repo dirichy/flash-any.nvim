@@ -58,6 +58,17 @@ extra["あ"] = nil
 assert(extra_scope(Cursor.new("あ")), "compiled scopes retain their snapshot")
 print("ok - character hashes accept code maps directly and preserve false-over-range priority")
 
+-- Hashes and inclusive ranges compare complete graphemes, including endpoints.
+assert(accepts({ ["á"] = true }, "á") and not accepts({ a = true }, "á"))
+assert(not accepts({ { "a", "z" }, ["á"] = false }, "á"))
+assert(accepts({ { "a", "z" }, a = false }, "á"))
+assert(accepts({ { "á", "á" } }, "á") and not accepts({ { "á", "á" } }, "a"))
+assert(not accepts({ { "a", "z" } }, "ź")) -- Strict UTF-8 string upper bound.
+local clusters = { { "😀", "🧑‍💻" }, ["👩‍💻"] = true, ["👩🏽‍💻"] = false }
+assert(accepts(clusters, "🧑‍💻") and accepts(clusters, "👩‍💻") and accepts(clusters, "😃"))
+assert(not accepts(clusters, "👩🏽‍💻") and not accepts({ ["👩‍💻"] = true }, "👩"))
+print("ok - scopes compare full grapheme hashes and inclusive UTF-8 string bounds")
+
 local function custom(text)
   return text:get(2) == "きゃ"
 end
@@ -75,6 +86,8 @@ for _, invalid in ipairs({
   { { "ab", "z" } },
   { { "", "z" } },
   { ["ab"] = true },
+  { ["👩‍💻x"] = true },
+  { { "a", "👩‍💻x" } },
   { [0] = { 1, 2 } },
 }) do
   assert(not pcall(scopes.resolve, invalid), vim.inspect(invalid))

@@ -1,5 +1,6 @@
 local M = {}
-local utf8 = require("flash-any.utf8")
+local grapheme = require("flash-any.grapheme")
+local Cursor = require("flash-any.cursor")
 
 -- Nonempty UTF-8 text -> ASCII encodings. Prefix metadata belongs to the map.
 ---@alias FlashAnyTable table<string, string[]>
@@ -7,8 +8,8 @@ local utf8 = require("flash-any.utf8")
 ---@class FlashAnyTableDefinition
 ---@field codes FlashAnyTableMap
 ---@field prefixes? table<string, true> Proper prefixes, including those with codes.
----@field max_chars? integer Maximum text codepoints in the full table, including TSV.
----@field scope? FlashAnyScopeTable Coarse first-codepoint filter, covering the complete input.
+---@field max_chars? integer Maximum text graphemes in the full table, including TSV.
+---@field scope? FlashAnyScopeTable Coarse first-grapheme filter, covering the complete input.
 ---@alias FlashAnyTableInput FlashAnyTableMap|FlashAnyTableDefinition
 ---@alias FlashAnyTableLoader fun(key: string, offset?: number, prefix_lookup?: boolean): string[]?, (number|boolean)?
 -- Continuations share the map's lifetime: true for Lua prefixes, numeric TSV
@@ -151,7 +152,7 @@ function M.normalize(map)
 	for char, codes in pairs(values) do
 		assert(type(char) == "string" and char ~= "", "code-table keys must be nonempty strings")
 		if structured or prefixes then
-			length = math.max(length, utf8.len(char))
+			length = math.max(length, grapheme.len(char))
 		end
 		if type(codes) == "string" then
 			ret[char] = { codes }
@@ -174,7 +175,7 @@ function M.normalize(map)
 				"prefixes must map nonempty text keys to true"
 			)
 			cache[key] = true
-			length = math.max(length, utf8.len(key) + 1)
+			length = math.max(length, grapheme.len(key) + 1)
 		end
 		offsets[ret] = cache
 	end
@@ -215,7 +216,7 @@ function M.load(name, opts)
 			common[char] = codes
 			local scope = metadata[common].scope
 			if scope then
-				scope[utf8.sub(char, 0, 1)] = true
+				scope[Cursor.new(char):get(1)] = true
 			end
 		end
 	end
