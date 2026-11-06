@@ -1,4 +1,15 @@
-# Matcher 压力测试
+# 性能记录 / Performance records
+
+本文按实现演进保留历史数据。旧Cursor、Lua匹配器及其12个实验脚本已经清理；
+早期章节中的脚本路径和命令仅描述当时测量，不能在当前版本直接执行。
+当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见本文末尾
+“单趟解码匹配替换文本索引”。`tests/reference/`仍供差分测试使用，不是运行时后端。
+
+Historical results and commands describe their original implementation. Obsolete
+Cursor/Lua experiment scripts have been removed. See [current tools](../scripts/README.md)
+for supported entry points; the final section records the sequential C scanner.
+
+## 历史 Matcher 压力测试
 
 复测日期：2026-11-01。运行命令（在仓库根目录）：
 
@@ -374,3 +385,1049 @@ headless 进程总时间中位数（包含启动、初始化、准备 buffer、�
 
 本实验仅修改 /tmp 下的旧版副本，没有改动当前生产 Cursor。对照用上述补丁构建
 旧版预建副本，再以同一个 scripts/bench_grapheme_cold.lua 分别传入三个实现目录。
+
+
+## 仅缓存 get(1) 的对照（2026-11-06）
+
+本次只改变字符串结果缓存；四组都保留当前 Unicode 17 字素分段、全部边界和
+最后码点索引。之前“预建边界优于惰性边界”的结果，不能直接用于判断字符串缓存策略。
+正式 Cursor 未修改，实验脚本在临时目录复制 lua 并替换 Cursor 的字符串读取路径。
+
+| 方案 | 字符串策略 |
+| --- | --- |
+| all-lazy（现状） | 按需缓存所有读取长度，包括 get() 后缀；长度 → 起点两级表 |
+| one-lazy | 只按需缓存 get(1)，用起点索引的一维表；其它读取直接 sub |
+| one-eager | 在现有分段回调内预存每个 get(1) 结果，读取沿用 one-lazy 路径 |
+| none | 所有读取直接 sub；保留空 _values 表，控制对象构造差异 |
+
+环境：i5-14600K，Neovim 0.12.6，LuaJIT 2.1.1793383622，固定 CPU 0，串行运行，
+默认 GC/JIT。每种文本 40 行，fixture、source 与已有脚本一致。
+以下均为 ms，数字为中位数；这些是扫描器及局部操作的计时，不是实际 UI 按键延迟。
+
+冷启动：复用 bench_grapheme_cold.lua，只启用 literal + 单字素拼音 initial；每组每场景
+72 个独立进程，各进程只扫描一次，不预热，四组运行顺序遍历 24 种排列。
+扫描包含 Cursor 创建、匹配和结果分配，不包含 source 初始化及进程启动。
+
+| 首次扫描 | 现状 | 仅按需 get(1) | 预存 get(1) | 无字符串缓存 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 3.116 | 2.750 | 2.505 | 2.338 |
+| 中英文正文 | 4.511 | 3.641 | 3.380 | 3.352 |
+
+仅按需 get(1) 分别比现状减少 11.8%、19.3%；无字符串缓存的首次扫描更快。
+但中文冷启动波动明显：四组最小–最大范围分别为 3.175–5.806、2.574–5.314、
+2.493–4.733、2.487–4.907 ms。对应 headless 进程总时间中位数：
+
+| 进程总时间 | 现状 | 仅按需 get(1) | 预存 get(1) | 无字符串缓存 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 10.484 | 10.127 | 9.898 | 9.680 |
+| 中英文正文 | 11.823 | 11.025 | 10.753 | 10.720 |
+
+预热：复用 bench_grapheme.lua，包含 literal、拼音和 emoji source。每个进程只测一个
+fixture/workload；每组 3 个独立进程，各进程预热后取 7 次批量测量的中位数，再取三个
+进程的中位数。连续输入每次从新 state 开始，包含逐键输入整个词的全部扫描。
+
+| 文本 / 工作负载 | 现状 | 仅按需 get(1) | 预存 get(1) | 无字符串缓存 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII / 扫描 c | 1.186 | 1.142 | 1.118 | 1.143 |
+| ASCII / 逐键 shi | 1.659 | 1.596 | 1.561 | 1.643 |
+| ASCII / 逐键 coder | 1.276 | 1.220 | 1.207 | 1.243 |
+| 中英文 / 扫描 c | 1.096 | 1.103 | 1.071 | 1.201 |
+| 中英文 / 逐键 shi | 1.581 | 1.518 | 1.489 | 1.524 |
+| 中英文 / 逐键 coder | 1.264 | 1.203 | 1.222 | 1.341 |
+| 正文 + emoji / 扫描 c | 1.254 | 1.214 | 1.225 | 1.261 |
+| 正文 + emoji / 逐键 shi | 1.213 | 1.129 | 1.200 | 1.182 |
+| 正文 + emoji / 逐键 coder | 2.117 | 1.973 | 1.969 | 1.975 |
+| 密集 ZWJ / 扫描 c | 0.537 | 0.522 | 0.541 | 0.515 |
+| 密集 ZWJ / 逐键 shi | 0.640 | 0.594 | 0.594 | 0.587 |
+| 密集 ZWJ / 逐键 coder | 2.076 | 1.847 | 1.861 | 1.889 |
+
+只按需 get(1) 的连续输入耗时多数减少约 4%–11%，中文预热 fresh-c 基本持平。
+预存 get(1) 没有稳定优于按需：例如正文 + emoji 的 shi 为 1.200 对 1.129 ms。
+完全不缓存也并非总是更快，中文 coder 为 1.341 对现状 1.264 ms。
+
+关闭 JIT 后复核 fresh-c，每组仍取 3 个独立进程的中位数：
+
+| JIT off / fresh-c | 现状 | 仅按需 get(1) | 预存 get(1) | 无字符串缓存 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 4.710 | 4.404 | 4.461 | 4.510 |
+| 中英文 | 4.231 | 4.069 | 4.142 | 4.322 |
+
+关闭 JIT 后，仅按需 get(1) 仍减少约 6.5%、3.8%，说明收益并非全部来自 JIT。
+但这不能单独区分少建缓存桶、少查表和少做后缀共享判断各自的贡献。
+
+保留内存只看隔离的 fresh-c 进程，完整 GC 后的 Lua 堆差值，包含 state 和结果，不是 RSS：
+
+| Lua 堆，KiB | 现状 | 仅按需 get(1) | 预存 get(1) | 无字符串缓存 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 474.6 | 466.6 | 466.4 | 386.1 |
+| 中英文 | 305.0 | 297.1 | 296.9 | 256.6 |
+| 正文 + emoji | 444.4 | 436.5 | 436.5 | 396.1 |
+| 密集 ZWJ | 280.8 | 273.0 | 273.0 | 262.6 |
+
+每 40 行仅减少约 8 KiB，并没有大幅减少存储。另开不计时进程，对冷启动扫描的 get
+调用及读取前已有缓存进行计数（含不足长度时递归调用 get()）：
+
+| 文本 | get(1) 调用 / 已有缓存 | get() 调用 / 已有缓存 |
+| --- | ---: | ---: |
+| ASCII | 21,320 / 15,919 | 200 / 159 |
+| 中英文 | 16,920 / 11,120 | 2,680 / 2,638 |
+
+这些场景没有 get(2+) 调用，原来就主要只有长度 1 和后缀两个桶；不能把收益归因于
+“缓存了太多长度”。one-lazy 同时把两级缓存改为一维、移除了后缀共享逻辑；结果支持
+简化读取路径有收益，尚不足以确定缓存数量的独立影响。LuaJIT 字符串会驻留，重复 sub
+也不等于每次都分配新字符串；高缓存命中率本身不能证明一定比直接 sub 快。
+
+因此本次保留正式实现：只缓存 get(1) 值得继续考虑，但会失去 get() 与 get(2+) 的跨次
+读取缓存。当前 emoji fixture 的每个键也是一个完整字素，没有覆盖频繁读取多个字素的
+第三方 source；不能据此保证那些 source 的性能。四种临时实现均通过 tests/cursor.lua
+的 775 个 Unicode/边界用例，以及 match/literal、match/codetable、scope 测试；这验证
+读取语义，不代表满足原来所有内部缓存复用断言。
+
+复现（Linux，Python 标准库；默认运行完整实验，临时目录中保留变体、raw.jsonl 与 summary.json）：
+
+```sh
+python scripts/bench_cursor_cache.py --baseline /path/to/before
+# 少量样本，仅用于检查脚本能否运行，不用于性能结论：
+python scripts/bench_cursor_cache.py --baseline /path/to/before --cold-samples 1 --warm-samples 1
+```
+
+before 目录需包含本节实验前的完整 lua 目录及原始 Cursor 构造方法。
+
+本轮原始记录：/tmp/flash-any-cursor-cache-kh6atfhd/{raw.jsonl,summary.json}。
+
+English: Keeping segmentation unchanged, caching only get(1) reduced cold scan medians
+by 12%/19% for ASCII/Chinese and usually improved warmed typing by 4%–11%. Retained
+heap fell only about 8 KiB per 40 lines. This experiment also flattened the cache and
+removed suffix-sharing work, so it does not isolate cache volume as the cause. Eager
+get(1) caching was not consistently better; no caching could regress warmed scans.
+Production code remains unchanged pending workloads with frequent multi-grapheme reads.
+
+
+## 只考虑 text：预建边界与单向扫描（2026-11-06）
+
+本次只替换扫描器创建的行 text，stream 保持原 Cursor，字符串缓存策略也保持不变。
+单轮 text 扫描单向前进，但行对象跨 pattern 复用：追加输入从最早的待续位置恢复，
+删除、替换输入从行首重扫。因此“单轮单向”不等于对象生命周期内不回头。
+
+区分对照基线的三份索引：
+
+- _offsets：字素边界顺序数组，供推进及重复读取使用。
+- _indices：字节边界到字素下标的反向表；扫描时通常只是前进一格。
+- _lasts：每个字素最后码点的起始字节，用于 Neovim 匹配终点；即便只读 get(1)，
+  复合字素的最后码点也不一定从 after - 1 开始。
+
+第一批比较 eager（现状）、eager-noindex（仅去掉反向表）、lazy-noindex（按需扩展并
+保留边界）、streaming（按需扩展并丢弃已走过的边界）。第二批加入专门优化 get(1) 的
+轻量 direct：常规读取只保存当前 after/last；不建完整边界数组，只在 get(2+) 时创建
+向前看记录；回到较早位置时从行首重建 Unicode 分段上下文。迭代器沿用原分段状态机，
+保留 RI/Indic/ZWJ 状态，不用 coroutine，也不在每次前进时从行首重扫。
+
+eager-noindex 仍用原来的 each 一次建立 _offsets/_lasts；set_offset 对当前位置、下一
+字素及行首走直接路径，其它位置二分查找边界。不增加调用方的索引或缓存生命周期。
+以下表格均来自第二批，避免跨批次相减。测试环境同上：CPU 0，默认 JIT/GC，40 行；
+冷启动每组每场景 72 个独立进程，三组运行顺序遍历 6 种排列；预热每项每组 3 个独立
+进程，各进程取 7 次批量计时的中位数，再取三个进程的中位数。单位 ms。
+
+冷启动 source 只有 literal 和单字素拼音 initial，text 全部读取都是 get(1)：
+
+| 首次扫描 | 现状预建 | 预建但无反向表 | direct 单向游标 |
+| --- | ---: | ---: | ---: |
+| ASCII | 3.173 | 3.054 | 3.871 |
+| 中英文 | 4.210 | 3.821 | 5.083 |
+
+只去反向表的冷启动收益有波动：第一批 ASCII 为 3.171 → 3.107 ms，中英文为
+4.180 → 4.194 ms；第二批分别减少约 4%、9%。不能把第二批比例看作稳定收益。
+
+预热完整扫描含 literal、拼音和 emoji source；这些 fixture 的 emoji 键都是一个完整
+字素，同样不依赖多字素查询。连续输入每次从新 state 输入完整词，包含全部逐键扫描。
+
+| 文本 / 工作负载 | 现状预建 | 预建但无反向表 | direct 单向游标 |
+| --- | ---: | ---: | ---: |
+| ASCII / 扫描 c | 1.210 | 1.181 | 1.491 |
+| ASCII / 逐键 shi | 1.721 | 1.684 | 3.234 |
+| ASCII / 逐键 coder | 1.332 | 1.305 | 2.441 |
+| 中英文 / 扫描 c | 1.181 | 1.101 | 1.428 |
+| 中英文 / 逐键 shi | 1.544 | 1.437 | 2.674 |
+| 中英文 / 逐键 coder | 1.316 | 1.228 | 1.926 |
+| 正文 + emoji / 扫描 c | 1.280 | 1.079 | 1.713 |
+| 正文 + emoji / 逐键 shi | 1.203 | 1.030 | 1.905 |
+| 正文 + emoji / 逐键 coder | 2.107 | 1.929 | 4.246 |
+| 密集 ZWJ / 扫描 c | 0.544 | 0.516 | 0.645 |
+| 密集 ZWJ / 逐键 shi | 0.603 | 0.584 | 0.812 |
+| 密集 ZWJ / 逐键 coder | 2.097 | 1.895 | 3.554 |
+
+关闭 JIT 后的 fresh-c 复核（每组 3 个独立进程）：
+
+| JIT off | 现状预建 | 预建但无反向表 | direct 单向游标 |
+| --- | ---: | ---: | ---: |
+| ASCII | 4.781 | 4.659 | 5.308 |
+| 中英文 | 4.313 | 4.166 | 5.118 |
+
+保留 Lua 堆（隔离 fresh-c，完整 GC 后包含 state 与结果，不是 RSS），KiB：
+
+| 文本 | 现状预建 | 预建但无反向表 | direct 单向游标 |
+| --- | ---: | ---: | ---: |
+| ASCII | 474.4 | 391.5 | 249.6 |
+| 中英文 | 305.0 | 221.9 | 160.1 |
+| 正文 + emoji | 444.4 | 357.5 | 295.7 |
+| 密集 ZWJ | 280.8 | 247.1 | 245.1 |
+
+去反向表在普通文本每 40 行省约 83 KiB；仍保留两份顺序数组。direct 更省内存，
+但两个批次中，按需/丢弃边界方案的完整扫描均没有稳定胜过预建。该结论只描述这些
+原型，不能证明所有单向实现都必然更慢。
+
+额外计数使用独立、不计时进程；literal + 单字素拼音，40 行，无 emoji source。
+统计的是输出的字素簇数量，含重扫时再次输出的簇，不是解码码点数：
+
+| 文本 / 输入 | 现状分段簇数 | direct 分段簇数 | text 回退次数 | text get(2+) |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII / c | 5,200 | 5,200 | 0 | 0 |
+| 中英文 / c | 4,160 | 4,160 | 0 | 0 |
+| ASCII / shi | 5,200 | 14,320 | 80 | 0 |
+| 中英文 / shi | 4,160 | 11,760 | 80 | 0 |
+
+每条行对象只创建一次。输入 shi 时 direct 创建 120 个分段迭代器（40 行 × 3 轮），
+预建版每行只分段一次。即便 source 只调用 get(1)，连续输入仍会重访旧 text；
+单轮完整扫描也没有因按需分段减少经过的字素数量。
+
+因此这里支持“保留可复用的顺序边界，精简反向表”。没有把低频 get(n) 当作维持完整
+反向索引的理由。_lasts 的存储是否可进一步换成按需计算，需要单独比较，本次没有
+改变它。上述实验阶段未修改正式 Cursor 与扫描器；把 text 独立成另一个类仅用于隔离实验，
+不作为生产设计建议。
+
+五种临时 text 均通过 775 个 Unicode/边界用例、match/init、match/char、match/word；
+包括多字素 lookahead、输入追加/删除/替换及复合字素。临时测试只调整了预分段次数的
+实现断言，以及 text/stream 必须具有相同 metatable 的断言，未改匹配结果断言。
+保存的生成器已核对能逐字节重建本轮五种实现。
+
+复现两批对照（Linux，Python 标准库；先运行测试，再串行计时）：
+
+```sh
+python scripts/bench_text_boundaries.py --baseline /path/to/before
+python scripts/bench_text_boundaries.py --baseline /path/to/before --variants eager eager-noindex direct
+```
+
+before 目录需包含移除 _indices 之前的完整 lua 和 tests 目录；旧变体使用基线的 Cursor 测试，current 使用工作区的测试和分段器。
+
+第一批日志：/tmp/flash-any-text-boundaries-s2lgzi31/{raw.jsonl,summary.json}。
+第二批日志：/tmp/flash-any-text-boundaries-ieq4vx8y/{raw.jsonl,summary.json}。
+扫描耗时不包含 source 初始化、进程启动、UI 或真实输入事件，不能视作按键延迟。
+
+English: Text scans move forward within each pass but revisit cached lines across input
+changes. With stream and string caches unchanged, removing only the reverse byte-to-index
+map saved about 83 KiB per 40 ordinary-text lines and usually reduced warmed scan time.
+A get(1)-optimized forward cursor saved more memory but regressed these scan workloads.
+Typing shi segmented 14,320 versus 5,200 ASCII clusters despite no get(2+) calls, because
+it rebuilt segmentation context on backward resumes. This supports retaining reusable
+sequential boundaries while simplifying the reverse index; these experiments preceded the
+production change described below.
+
+
+## 移除反向表：恢复时顺扫已有边界（2026-11-06）
+
+最终实现保留 _offsets/_lasts 和原字符串缓存，移除 _indices。set_offset 向前定位
+从当前下标顺扫 _offsets；回退时从下标 1 顺扫，找到目标字节边界后更新游标。
+不重新解码或分段，也不在查找途中调用 source。顺序前进通常只检查相邻边界；
+任意定位的最坏耗时改为线性，换掉每个对象常驻的反向表，不增加二分查找或特殊分支。
+
+这区别于前面的 direct：恢复定位并不需要重新生成 Unicode 字素，已有的“字素下标
+→ byte”顺序表足够。前面用 direct 重复分段的簇数说明代价，并不能否定顺扫已有数组。
+
+先比较带“当前位置/下一字素/行首”快速分支的线性查找与二分查找：两者互有快慢，
+没有稳定的性能差距，日志保存在 /tmp/flash-any-text-boundaries-oev1kito/。
+随后最终实现进一步简化为一段顺扫循环，下面是与原版重新运行的同批对照；
+仍然只替换 text，stream 使用基线实现，控制变量。正式类由 text/stream 共用，
+因此落地时两者均使用顺扫定位，全部相关测试已通过。
+
+冷启动每组每场景 72 个独立进程，交替运行；预热每项每组 3 个独立进程，每进程
+取 7 次批量计时中位数，再取三个进程的中位数，CPU 0，默认 GC/JIT，沿用上述脚本。
+单位 ms；不包含 source 初始化、进程启动或真实 UI 输入延迟。
+
+| 文本 / 工作负载 | 原版 | 顺扫已有边界 |
+| --- | ---: | ---: |
+| ASCII / 冷启动首次扫描 | 3.129 | 3.046 |
+| ASCII / 预热扫描 c | 1.212 | 1.181 |
+| ASCII / 逐键 shi | 1.916 | 1.720 |
+| ASCII / 逐键 coder | 1.334 | 1.295 |
+| ASCII / JIT off 扫描 c | 4.681 | 4.605 |
+| 中英文 / 冷启动首次扫描 | 4.182 | 3.961 |
+| 中英文 / 预热扫描 c | 1.102 | 1.045 |
+| 中英文 / 逐键 shi | 1.590 | 1.605 |
+| 中英文 / 逐键 coder | 1.297 | 1.257 |
+| 中英文 / JIT off 扫描 c | 4.238 | 4.204 |
+
+首次扫描中位数分别减少约 2.7%、5.3%；不声称所有输入都稳定获得此比例。中文 shi
+为 1.590 → 1.605 ms，基本持平。主要可确定收益是减少构造时写入与常驻反向表：
+隔离 fresh-c 的完整 GC 后 Lua 堆，ASCII 为 474.6 → 391.5 KiB，中英文为
+305.0 → 221.9 KiB，每 40 行均省约 83 KiB；这包含 state 与结果，不是进程 RSS。
+
+验证：17 个现有测试入口全部通过，包括 Cursor 的 775 个 Unicode/边界用例、全部
+match 测试和 Flash/char/remote 集成；LuaLS 使用真实 Neovim/Flash library，开启全部
+诊断级别，结果无诊断。开发文档同步说明中英文的定位规则。
+
+复现隔离 text 的最终对照（before 是含原始 _indices 的修改前副本，current 读取工作区 Cursor）：
+
+```sh
+python scripts/bench_text_boundaries.py --baseline /path/to/before --variants eager current
+```
+
+本轮记录：/tmp/flash-any-text-boundaries-68bhgs_f/{raw.jsonl,summary.json}。
+
+English: Production Cursor now removes the reverse index and locates byte offsets by
+walking its existing boundary array, starting from the current ordinal for forward seeks
+or from ordinal 1 for backward seeks. This does not resegment text or invoke sources.
+Text-only isolated cold medians improved by about 2.7%/5.3% for ASCII/Chinese; retained
+heap fell about 83 KiB per 40 lines. Arbitrary seeks are now linear. The shared class
+applies the same behavior to stream; all 17 test entries and full LuaLS diagnostics passed.
+
+
+## 两级字素/码点索引与 get_codepoint（2026-11-06）
+
+在上一节已移除反向表、用顺扫定位的实现上，新增 get_codepoint(pos)：pos 是相对
+当前字素起点的 Unicode 码点偏移，默认 0 为当前，1 为下一个，-1 为上一个；可访问
+字素内部的组合音标、ZWJ。越界返回 nil，无效 UTF-8 每字节保存为 -1，合法 NUL 为 0。
+
+最终存储为字素边界 → 码点下标 → 字节边界，另有并行的码点值数组。分段器通过可选
+码点回调传出已经解码的数值和字节终点；不重新解码。原 _lasts 数组移除：某个字素
+末尾码点的起始字节可由下一个字素的码点下标减一，再查字节数组得到。相对上节，
+顺序数组从两张变为三张；复合字素的码点数可能远多于字素数，因此并非只按字素数
+多存一个固定大小的表。普通 get(n)、shift 和 set_offset 查询 byte 时多一次数组索引。
+
+本轮前后版本独立运行、固定 CPU 0、串行交替，默认 GC/JIT。before 是上一节顺扫
+定位的副本，不是仍有反向表的 HEAD。完整扫描同时使用各版本的 text 与 stream。
+冷启动每组每场景 72 个独立进程，只调用一次 scanner.get，不预热；预热每项每组
+3 个独立进程，各进程取 7 次批量计时的中位数，再取三个进程的中位数。
+
+| 40 行 / 工作负载，ms | 单级边界，无码点值缓存 | 两级索引，含码点缓存 |
+| --- | ---: | ---: |
+| ASCII / 冷启动首次扫描 | 3.130 | 3.553 |
+| ASCII / 仅创建 Cursor | 0.125 | 0.180 |
+| ASCII / 预热扫描 c | 1.151 | 1.220 |
+| ASCII / 逐键 shi | 1.647 | 1.791 |
+| 中英文 / 冷启动首次扫描 | 4.017 | 4.444 |
+| 中英文 / 仅创建 Cursor | 0.118 | 0.162 |
+| 中英文 / 预热扫描 c | 1.062 | 1.067 |
+| 中英文 / 逐键 shi | 1.436 | 1.538 |
+
+冷启动首次扫描约增加 0.42 ms（ASCII +13.5%，中英文 +10.6%）；这批测量没有任何
+source 消费新码点接口，因此只体现索引布局及缓存成本。不能把该功能称为整体扫描
+优化；构造期多写数据、码点回调和读取时的额外查表都可能影响耗时，本次未分别归因。
+隔离 fresh-c 的 GC 后保留 Lua 堆：
+
+| 40 行，KiB | 无码点值缓存 | 两级索引，含码点缓存 |
+| --- | ---: | ---: |
+| ASCII | 391.4 | 474.9 |
+| 中英文 | 221.8 | 265.4 |
+
+ASCII 增约 84 KiB，中英文增约 44 KiB；包含 state 与结果，不是 RSS。
+仅创建 Cursor 的进程内存受到循环残留及 JIT trace 引用影响，这里只使用隔离 fresh-c
+结果评价保留内存，不将其它工作负载末尾的堆差值当作精确 Cursor 大小。
+
+局部读取收益另用 bench_codepoint.lua 测量：文本为 (á中👩‍💻🇨🇳) × 8，共 32 个字素；
+先构造游标并预热所有 get(1) 字符串缓存，计时反复遍历并累加每个字素的首码点值。
+构造与字符串预热不计时，遍历推进计时。每项取 3 个独立进程的中位数。
+
+| 完整遍历 32 个字素 | 中位数，微秒 |
+| --- | ---: |
+| 旧布局 get(1) + char2nr | 2.943 |
+| 新布局 get(1) + char2nr | 2.975 |
+| 新布局 get_codepoint() | 0.113 |
+
+新布局下数值读取约为原生 char2nr 路径的 1/26 耗时；这是局部、预热后的读取对照，
+没有 source、完整 matcher、UI 或真实输入事件，不能外推为整体搜索加速 26 倍。
+原生路径写成 vim.fn.char2nr((text:get(1)))，用括号截断 get(1) 的多个返回值。
+
+验证：17 个现有测试入口全部通过；Cursor 的 775 个 Unicode/边界用例同时核对了
+相对码点索引、负偏移和越界行为，另覆盖 NUL、最大 Unicode 标量、无效 UTF-8，
+并验证重复读取不重新分段。自定义 scope 新增码点读取用例；原 scope 的完整字素
+匹配语义不变。LuaLS 使用真实 Neovim/Flash library 和全部诊断级别，结果无诊断。
+中英文 README、source 文档、开发文档及帮助已同步。
+
+复现（两个目录分别保存本节修改前后版本；每次命令运行独立进程，串行交替重复）：
+
+```sh
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-codepoint.log nvim --clean -l scripts/bench_grapheme_cold.lua /path/to/before ascii
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-codepoint.log nvim --clean -l scripts/bench_grapheme_cold.lua /path/to/after ascii
+# 改为 chinese 测中英文；预热单项用 bench_grapheme.lua ROOT ascii fresh-c。
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-codepoint.log nvim --clean -l scripts/bench_codepoint.lua /path/to/after native
+taskset -c 0 env NVIM_LOG_FILE=/tmp/flash-any-codepoint.log nvim --clean -l scripts/bench_codepoint.lua /path/to/after cached
+```
+
+本轮基线 /tmp/flash-any-codepoint-before-mke0b_1w/；原始记录
+/tmp/flash-any-codepoint-results/{raw.jsonl,summary.json}。
+
+English: Cursor now uses grapheme-to-codepoint and codepoint-to-byte indexes plus cached
+scalar values, removing the separate final-codepoint array. get_codepoint(pos) uses a
+relative codepoint offset: 0/current, 1/next, -1/previous. Out-of-range reads return nil;
+malformed bytes are -1. Warm cached numeric reads took about 1/26 the native char2nr
+path's time in the microbenchmark, but cold complete scans increased about 0.42 ms and
+retained heap grew 44–84 KiB per 40 lines. This adds a read API with measurable setup
+cost rather than a general scan optimization. All tests and full LuaLS diagnostics passed.
+
+
+## 码点值改为紧密 Lua 字符串（2026-11-06）
+
+只改变 _codepoints 的存储与读取，字素 → 码点 → byte 两级索引及字符串片段缓存
+保持不变。四组临时实现均通过 Cursor 的 775 个 Unicode/边界用例，以及 scope、
+match/init、match/word、match/char，包含相对负偏移、越界、NUL、最大标量及无效 UTF-8。
+正式实现仍使用整数数组，本实验未改生产代码。
+
+| 方案 | 构造与读取方式 |
+| --- | --- |
+| array | 当前 Lua 数组，直接按下标读取数值 |
+| string3 | 每个码点加一后打包为小端 3 字节；string.char 生成小块，table.concat 合并；读取用 string.byte 取三字节再还原 |
+| string4-ffi | 构造期 FFI uint32_t 缓冲区，完成后复制成 Lua 字符串；读取临时转为 uint32_t 指针，检查范围后读取，不保留指针 |
+| utf8 | 不额外存码点值；通过已有 byte 索引找到原始 UTF-8 中的码点，再调用同一分段器的严格解码函数 |
+
+两个打包方案用 codepoint + 1 编码：无效字节 -1 编为 0，合法 NUL 编为 1，
+最大标量 0x10FFFF 编为 0x110000，三字节可容纳；负偏移和越界在读字符串前检查。
+FFI 方案使用本机字节序，字符串只作为进程内缓存；没有序列化或跨平台交换格式。
+utf8 是对照方案，不等同于缓存已解码的数值。
+
+固定 CPU 0，串行运行，默认 GC/JIT。每场景每方案冷启动 72 个独立进程，运行顺序
+遍历四组的 24 种排列；预热每项每方案 3 个独立进程，各进程取 7 次批量计时中位数，
+再取三个进程的中位数。扫描仍含 Cursor 创建、匹配和结果分配，不含 source 初始化。
+完整扫描的 source 不调用 get_codepoint，因此主要比较构造/GC 成本，不是数值读取收益。
+
+| 40 行 / 工作负载，ms | array | string3 | string4-ffi | utf8 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII / 首次扫描 | 3.630 | 3.864 | 3.354 | 3.329 |
+| ASCII / 仅构造 | 0.187 | 0.254 | 0.144 | 0.128 |
+| ASCII / 预热扫描 c | 1.259 | 1.325 | 1.208 | 1.202 |
+| 中英文 / 首次扫描 | 4.662 | 4.905 | 4.694 | 4.585 |
+| 中英文 / 仅构造 | 0.160 | 0.222 | 0.165 | 0.126 |
+| 中英文 / 预热扫描 c | 1.086 | 1.225 | 1.039 | 1.020 |
+
+纯 Lua 3 字节字符串的构造比数组约慢 36%–39%，首次扫描约慢 5%–6%。FFI 打包
+ASCII 首次扫描较快，中英文基本持平；没有稳定的跨场景速度优势。headless 进程总
+耗时还包括模块加载、source 初始化、buffer 准备、输出及退出，另列如下，单位 ms：
+
+| 进程总耗时 | array | string3 | string4-ffi | utf8 |
+| --- | ---: | ---: | ---: | ---: |
+| ASCII | 11.373 | 11.600 | 11.001 | 10.959 |
+| 中英文 | 12.285 | 12.561 | 12.298 | 12.344 |
+
+局部读取用同一个 bench_codepoint.lua，预热后遍历 32 个字素，累加首码点数值；
+包括推进，不包括构造、source、完整 matcher 或 UI。单位为每次完整遍历的微秒：
+
+| array | string3 | string4-ffi | utf8 |
+| ---: | ---: | ---: | ---: |
+| 0.122 | 0.175 | 0.122 | 0.491 |
+
+紧密字符串需要在读取时还原数字；纯 Lua 的 string.byte 和算术成本超过了数组直接
+读取，约慢 50%。FFI uint32_t 读取接近数组，但需要原生类型构造、临时指针转换和
+显式边界检查。直接解码原 UTF-8 最省存储，读取约为数组耗时的 4 倍。本结果不能
+外推成 UI 按键延迟，也不代表打包所有索引数组会有同样结果。
+
+内存另开进程测量，jit.off，构造 40 个 Cursor，完整 GC 后取堆差值，保留所有对象；
+不做匹配或 get(1) 字符串预热，不含 require 阶段的固定模块开销。每条输入为
+(local result = cursor:get(1) -- 工作记录 á👩‍💻🇨🇳; ) × 2；unique 在末尾追加不同的行号。
+
+| 保留 Lua 堆，KiB | array | string3 | string4-ffi | utf8 |
+| --- | ---: | ---: | ---: | ---: |
+| 40 条相同内容 | 142.8 | 100.3 | 100.3 | 100.0 |
+| 40 条不同内容 | 149.1 | 118.3 | 122.1 | 106.3 |
+
+相同字符串会驻留共享，因此相同行的打包缓存只需一份；不能只用该场景估计真实行
+数据的收益。不同内容时 string3 相比数组省约 21%，string4-ffi 省约 18%，直接使用
+原 UTF-8 省约 29%。这些是 Cursor 整体堆差值，不是单独码点缓存大小，也不是 RSS。
+
+脚本同时记录停止 GC 后重新构造同样 40 条输入的堆增量 allocated_kib；这包含临时
+数组、FFI 缓冲区和字符串，但已有相同字符串可驻留复用，不能作为无共享的冷启动
+峰值；不依据此数字判断 RSS。3 字节方案还需临时块表和 concat，紧密存储并不等于
+构造期间没有临时分配。
+
+结论：纯 Lua 紧密字符串适合进一步节省常驻内存，当前没有速度收益。FFI 方案读速
+接近数组、部分构造更快，但增加实现及依赖成本，当前不据此替换正式数组缓存。
+
+复现（生成四种副本、运行语义测试，再串行测量）：
+
+```sh
+python scripts/bench_packed_codepoints.py
+# 仅用于检查脚本运行，不用于性能结论：
+python scripts/bench_packed_codepoints.py --cold-samples 1 --warm-samples 1
+```
+
+本轮记录：/tmp/flash-any-packed-codepoints-3br0eurg/{raw.jsonl,summary.json}；
+临时实现及独立内存脚本 heap.lua 保留在同一目录。
+
+English: Packing only decoded codepoint values into three-byte Lua strings reduced
+retained heap by about 21% for 40 distinct mixed-text lines, but reads were about 50%
+slower and construction about 36%–39% slower. Four-byte strings read via LuaJIT FFI
+matched array read speed, with mixed first-scan results and additional implementation
+cost. Identical-line memory results benefit from string interning and are reported
+separately. Production keeps the numeric array; benchmarks and temporary variants remain
+available for reproduction.
+
+
+## 完整 C Cursor 与 C 构造 + LuaJIT 读取（2026-11-06）
+
+原型不是只把某个 getter 改成 C：UTF-8 严格解码、Unicode 17 字素分段、三张连续的
+32-bit 索引/码点数组、游标状态与完整读取方法都写入了 C。使用原 Lua 属性表生成
+C 页索引和范围表，保持 ASCII/Hangul 分支和所有 RI、ZWJ、Indic 分段规则；没有换
+Unicode 版本或第三方分段器。C 构造不逐码点回调 Lua。
+
+比较三种绑定，正式 lua/flash-any/cursor.lua 本轮未修改：
+
+| 方案 | 数据及方法 |
+| --- | --- |
+| lua | 当前纯 Lua Cursor，两级索引和码点值均为 Lua 数组 |
+| native | 完整 C userdata；方法及 value/offset 字段访问通过 Lua C API / __index；缓存字符串仍由 Lua 表和 GC 持有 |
+| ffi | 同一 C 构造器和紧密索引；返回 Lua 包装表，短方法保留 Lua，LuaJIT 通过 FFI 指针读取 native 索引，不在每次读取时调用 C 函数 |
+
+C 临时构造缓冲区与最终精确大小的对象均为 Lua 所有的 userdata，不用外部 malloc，
+因此可被 GC 正常记账和回收。userdata 的 environment 固定持有原输入及字符串缓存；
+ffi 包装表同时持有 userdata 所有者和借用指针，指针不独立延长底层内存生命周期。
+最终对象保存一份连续的 int32 码点值、uint32 byte 边界与 uint32 字素边界；byte 定位
+仍顺扫，不恢复反向表或添加二分。native 对象类型为 userdata，ffi 方案仍为 table。
+
+文件：[C 原型](../scripts/bench_cursor.c)、[FFI 绑定](../scripts/bench_cursor_ffi.lua)、
+[构建及测试/性能脚本](../scripts/bench_native_cursor.py)。构建只发生在 /tmp；没有接入
+生产 require 路径或增加插件默认加载入口。实验环境 Linux x86-64，cc -O3，LuaJIT 2.1，
+Neovim 0.12.6；不代表已完成 Windows/macOS 的构建、ABI 与发布适配。
+
+固定 CPU 0，串行执行；冷启动每场景每组 72 个独立进程，三组顺序在 6 种排列间轮换。
+每进程只扫描一次，无预热。source 为 literal + 单字素拼音 initial，40 行，输入 c。
+下面是 scanner.get 耗时，含 Cursor 构造、扫描和结果分配，不含 source 初始化，单位 ms。
+
+| 首次扫描 | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII | 3.492 | 4.860 | 2.789 |
+| 中英文 | 4.972 | 4.594 | 3.718 |
+
+ffi 方案分别减少约 20.1%、25.2%，但完整 C userdata 没有稳定胜出：ASCII 更慢，中英文
+略快。冷启动也有波动，中英文 lua 的最小–最大为 3.151–9.067 ms，ffi 为 2.447–9.112 ms；
+这里的百分比只描述本批中位数。包含加载动态库/FFI、初始化、准备 buffer、输出和退出
+的 headless 进程总时间另列，仍不等于实际 UI 按键延迟：
+
+| 进程总时间，ms | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII | 10.865 | 12.153 | 10.282 |
+| 中英文 | 12.338 | 11.918 | 11.195 |
+
+预热每个 fixture/workload 独立进程，每组 3 个进程；每进程取 7 次批量计时的中位数，
+再取三个进程的中位数。保持默认 JIT/GC，沿用 bench_grapheme.lua 的 source 和输入。
+
+| 仅创建 40 个 Cursor，ms | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII | 0.182 | 0.036 | 0.046 |
+| 中英文 | 0.161 | 0.047 | 0.057 |
+| 正文 + emoji | 0.184 | 0.053 | 0.063 |
+| 密集 ZWJ | 0.193 | 0.048 | 0.059 |
+
+完整 C 构造约为 Lua 耗时的 1/3–1/5，ffi 包装后仍约为 1/3–1/4；这说明解码、
+分段和连续存储值得搬到 C。不过构造时间不是完整输入延迟，不能沿用该倍数评价搜索。
+
+| 预热完整扫描 / 连续输入，ms | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII / 扫描 c | 1.231 | 5.968 | 1.060 |
+| ASCII / 逐键 shi | 1.878 | 8.848 | 1.591 |
+| ASCII / 逐键 coder | 1.338 | 6.778 | 1.231 |
+| 中英文 / 扫描 c | 1.058 | 5.187 | 0.941 |
+| 中英文 / 逐键 shi | 1.544 | 7.473 | 1.511 |
+| 中英文 / 逐键 coder | 1.335 | 5.864 | 1.245 |
+
+完整 userdata 在 ASCII/中英文预热扫描反而约为 Lua 耗时的 4–5 倍。其热路径包含多次
+C __index、Lua C API 方法调用、参数验证、Lua 缓存表访问与返回值转换；不能因为内部
+数组是 C 就认为短方法也应全部改成 C。两种 C 绑定共用分段与存储实现，但不同热路径
+成本并未进一步逐项归因。
+
+ffi 避免逐次进入 C API，通常保留了构造收益；也不是所有输入都更快：密集 ZWJ 的
+coder 为 2.166 → 2.351 ms（+8.6%），而该场景 fresh-c 为 0.577 → 0.431 ms。
+
+关闭 JIT 的 fresh-c 复核，单位 ms：
+
+| JIT off | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII | 5.062 | 6.438 | 6.355 |
+| 中英文 | 4.404 | 5.770 | 5.494 |
+
+ffi 路线的优势依赖 LuaJIT 能优化指针读取及短方法；解释执行时更慢，不支持将本实验
+结论推广到所有 Lua 运行时。
+
+局部数值读取沿用 bench_codepoint.lua，预热后遍历 32 个字素并累加首码点，包含
+字段访问、get_codepoint 和 shift，不含构造或 source。每次完整遍历耗时，单位微秒：
+
+| lua | native | ffi |
+| ---: | ---: | ---: |
+| 0.113 | 6.323 | 0.070 |
+
+native 的差距包含字段、方法分派和推进，不能把它全部当作一次码点数组读取的开销。
+
+保留内存只看隔离 fresh-c、完整 GC 后的 Lua 堆，含 state 和结果，KiB：
+
+| 40 行 | lua | native | ffi |
+| --- | ---: | ---: | ---: |
+| ASCII | 474.7 | 283.4 | 303.9 |
+| 中英文 | 265.4 | 181.7 | 202.4 |
+| 正文 + emoji | 401.0 | 313.5 | 334.3 |
+| 密集 ZWJ | 320.6 | 247.4 | 268.2 |
+
+这包含 userdata 的数组内存，也包含 ffi 包装表和指针对象，不含动态库映射、生成的
+只读属性表和 require 阶段的固定开销，不是 RSS。ffi 方案 ASCII/中英文约省 36%/24%。
+不能用仅构造工作负载最后的堆差值代替精确对象大小：JIT trace 与循环返回值可能保留
+额外引用；本报告没有据此宣称峰值内存改善。
+
+验证：三组均通过全部 17 个测试入口，包含 Cursor 的 775 个 Unicode/边界用例、
+完整 match/source/scope/Flash/char/remote 测试。native 唯一测试调整是把“string.sub
+调用一次”的实现计数改为检查同一后缀缓存，未改匹配结果断言；C 通过 lua_pushlstring
+构造字符串，本来不会调用 Lua 的 string.sub。ffi 使用原测试，不需要该调整。
+另外构造 500 个含组合音标、ZWJ、NUL、坏字节和唯一行号的对象，反复 GC 后验证所有
+字段和码点读取。native/ffi 另以 UBSan 编译运行 Unicode、增量匹配、多字素和 GC
+用例，无 undefined-behavior 报告。C 构建开启 -Wall -Wextra -Werror，LuaLS 保留真实
+Neovim/Flash library 与全部诊断级别，FFI 字段补真实结构类型说明，检查无诊断。
+
+当前结果支持“C 构造和持有索引，LuaJIT 负责短读取方法”，不支持直接把全部 Cursor
+方法改成 C 就会整体快数倍。要接入生产还需决定编译、平台支持和发布方式；本轮只
+保留原型和复现入口，不引入自动回退、可选后端配置或新的生产加载层。
+
+复现要求本机 cc、pkg-config 和 LuaJIT 开发头文件/库，原型脚本使用 Linux shared-library
+编译参数，Unicode 数据从仓库本地生成，不联网下载：
+
+```sh
+python scripts/bench_native_cursor.py
+# 少量样本检查流程，不用于性能结论：
+python scripts/bench_native_cursor.py --cold-samples 1 --warm-samples 1
+```
+
+本轮记录：/tmp/flash-any-native-cursor-6l1iw8s4/{raw.jsonl,summary.json}；生成的属性头文件、
+共享库、三组独立快照、gc.lua 与 UBSan 变体均保留在同一目录。
+
+English: A complete C userdata Cursor constructed about 3–5 times faster, but frequent
+Lua/C method and field calls regressed warm ASCII/Chinese scans by about 4–5 times.
+The same C indexing/storage with LuaJIT/FFI short methods reduced cold scan medians by
+20%/25% and retained Lua heap by 36%/24% in those fixtures; one dense-ZWJ typing case
+still regressed. All 17 test entries, additional GC ownership checks, UBSan checks and
+full LuaLS diagnostics passed. At this experiment stage production remained Lua; the C prototype and benchmark
+runner are retained without introducing a production backend or loader.
+
+## 二进制码表与 Rime MARISA 对照
+
+本轮改为一次调用 C 扫描完整文本范围，而非 Lua 逐字素调用 C Cursor。
+构建完整码表、字符串/编码集合去重、词组前缀和静态哈希都提前完成；加载时直接
+校验并查询二进制数据。生产构建只需 C/LuaJIT，MARISA 是可选对照项。
+
+参考 librime 的 [ReverseDb](https://github.com/rime/librime/blob/master/src/rime/dict/reverse_lookup_dictionary.cc)
+及 [StringTable](https://github.com/rime/librime/blob/master/src/rime/dict/string_table.cc)：
+Rime 的反查方向也是文本→编码，使用两棵 MARISA trie 和 key-ID→value-ID 数组。
+本实现借鉴静态数据、ID 引用及集合共享，但根据下面的短键查询结果保留哈希。
+
+CPU 绑定同一核心，独立进程交替运行各方案，无并行性能任务。局部查询对同一
+码表/条目取最多 256 个均匀分布键，循环到至少 30 ms，7 次取中位数，再取
+3 个进程中位数。计时使用 clock()，没有 Lua 调用、文件 IO 或编译；查询及条目
+flags 读取均在计时内。MARISA 0.3.1 使用默认构建参数，序列化后 map；同时测
+Rime 风格每次新建 Agent 和复用 Agent。所有抽样查询先校验与生产哈希结果相同。
+这是小查询集的热缓存 CPU 测量，不能等同于整表随机访问或编辑器响应延迟。
+
+| 完整码表 | 哈希命中 ns | 有序表二分 ns | MARISA 新 Agent ns | MARISA 复用 Agent ns | 哈希文本索引 KiB | MARISA 文本索引 KiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| pinyin | 9.58 | 70.55 | 110.29 | 100.82 | 751 | 250 |
+| tiger | 8.75 | 87.88 | 144.78 | 135.10 | 2158 | 550 |
+| wubi86 | 9.13 | 65.74 | 138.97 | 129.82 | 1310 | 392 |
+| unicode | 9.37 | 60.94 | 114.05 | 103.61 | 709 | 225 |
+| nerdfont | 8.63 | 65.72 | 92.39 | 82.46 | 185 | 62 |
+| 2000 个三字素词组 | 12.65 | 45.07 | 125.17 | 118.48 | 114 | 37 |
+
+索引体积仅对比文本→条目映射：哈希含槽位、key offset/length 及键字节；MARISA
+含 trie image 和到相同条目序号的 u32 映射，不含共享编码数据和 scope。直接按
+MARISA key ID 排列 payload 可省去这层序号映射。哈希键字节按独立文本索引计，
+不扣除与全局字符串池其他内容碰巧相同的部分。MARISA 并非整个包缩小到这个比例。
+对照程序输出的 load_ms 仍是公共二进制包的 C 校验时间，**不是 MARISA 加载耗时**；
+本轮没有比较两种完整文件格式的冷加载。
+
+同一机器的首次加载使用9个全新 Neovim进程/方案，交替运行；包括模块 require、
+文件读取及准备，hrtime 计时。Lua 为常用表加按需 TSV，二进制为完整冻结快照，
+覆盖范围/常驻数据量不同；collectgarbage 后只统计 Lua 所有堆，不是 RSS。
+
+| 码表 | 完整条目 | 二进制字节 | Lua 加载 ms | 二进制加载 ms | Lua 保留 KiB | 二进制保留 KiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| pinyin | 44469 | 1348694 | 3.49 | 1.19 | 1060 | 1322 |
+| tiger | 99171 | 4595520 | 4.10 | 2.46 | 1252 | 4493 |
+| wubi86 | 70394 | 3011822 | 4.08 | 1.85 | 1266 | 2946 |
+| unicode | 40162 | 3090098 | 4.41 | 2.02 | 1174 | 3023 |
+| nerdfont | 10604 | 678563 | 4.13 | 0.60 | 1095 | 668 |
+
+二进制存索引而非压缩原文本：对应原 TSV 分别约 401/980/675/1363/283 KiB，
+不能宣称文件更小或总体内存一定更少。C 直接 fread 到 Lua-owned userdata，避免
+Lua io.read 的临时完整字符串和缓冲；加载后不重建每条数据对象。此轮初次编译
+完整表约 130/553/382/369/57 ms，构建不属于启动或输入扫描计时。
+
+完整范围扫描用40行相同混合文本，每行重复4次
+`中国人民学习中文，ASCII flash_any 混合文本。`，sources 仅 pinyin；依次输入
+`z → zh → zho → zhon → zhong → zhongg → zhonggu → zhongguo`。
+每种后端/冷热情况7个独立进程交替取中位数。模块与码表加载单独计时，不含源码
+编译和码表生成；扫描包括 Neovim 文本获取、分段、匹配、合并和 Lua 结果对象构造，
+不含 Flash 绘制、按键分发或进程启动。两种后端总候选数均为2080。
+
+| 阶段，ms | Lua | C 二进制 |
+| --- | ---: | ---: |
+| 模块及码表加载 | 3.68 | 1.25 |
+| 首次输入扫描 | 5.54 | 0.46 |
+| 同一进程预热后的新 `z` 扫描 | 1.06 | 0.26 |
+
+首次扫描 CPU 为5.522/0.455 ms，与 elapsed 接近。冷进程后续7次输入中，Lua 每次
+0.48–2.19 ms，C 每次0.25–0.38 ms；预热后两者多数在0.24–0.39 ms附近，C并非
+每次更快。这只是固定重复文本的对照，不覆盖任意文档、码表组合及真实交互延迟。
+C 当前在输入变化时重新扫描已有行索引，Lua 保留增量匹配缓存；C 相同输入复用
+候选，Flash state 内复用行索引，独立跳转之间只共享码表。
+
+复现入口：
+
+```sh
+make
+python scripts/bench_binary.py
+python scripts/bench_binary.py --marisa  # 另需 pkg-config marisa、C++17 编译器
+# 上个命令会输出临时目录，以下 PACKAGE 为其中的 pinyin.bin
+NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_binary_load.lua pinyin binary PACKAGE
+NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_native.lua lua PACKAGE cold
+NVIM_LOG_FILE=/tmp/flash-any-bench.log nvim --clean -l scripts/bench_native.lua binary PACKAGE cold
+```
+
+原始记录：`/tmp/flash-any-binary-bench-016al9te/{raw.jsonl,summary.json,build.jsonl,load-raw.json,load-summary.json}`，
+MARISA 对照 `/tmp/flash-any-binary-bench-3akq_k9u/{raw.jsonl,summary.json}`，
+扫描 `/tmp/flash-any-native-scan-raw.json`。新增后端通过528组 Lua/C差分、775组
+C Cursor Unicode/边界测试、真实 Flash jump/char/remote 集成和 UBSan；全部原有
+测试通过，LuaLS 使用真实 Neovim/Flash library 和全部诊断级别，无诊断。
+
+English: Rime's reverse dictionary informed the immutable ID/shared-value layout.
+MARISA produced a smaller text index, but even a reused Agent was much slower for
+these hot short-key queries, so production retains a static hash without MARISA.
+Complete binary packages load faster here while often retaining more dictionary
+data than lazy Lua/TSV. The 40-line fixture's first scan fell from 5.54 to 0.46 ms;
+warm continuations were much closer and did not improve uniformly. These timings
+exclude Flash rendering and key handling. The optional C backend is now available
+through build.binary and setup({binary = path}); Lua remains the default backend.
+
+## 单码点分页索引
+
+在上述 C 二进制后端上仅改变文本→条目索引。单个合法 Unicode 码点键（含词组的
+单码点前缀）进入两级数组，复杂字素、词组和非法 UTF-8 键保留静态哈希。
+`cp >> 8` 定位页，`cp & 255` 定位槽；目录 4352 个 u32，只有出现的页分配
+256 个 u32。槽保存条目序号+1，0 表示没有条目。C 扫描已缓存每个码点及字素边界，
+仅当当前完整字素恰好含一个合法码点时使用整数索引，不重新解码、不比较键字节，
+不增加 Lua/C 调用或查询缓存。复杂字素不能仅凭首码点认领，例如 `a` 不匹配 `á`。
+
+`scripts/bench_binary.py` 继续独立进程、同核心、交替顺序、相同键和条目，热查询
+7次采样/进程、3进程中位数；哈希对照在计时外按旧规则重建完整文本哈希。
+scalar 模式在计时外取得码点，符合扫描器已有解码结果的条件；pages 模式计时内
+重新解码，分开记录。查询和读取条目 flags 在计时内，无 Lua 调用。未单独测 Lua
+数字表，因此不能据此声称比 Lua 数字表快。命中结果如下：
+
+| 码表 | 旧文本哈希 ns | 已有码点分页 ns | 含解码的分页 ns | 旧二进制字节 | 新二进制字节 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| pinyin | 9.74 | 2.44 | 4.65 | 1348694 | 1500254 |
+| tiger | 10.00 | 2.34 | 5.40 | 4595520 | 3968840 |
+| wubi86 | 9.58 | 2.35 | 4.89 | 3011822 | 2823414 |
+| unicode | 9.92 | 2.48 | 4.95 | 3090098 | 3049146 |
+| nerdfont | 8.81 | 2.21 | 4.91 | 678563 | 681643 |
+
+页大小按16/32/64/128/256/512测算目录及槽位体积；256在这些内置数据上接近
+最小，但不是每张表都比哈希省空间。拼音条目分布稀疏，页内空槽使文件增加约
+148 KiB；虎码减少约612 KiB，五笔减少184 KiB，Unicode减少40 KiB，Nerd Font
+增加3 KiB。保留固定页大小和简单两级读取，未增加 bitmap/rank 或不同源自选格式。
+本版仍保留 key 描述和字符串用于复杂键、校验与通用查询，并未移除所有文本数据。
+
+完整扫描沿用40行混合文本、pinyin、8次逐键输入。优化前后的模块/共享库快照
+独立加载，同一核心交替运行各9个全新进程，加载和扫描分开计时。首次扫描中位数
+0.459→0.443 ms（CPU 0.455→0.441 ms），约3.4%；加载1.236→0.901 ms。
+后续各次输入大多接近，部分样本更慢，不能由局部查询4倍推断完整扫描也快4倍。
+不含 Flash 绘制和按键处理，结果总数同为2080。
+
+二进制格式升级 `FANYBIN\4`，source 描述52 bytes，追加页数；u32索引 section
+保存该 source 的复杂键哈希、页目录及页槽。运行时不重建任何码表索引，旧包须
+重新调用 build.binary。行索引和相同输入的候选缓存仍保留，独立于码表查找。
+554组 Lua/C 差分（新增首码点误匹配、NUL、最大码点、非法字节和词组前缀）、
+真实 Flash jump/char/remote 集成及 UBSan通过；真实 Neovim/Flash library下的
+LuaLS全部级别检查无诊断。
+
+记录：`/tmp/flash-any-binary-bench-9gpxpgy8/{raw.jsonl,summary.json,build.jsonl}`；
+完整扫描 `/tmp/flash-any-page-scan-raw.json`；旧模块快照 `/tmp/flash-any-before-codepoint`。
+复现局部测试用 `python scripts/bench_binary.py`；完整扫描脚本可用第4个参数指定
+后端 runtime 根目录，以便分别加载旧/新模块和各自格式的码表。
+
+English: Single-scalar graphemes now index compiled sparse codepoint pages directly,
+without a dictionary lookup cache. Compound graphemes/words retain the text hash.
+Hot scalar hits fell from roughly 9–10 to 2.2–2.5 ns, while the 40-line first scan
+improved only about 3.4%. File size depends on sparsity: pinyin grew about148 KiB,
+whereas tiger shrank about612 KiB. Packages use format v4 and must be rebuilt.
+
+## 多码点字素 hash 的结构分析（实验，未修改运行时）
+
+对照脚本为 `scripts/bench_grapheme_hash.py` 和 `.c`。首先用当前 Unicode17
+分段器过滤为完整单字素，再去重；不把词组混入字素样本。五张内置完整表逐一
+materialize 后共264800条（跨表未去重），全部是单码点。因此本轮针对未来组合
+字素/完整 emoji 数据，不会直接改善当前这些内置表的数组查询路径。
+
+Unicode 的结构依据是 [UAX29](https://www.unicode.org/reports/tr29/) 和
+[UTS51](https://www.unicode.org/reports/tr51/)。多码点字素包括基字符+Extend/
+SpacingMark、Prepend、Hangul Jamo 连写、Indic 辅音/连接符连写、两个区域指示符、
+肤色/变体选择符/键帽/ZWJ/tag emoji序列；Extend 等可以重复，长度没有固定上限。
+ZWJ/VS/肤色/标记顺序都不能丢弃。本插件没有归一化，不合并原始不同序列。
+
+样本来源：Unicode17官方 `emoji-test.txt` 中3825个多码点序列，涵盖fully/minimally/
+unqualified形式（互斥分类为ZWJ2667、肤色665、旗帜259、VS207、键帽24、tag3）；
+Python Unicode16 NFD产生并经Unicode17分段器过滤的1046个非Hangul字素、11172个
+Hangul分解字素；2184个由a/b和3种重音标记的1至6位有序组合构造的压力样本；
+项目Unicode17 GraphemeBreakTest中的242个多码点字素。合并去重18463个。
+NFD只用于造测试输入，不改变匹配语义；此语料没有模拟真实文档的出现频率。
+
+对32位结果及截断结果统计碰撞，再按生产规则取二次幂槽数、线性探测；combined
+为32768槽、56.3%负载。碰撞数指超出不同hash值数量的额外键数，不是碰撞对数。
+平均/最大探测数为按相同字典序插入所有键时的槽访问数，不是端到端查询时间。
+CPU微测使用已解码码点和原UTF8，文件IO/分段/解码在计时外，每次独立进程，
+同核心交替顺序、3进程中位数，每进程5次、校准到至少15ms；只计计算hash，
+不包含表探测和原文比较。ns列均是combined语料平均，不是对应子集的延迟。
+
+| 算法 | 完整32位额外碰撞键 | 平均插入探测 | 最大插入探测 | 仅hash约ns/字素 |
+| --- | ---: | ---: | ---: | ---: |
+| 码点相加 | 15757 | 3634.31 | 11779 | 1.34 |
+| 码点多项式×31 | 27 | 33.32 | 2009 | 1.85 |
+| 码点多项式×33 | 41 | 30.82 | 1862 | 1.84 |
+| 码点多项式×65599 | 0 | 11.23 | 505 | 1.84 |
+| 码点多项式×0x9E3779B1 | 0 | 8.17 | 166 | 1.84 |
+| 循环左移5位再异或码点 | 73 | 102.40 | 3078 | 1.84 |
+| 循环左移13位再异或码点 | 136 | 992.77 | 3224 | 1.79 |
+| 现有逐UTF8字节FNV-1a | 0 | 1.70 | 46 | 3.74 |
+| FNV式逐码点异或/乘法 | 0 | 1.66 | 28 | 1.85 |
+| 多项式×33 + fmix32 | 41 | 1.69 | 36 | 1.79 |
+| 多项式×0x9E3779B1 + fmix32 | 0 | 1.62 | 23 | 1.78 |
+| 结构分类位打包+通用后备 | 0 | 2.55 | 185 | 1.92 |
+| 结构分类位打包+通用后备+fmix32 | 0 | 1.63 | 27 | 1.85 |
+
+fmix32来自公有领域 [MurmurHash3](https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp)。
+它在完整32位上是置换，只改善位分布，不能消除前一步已经产生的相同hash值。
+例如乘31确实让 `D+0323` 与 `E+0304` 相撞：`31*0x44+0x323 == 31*0x45+0x304`。
+乘33同理让 `A+0328` 与 `B+0307` 相撞。保留长度作初始状态仍然无法区分这些
+相同长度的键。Hangul有规律的低位让乘31在其独立语料上平均插入81次。
+因此必须同时看完整hash碰撞和实际槽位聚集，不能只统计完整32位是否不同。
+
+结构分类实验对两码点旗帜用26进制、0300–036F组合标记用base<<7|mark、
+FE00–FE0F用base<<4|selector、肤色用base<<3|modifier，并分配互不重叠类型前缀；
+其余使用带类型前缀的29位FNV码点后备。前四类在各自范围可一一编码，后备仍
+可能冲突。完整值不碰撞不代表低位分槽均匀；再加fmix32后才接近通用算法，
+但增加规则/分支，不能由本轮数据证明值得接入生产。
+
+建议候选为FNV式码点混合：初值2166136261，每个已解码码点执行
+`h = (h ^ cp) * 16777619`，uint32自然回绕；它是码点变体，不是标准的字节FNV。
+本轮全32位/低31位均无碰撞，低21位产生42个额外碰撞键，故不宜为了内部编码
+空间贸然压缩到21位。若要分离真实码点与复杂字素hash，可用高位标志加31位
+结果，但仍需处理冲突/原文校验。样本无碰撞不能保证其他字素或未来数据无碰撞。
+该候选可以直接读已缓存码点，或在分段时对多码点字素累计；尚未测完整扫描收益，
+本轮不替换运行时算法、不新增字素hash数组/缓存。
+
+复现：下载官方数据到临时目录，然后运行：
+
+```sh
+curl -fL https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt -o /tmp/emoji-test.txt
+python scripts/bench_grapheme_hash.py --emoji /tmp/emoji-test.txt
+```
+
+报告 `/tmp/flash-any-grapheme-hash-cw_fmp53/report.json` 含分组、完整/31/21位碰撞、
+槽位/探测数及逐进程CPU数据。生成的C内核使用-O3和-Wall -Wextra -Werror，
+与本轮完整样本一起运行通过；没有改动生产API，不涉及端到端性能结论。
+
+English: An 18,463-key Unicode/grapheme corpus exposed collisions and severe bucket
+clustering in simple sums, rotations and small polynomial multipliers. A codepoint-wise
+FNV-style xor/multiply retained ordering with zero full-32-bit collisions in this corpus,
+and roughly halved hash-only CPU time relative to byte FNV. Structured packing handled
+some subsets injectively but still required mixing for bucket quality. Results do not
+guarantee collision freedom or editor latency improvements; runtime remains unchanged.
+
+## 统一字素索引与 matcher 标记
+
+本轮将前述候选接入生产，并限定二进制键恰好一个完整字素。所有配置码表共用
+码点分页数组和复杂字素hash，编译时过滤scope、处理fallback和空编码认识状态，
+随后按matcher模式合并去重。运行时不保留source身份、scope、fallback或词组状态。
+ASCII literal展开为128个普通索引项；它仍只接受单字节输入字素，`á`不作为`a`
+字面匹配。多字素键构建时报错，Lua后端的词组功能保持；连续输入跨字素仍支持。
+
+每个条目改为16bytes：key offset/length、编码列表offset/length。编码以0x80–83
+分别标识literal/full_code/initial/prefix，其后的ASCII直到下个标记或列表末尾。
+ID兼作分隔符，不存source ID、编码结束符、逐编码ID或编码字符串描述。相同的
+整份带标记列表在pool中共享。单码点用现有码点直接查数组；复杂字素以码点做
+FNV式xor/multiply，非法字节使用0x110000+原字节的独立token，命中校验原文。
+每个扫描位置只查一次字典，复用列表给该位置的所有输入状态，不新增查询缓存。
+固定两槽请求环替代按最长词长分配。格式升级FANYBIN v5，旧包需重建。
+
+对照为修改前v4的完整lua/src/native.so快照 `/tmp/flash-any-before-merge`，使用
+相同配置和脚本，分别在独立全新Neovim进程加载对应root和对应二进制。3种场景
+各冷/暖两组，每个后端9个进程，固定同一核心、交替运行；warm先完成30轮8次
+输入，再GC后测新一轮。编译发生在测量之外；构建数据另列单次观测，不作为稳定
+编译耗时结论。load包含模块加载/文件读取/校验，first包含文本获取、行分段、C
+匹配和Lua结果构造；typing为8次输入扫描之和。全部排除Flash绘制、按键分发和
+进程启动。Lua-owned字典堆在GC后统计，非RSS；没有并行性能任务。
+
+| 配置 | v4字节 | v5字节 | 变化 |
+| --- | ---: | ---: | ---: |
+| pinyin | 1500254 | 1316413 | −12.3% |
+| 五张内置表 | 11338490 | 6027609 | −46.8% |
+| 小型组合字素表 | 19153 | 22147 | +15.6% |
+
+五表是pinyin/tiger/wubi86/nerdfont/unicode，按此顺序；Unicode为fallback。
+v4有264800条source记录，v5有148555个合并后的可匹配字素（含ASCII）。该差异
+包含跨表键合并、scope过滤和删除已被覆盖的fallback，不能仅归因于省分隔符。
+单拼音v5有44525字素，小表有134字素；小表增加ASCII索引项而变大。
+五表构建单次观测约1.58→1.05s，单拼音0.117→0.124s。
+
+文本均40行，每行重复4次。拼音/五表用
+`中国人民学习中文，ASCII flash_any 混合文本。󰊢😀`，输入为
+`z→zh→zho→zhon→zhong→zhongg→zhonggu→zhongguo`。
+组合字素表用 `á👩‍💻🇨🇳1️⃣👍🏽 x Ω `，混合initial/prefix/full_code/fallback，
+输入为`a→ac→acc→acce→accen→accent→accentd→accentdev`。
+两版候选数逐次相同，总数分别2080、2240、1440。
+
+| 冷进程，中位数ms | 加载v4→v5 | 首次扫描v4→v5 | 8次扫描v4→v5 |
+| --- | ---: | ---: | ---: |
+| pinyin | 0.870→1.203 | 0.372→0.226 | 2.461→1.277 |
+| 五表 | 4.935→4.499 | 0.822→0.344 | 5.587→1.630 |
+| 组合字素小表 | 0.184→0.187 | 0.149→0.132 | 1.113→0.943 |
+
+| 预热进程，中位数ms | 首次扫描v4→v5 | 8次扫描v4→v5 |
+| --- | ---: | ---: |
+| pinyin | 0.270→0.130 | 2.199→1.082 |
+| 五表 | 0.696→0.215 | 5.185→1.249 |
+| 组合字素小表 | 0.091→0.076 | 0.831→0.672 |
+
+冷首次CPU分别0.368→0.226、0.821→0.344、0.149→0.132ms，与elapsed接近。
+五表Lua-owned字典堆约11078→5891KiB，拼音1470→1290KiB，小表23.8→26.7KiB。
+单拼音的加载校验会遍历带标记列表，虽然文件更小，load仍增加约0.33ms；不能
+宣称所有配置的“加载+第一次扫描”都变快。主要收益是合表后每位置一次查询与
+取消source分派；当前对照同时改变布局、标记编码、字素hash与查询复用，不能
+把收益全部算作hash算法本身。数据是固定合成文本，不代表任意文档或交互延迟。
+
+复现：保留v4的完整lua/src快照及已编译native.so，再运行：
+
+```sh
+make
+python scripts/bench_merge.py /path/to/v4-root
+```
+
+记录 `/tmp/flash-any-merge-bench-3fojhj_y/{build.json,raw.json,summary.json}`。
+模式ID由C统一导出给构建器，固定两槽工作区不再携带可变槽数。初版记录保留在
+`/tmp/flash-any-merge-bench-73ww6d2d`，表格取最终实现的重测。当前局部索引对照
+`scripts/bench_binary.py`已适配v5，复杂字素fixture取CJK+组合重音，不再使用词组；
+其hash对照也改为码点规则，不能把未来结果直接当作旧UTF8字节hash的同变量复测。
+
+686组Lua/C差分、强制64槽碰撞链、NUL编码、空编码屏蔽fallback、五表合并、
+标签/输入/buffer变化、坏文件、确定性与原子构建、共享列表及GC持有均通过；
+真实Flash jump/char/remote集成、UBSan和全部原有测试通过。LuaLS使用真实
+Neovim/Flash library、全部诊断级别，无诊断。改动仅在工作区。
+
+English: Format v5 merges sources into one complete-grapheme dictionary. Build time
+resolves scope/fallback; runtime reads tagged, deduplicated code lists without source
+dispatch. Five-table packages shrank from11.34 to6.03MB, with cold first-scan medians
+of0.822→0.344ms and eight-input totals5.587→1.630ms on the fixed40-line fixture.
+Single-pinyin load validation regressed and small dictionaries grew slightly. Timings
+exclude Flash rendering and key handling. Multi-grapheme keys are rejected; continuous
+matching across graphemes remains supported. Existing packages must be rebuilt.
+
+## C-only 收敛与常用字缓存对照
+
+最终运行时只加载二进制码表，由 C 完成字素分段、查询、扫描匹配和结果生成。
+Lua 保留构建工具与 Neovim/Flash 桥接；删除运行时 Lua matcher、Cursor、自定义
+matcher/scope 回调。旧 Lua 实现冻结在 tests/reference，仅供差分测试和历史对照。
+当前不实现词组或前缀扩展标记，码表键必须为单个完整字素。
+
+常用字对照使用原 Lua 版本 `d3f1fec`（含常用字缓存），与合表 C 后端分别运行。
+固定同一 CPU 核，每组9个独立进程、轮换运行顺序；40行中英混排文本，连续输入
+`z, zh, zho, zhon, zhong, zhongg, zhonggu, zhongguo`。构建、加载码表在计时外，
+计时段 TSV 查询次数均为0。warm 先运行30轮，再取30轮的进程内中位数，最后取
+9个进程中位数。数字是完整扫描耗时，并非单次索引查询或 Flash 端到端延迟。
+
+| 40行场景 | 原 Lua / C（ms） | 加速 |
+| --- | ---: | ---: |
+| 拼音，冷首次输入 | 4.426 / 0.219 | 20.2倍 |
+| 五表，冷首次输入 | 5.052 / 0.331 | 15.3倍 |
+| 拼音，warm八次输入合计 | 3.808 / 1.081 | 3.5倍 |
+| 五表，warm八次输入合计 | 5.333 / 1.222 | 4.4倍 |
+| 拼音，已预热但新建搜索，首次输入 | 1.734 / 0.160 | 10.8倍 |
+| 五表，已预热但新建搜索，首次输入 | 1.837 / 0.237 | 7.8倍 |
+
+记录 `/tmp/flash-any-cached-bench-suhifrh2/{baseline.json,raw.json,summary.json}`；
+复现 `python scripts/bench_cached.py --samples 9`。该记录在删除生产 Lua 路径前
+测得；之后只做收敛及验证，没有重新把清理收益计入性能数字。历史 Cursor、边界
+预建等实验针对当时架构，部分脚本需要对应旧版本，不代表当前公开 API。
+
+收敛后通过772组 C Unicode/边界用例、686组 Lua/C 差分、真实 Flash jump/char/
+remote 集成及 UBSan。LuaLS 保留全部 Hint 级别诊断与真实 Neovim/Flash library；
+clangd 检查生产 C 和内部头文件均无错误。生成头保留于 build/，make 同时生成
+真实编译数据库，修复临时头删除导致的 LSP 找不到 grapheme_data.h。
+
+English: Runtime is now C-only; Lua remains for building and editor integration. The
+old Lua scanner exists only as a test oracle. Against the original cached Lua version,
+the fixed 40-line fixture improved cold first input by 15–20x and warm eight-input
+totals by 3.5–4.4x. These measurements exclude loading and Flash rendering. The final
+cleanup passed Unicode, differential, integration, UBSan and language-server checks.
+
+## 当前 C 文本/结果缓存收益
+
+`python3 scripts/bench_cache.py --samples 9` 对照当前实现。码表始终已加载，固定
+CPU核，每模式9个独立进程、轮换顺序；先预热30轮，再测50轮，先取进程内中位数，
+再取进程间中位数。沿用上一节每行重复4次的中英混排文本；只测C scan调用，包含
+结果转换为Lua表的开销，不含buffer读取、Flash绘制或文件加载。elapsed和CPU接近。
+
+| 40行场景 | 缓存（ms） | 重建/重扫（ms） | 耗时减少 |
+| --- | ---: | ---: | ---: |
+| 拼音，八次连续输入，复用/重建文本索引 | 1.101 | 1.453 | 24% |
+| 五表，八次连续输入，复用/重建文本索引 | 1.223 | 1.766 | 31% |
+| 拼音，同输入重复请求，复用结果/重扫 | 0.060 | 0.125 | 52% |
+| 五表，同输入重复请求，复用结果/重扫 | 0.107 | 0.176 | 39% |
+
+单行八次输入的文本缓存收益仅约0.006ms（拼音0.029→0.035、五表0.040→0.046）。
+以上为预热后的后续请求，不代表首次输入收益。
+
+文本对照只改变是否每次传入原始行，重建模式仍使用当前三数组布局；结果对照
+在临时C副本中仅禁用缓存命中分支，保留结果存储开销。生产源码和库不修改。
+因此这些数字衡量现有缓存的复用收益，不能推断“完全移除缓存存储”或“边解码
+边匹配的单趟实现”的性能。两组结果数量分别一致；原始数据保存在
+`/tmp/flash-any-cache-b9dprt5i/{raw.json,summary.json}`。
+
+English: With dictionaries preloaded, reusing text indexes reduced warmed eight-input
+totals by 24–31% on the 40-line fixture. Reusing an identical query result reduced one
+request by 39–52%, about 0.065–0.068ms. Rebuilds use the current indexed algorithm;
+the experiment does not compare a fused streaming decoder/matcher. Measurements exclude
+buffer IO and Flash rendering. Temporary variants preserve production files.
+
+## 单趟解码匹配替换文本索引
+
+当前运行时改为边解码边匹配，删除文本三数组和建索引步骤；保留原始行缓存、
+相同输入的结果缓存和只读码表。结果改为命中后追加、按需增长，避免为所有字素
+预分配并清零候选。原版本快照 `/tmp/flash-any-indexed-h1ottyzl` 保留独立动态库。
+
+复现 `python3 scripts/bench_scan.py /path/to/indexed-snapshot --samples 9`。
+同一CPU核、同一码表和文本，9个独立进程/模式，轮换顺序；warm预热30轮再测30轮，
+先取进程内中位数再取进程间中位数。包含Lua适配器、buffer读取/缓存检查及结果
+转换，不含码表加载、Flash按键与绘制。两版结果数量一致、计时段TSV查询均为0。
+
+| 40行场景（ms） | 原索引版 | 单趟版 |
+| --- | ---: | ---: |
+| 拼音，冷首次输入 | 0.2205 | 0.1657 |
+| 五表，冷首次输入 | 0.3317 | 0.2734 |
+| 拼音，冷八次输入合计 | 1.2872 | 1.1621 |
+| 五表，冷八次输入合计 | 1.5726 | 1.5476 |
+| 拼音，warm八次输入合计 | 1.0991 | 1.1517 |
+| 五表，warm八次输入合计 | 1.2291 | 1.2467 |
+| 拼音，已预热但新建搜索，首次输入 | 0.1617 | 0.1333 |
+| 五表，已预热但新建搜索，首次输入 | 0.2404 | 0.2107 |
+
+冷首次减少约25%/18%，warm八次总计退步约5%/1%；单行冷首次0.0141→0.0144ms、
+0.0192→0.0200ms，没有首次加速。不能宣称所有输入规模都更快。当前优先首次输入，
+且单趟实现无需维护文本索引，因此保留单趟版，不添加运行时切换选项。
+
+同一40行fixture、首次输入z，GC后搜索状态保留的Lua分配增量约252.9→21.6KiB；
+不含已加载码表和预建原始行，包含候选结果及状态。此fixture各行内容相同，Lua
+原始字符串共享；真实文档内存会不同。该数字也不代表峰值或进程RSS。
+
+原始记录 `/tmp/flash-any-scan-m7t2btxd/{raw.json,summary.json,memory.json}`，内存
+测量脚本同目录memory.lua。旧文本缓存对照脚本现在需传入索引版快照：
+`python3 scripts/bench_cache.py --root /path/to/indexed-snapshot --samples 9`。
+
+单趟版通过774组Unicode/边界/长行用例，覆盖f/F/t/T邻接位置、万码点组合字素与
+4096条结果增长；另通过686组Lua差分、Flash集成、UBSan及完整LuaLS/clangd检查。
+
+English: Sequential decoding/matching replaces per-line indexes. On the fixed 40-line
+fixture, cold first input improved by 18–25%; warmed eight-input totals regressed by
+1–5%. Single-line cold first input did not improve. Raw-line and result caches remain.
+The matched-result buffer now grows on demand. Retained search-state Lua allocations
+fell from about253 to22KiB on this fixture, excluding dictionaries and original strings;
+this is not peak memory or RSS. The sequential version is retained to favor first input.

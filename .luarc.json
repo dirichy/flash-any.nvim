@@ -1,7 +1,11 @@
 {
   "runtime": {
     "version": "LuaJIT",
-    "path": ["lua/?.lua", "lua/?/init.lua"]
+    "path": [
+      "lua/?.lua",
+      "lua/?/init.lua",
+      "tests/?.lua"
+    ]
   },
   "workspace": {
     "library": [
@@ -11,6 +15,8 @@
     "checkThirdParty": false
   },
   "diagnostics": {
-    "globals": ["vim"]
+    "globals": [
+      "vim"
+    ]
   }
 }

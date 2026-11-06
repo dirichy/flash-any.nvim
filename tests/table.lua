@@ -94,7 +94,7 @@ print("ok - only codes strictly below the threshold gain one trailing space")
 
 local names = registry.available()
 table.sort(names)
-assert(vim.deep_equal(names, { "literal", "nerdfont", "pinyin", "tiger", "unicode", "wubi86" }))
+assert(vim.deep_equal(names, { "nerdfont", "pinyin", "tiger", "unicode", "wubi86" }))
 assert(load("pinyin") == pinyin)
 assert(not pcall(load, "flypy"))
 assert(not pcall(load, "pinyin", { scheme = "missing" }))

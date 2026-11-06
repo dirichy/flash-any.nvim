@@ -1,4 +1,5 @@
 #!/usr/bin/env -S nvim -l
+package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local tsv = require("flash-any.tsv")
@@ -87,7 +88,7 @@ for _, newline in ipairs({ "\n", "\r\n" }) do
 	local search = tsv.loader(fixture(table.concat(lines, newline)))
 	for _, key in ipairs(prefix_keys) do
 		local previous
-		for after in require("flash-any.utf8").iter_offset(key) do
+		for after in require("reference.utf8").iter_offset(key) do
 			local prefix = key:sub(1, after)
 			local codes, offset = search(prefix, previous)
 			local expected_longer = false

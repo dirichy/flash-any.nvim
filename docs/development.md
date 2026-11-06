@@ -1,463 +1,154 @@
-# 开发记录
-
-## 模块布局
-
-- `flash-any.match`（`lua/flash-any/match/init.lua`）：搜索与单字扫描器、增量候选、缓存和搜索标签。
-- `flash-any.match.codetable`（`lua/flash-any/match/codetable.lua`）：码表匹配及其三个模式。
-- `flash-any.sources.literal`（`lua/flash-any/sources/literal.lua`）：配置层默认前置的 ASCII 字面 source，遵守统一协议。
-
-码表的三个模式共用查询、前缀比较、next 生成、完整编码消费和去重。额外消费边界
-显式区分：full_code 只接受完整编码，initial 还接受编码首字节，prefix 还接受任意非空
-编码前缀；这些边界规则全部留在 codetable，扫描器不参与判断。
-码表编码约定为 ASCII，因此码点边界就是字节边界：initial 可消费 1 字节，
-prefix 直接遍历已匹配前缀的字节位置，codetable 无需调用 UTF-8 函数。
-该约定也适用于自定义码表；buffer 字符仍使用 UTF-8；内置 literal source 只认识 ASCII。
-
-The scanner and incremental cache live in `flash-any.match`. Code-table modes
-live in `flash-any.match.codetable` and share code lookup, prefix comparison, next-key
-generation, full-code consumption and deduplication. Their additional consumption
-boundaries are explicit: first byte for initial, every matched byte for prefix.
-All code-table encodings (including custom tables) are ASCII, so codepoint and
-byte boundaries coincide; code-table matching needs no UTF-8 calls. Buffer text
-uses UTF-8; the built-in literal source recognizes ASCII only.
-`flash-any.sources.literal` is a regular ASCII source prepended by configuration. Code-table
-modes never fall back to the character itself.
-
-## Flash 字符模式
-
-`flash-any.char(win, state, range)` 接入 Flash 的 `modes.char.matcher`，共用 setup
-构建的 sources。顶层 `match.get` 负责 s 的跨字符推进、next 和标签；`match.char`
-只用一键查询每个字符，不建立 continuation、不查询下一字符，也不分配标签。
-两者共用底层 match_text 的 source 顺序、fallback 与 matcher 协议。s 缓存范围内的
-文本和增量分支；f 按需缓存访问过的行，各扫描器维护自己的缓存生命周期。
-
-`flash-any.char` 适配器在 `lua/flash-any/char.lua`。get() 只查询 Flash 请求的可见
-行范围；find() 从起点沿方向逐行查询，计数满足即停止。匹配结果按行缓存，buffer、
-changedtick、pattern 或 sources 变化时由单字扫描器统一失效；无匹配的空列表也缓存。
-未访问的行不读取、不查码表。无目标时仍可能查到文件末尾，wrap 时也可能遍历全文。
-t/T 按 UTF-8 字符边界平移，不跨行；其余按键、计数、操作符及标签交给 Flash。
-
-HACK：Flash 的公开 matcher 回调经 Matcher.from() 包装后，find() 只能查询上次
-生成的列表。适配器在回调首次执行时，通过 State:get_matcher(win) 取得当前实例，
-替换其 find()，保留外层 get/filter/labels。依赖 flash.state 的实例创建顺序，以及
-flash.search.matcher 的 get/find 协议；升级 Flash 后应跑 tests/char.lua 验证。
-不修改全局方法。
-
-`flash-any.char` adapts Flash's visible-range get() and directional find(). The
-latter scans lines only until the requested count is found, including offscreen
-targets. Single-character scanning owns per-line caches and their invalidation.
-No-match searches and wrapping can still visit the whole buffer.
-
-HACK: the callback replaces only the current window matcher's find() method.
-This depends on State:get_matcher(), instance initialization order, and the
-get/find protocol in flash.search.matcher. Run the real Flash integration tests
-when upgrading Flash. Native key handling, filtering, and labeling remain in place.
-
-## Matcher 协议
-
-匹配函数为 `known = matcher(text, stream, source, emit)`。运行时 source 直接传入，
-只保留 data、matcher、max_chars、name、scope、fallback，配置选项在初始化时消费。
-matcher 返回 true 表示认识当前位置，false 表示不认识；认识与否不随 stream 改变。
-认识但输入不匹配时不输出，仍返回 true。fallback 仅在前面都返回 false 时运行。
-
-分支直接输出，不创建结果数组、分支表或 source 参数包装：
-
-- `emit(bytes, chars?)` 消费 bytes 个输入字节，越过 chars 个文本字素。
-- `emit(keys, chars?)` 输入前缀全部匹配，字符串 keys 给出可继续的 ASCII 键。
-  空串仍是成功。chars 默认 1，消费字节数必须为 1..#stream:get() 的整数，末尾必须是输入字素边界。
-
-空 stream 仅用于起始键查询，不可消费输入。source 同步调用 emit，不保存回调，
-不在返回后调用。每次行扫描只创建一个 emitter，捕获当前 col、输入 offset、
-stream、起点与候选状态；跨位置和 source 复用。字符模式一次查询共用一个 emitter，
-只记录当前位置是否成功。动态协议由 source 实现及测试保证，不增加热路径验证。
-
-内置 literal 和码表 matcher 不创建临时结果表。码表直接输出完整编码及后续键；
-prefix 模式的消费区间都从 1 开始，只需最大公共前缀长度即可输出区间并集。
-重复输出允许存在，由扫描器的请求和终点索引合并，不要求 source 创建去重集合。
-范围预检在统一 match_text 分发中执行，所有 source 均可声明 scope；
-未通过时不调用 matcher，不触发数据读取，也不标记 known。通过不代表认识，
-仍以 matcher 的布尔返回值决定是否阻止 fallback。配置层用 scope.resolve 将
-策略、混合表或函数归一为 predicate；源名称不参与匹配规则。
-
-Matchers synchronously emit numeric input consumption or string next keys, with an
-optional grapheme span. Return true for recognized positions and false for unknown;
-fallback depends on recognition, independently of the input. Empty-string emissions
-are successful branches with no next keys. Do not retain or defer the emitter.
-
-A line scan creates one emitter and reuses it across positions, offsets and sources.
-Character searches share one emitter per call. No temporary result arrays, branch
-records or source argument wrappers are created. Prefix consumption intervals share
-a lower bound of 1, so their union needs only the maximum matching prefix length.
-Duplicate emissions are allowed and merged by scanner indexes. Matchers own the
-dynamic protocol; the scanner does not validate it in the hot path.
-
-扫描请求记录文本字节列、输入 offset 和最早起点，相同下一位置与输入 offset 的
-请求合并。成功分支按末尾码点字节列合并显示范围，起点取最小值，next 取并集。
-多字素分支可提前产生远处终点，等待表在后继位置到达时查询其起始键。
-
-数字输出仅累计输入字节 offset；扫描器将同一个 stream 游标移动到该位置。
-stream 的字符串和字素缓存由 Cursor 自身持有，跨起点、行和窗口共用，输入变化时替换。
-字符串输出在原匹配位置保存待续请求；恰好消费完输入则在文本跨度之后保存请求。
-追加输入仅恢复这些请求，不重试失败位置或重新消费已提交文本；不同 offset 的
-进度不能被显示范围的最早起点覆盖。结果按起点、终点排序，标签不依赖输出顺序。
-
-buffer、changedtick 或搜索行范围变化时替换行快照；删除、替换输入或 source
-变化时重扫缓存文本。追加输入合并旧末尾字素或修复截断 UTF-8 时也重扫。相同输入复用
-匹配结果但重算标签。扫描器分配标签，Flash 外层使用空 labeler。
-
-## Source scope
-
-`flash-any.scope` 编译 scope 声明。预置函数共享，用户函数原样使用；混合表拆为
-字符布尔哈希与 UTF-8 字符串区间。声明值按 Lua 真假规范化，因此可直接传单字素
-extra 编码表。字符键先查询，显式 false 不能回落到区间。
-数值端点只在初始化时 nr2char，运行时利用 UTF-8 有序性比较字符串，不调用 char2nr。
-编译时复制声明，调用方不维护过滤缓存。中文范围复用 tables/punctuation.lua 的键，
-码表加载仍复用同一标点数据。scope = "all" 编译为 nil，运行层没有额外 predicate。
-
-Scope declarations compile into predicates before scanning. Mixed tables split
-into a character boolean hash and UTF-8 string ranges. Hash declaration values
-use Lua truthiness, allowing single-grapheme extra encoding maps directly. Explicit hash entries win,
-including false. Numeric bounds convert once via nr2char; the hot path compares
-strings without char2nr. Presets share functions, user functions pass through, and
-compiled tables own their copies. All source kinds share the same dispatch check;
-no per-source matcher wrapper or name-based scope registry is used.
-
-## 行文本缓存
-
-`flash-any.cursor` 的每个对象持有完整字符串 value、当前字节 offset、字素边界数组、
-字节边界到数组下标的索引、每簇最后码点的起始字节，以及“长度 → 起始字素下标 → 字符串”的缓存。
-创建时复用 `flash-any.grapheme.each`，从行首一次分段，保留 RI 配对、Indic 连字和 ZWJ 上下文。
-这是预先分段，代价是创建时遍历整行、保存所有边界；后续输入变化和读取不再分段。
-`get(n)` 最多读取 n 个字素，只有足额读取才额外返回片段之后、末尾码点起始的字节偏移。
-`get()` 直接截取缓存后缀，只返回字符串。长度 0 是后缀缓存桶；其余按长度分桶，跨位置复用。
-`shift(n)` 直接访问边界数组，默认移动一个字素；不足时位置不变。`set_offset` 只接受字素边界。
-text 与 stream 使用同一个 Cursor；每份输入在 state 上持有一个 stream，输入变化时替换。
-source 对两者只允许 get；移动由扫描器完成，不做位置保存恢复或只读包装。
-
-搜索窗口行快照保留对象，输入追加、删除、替换和 sources 变化只重新匹配。
-buffer、changedtick 或搜索行范围变化时替换快照。字符扫描器按需读取并保存行对象，
-pattern/sources 改变只清理候选列表；buffer 或 changedtick 改变才替换行对象。
-追加输入可能合并旧末尾字素或修复截断 UTF-8；扫描器验证旧输入末尾仍是新 Cursor 的边界后才复用待续状态。
-
-Both text and stream use FlashAnyCursor. Construction segments the complete string once,
-recording grapheme boundaries, reverse byte indexes and final codepoint starts. This eager
-pass preserves RI parity and Indic/ZWJ context; it trades initial whole-line work and boundary
-storage for reuse across pattern changes. Strings are cached by requested length, then start
-index; length 0 holds complete suffixes. Only complete get(n) reads include endpoint metadata;
-short reads return the available suffix. shift() defaults to one grapheme and moves by direct
-boundary lookup. Sources only call get; the scanner owns shift/set_offset. Cached line snapshots
-outlive input changes and expire with buffer identity, changedtick or the search range.
-Character searches load lines on demand. Input appends resume only if the previous input end
-remains a grapheme boundary, otherwise they trigger a fresh scan.
-
-## 字面匹配规则
-
-literal 由配置层默认加在所有 source 前面，不属于扫描器特例。它只认识单字节 ASCII buffer 字素，空 stream
-emit 字符自身作为起始键，首字节匹配则 emit(1)。ASCII 始终返回 true，
-输入未匹配时不输出；非 ASCII 一律返回 false。所有 source 使用同一顺序和 fallback 规则，普通 source 在前项成功后
-仍参与，fallback source 仅在前项均不认识字符时参与。配置的空 source 列表仍包含默认 literal；运行层只处理构建好的列表。
-位置统一使用 Neovim 的 0-based byte column；相同终点的结果合并为最早起点。
-
-## 字素分段 / Grapheme segmentation
-
-`flash-any.grapheme` 来自 gemoji Cursor demo，按 Unicode 17.0.0 / UAX #29 rev. 47
-分段；不做字体 shaping 或 Unicode 规范化。非法 UTF-8（包括截断、过长、代理项和超出标量范围）
-逐字节隔离。属性页保存在 `grapheme_data.lua`，Hangul 音节用算术规则。
-`scripts/build_grapheme.py INPUT_DIR` 可重新生成属性页；目录需包含
-`GraphemeBreakProperty-17.0.0.txt`、`DerivedCoreProperties-17.0.0.txt`、`emoji-data-17.0.0.txt`。
-Unicode 许可见 `licenses/Unicode-3.0.txt`，官方分段用例随仓库保存。
-
-`utf8` 模块保留码点工具，供测试中的原生 Neovim 边界对照使用；其字节解码规则
-与字素分段器的严格标量解码不同。文本扫描与词条计数使用字素分段器。
-
-The segmenter follows Unicode 17.0.0 / UAX #29 revision 47, ported from the gemoji
-Cursor demo. It performs neither normalization nor font shaping. Invalid UTF-8 bytes
-are isolated, including truncated, overlong, surrogate and out-of-range sequences.
-Generated property pages and arithmetic Hangul rules drive segmentation. Regenerate
-with `python scripts/build_grapheme.py INPUT_DIR`, using the three versioned property
-files listed above. The Unicode license and official conformance cases are bundled.
-The utf8 module remains a codepoint utility for native Neovim boundary reference tests;
-its Neovim decoding rules differ from the segmenter's strict scalar validation.
-
-## 码表所有权
-
-中文 source 的标点键位统一保存在 `tables/punctuation.lua`。`table.load` 在拼音
-转换完成后加入标点，通用 chinese scope 也读取同一份映射，避免标点
-触发 TSV 查询或参与双拼、模糊音转换。`append_space_below` 仍统一作用于所有编码。
-
-Chinese sources share `tables/punctuation.lua`. File loading adds punctuation
-after pinyin conversion; the chinese scope uses the same map. Punctuation
-avoids TSV lookups and pinyin transformations. Space padding applies to all codes.
-
-`require("flash-any.tsv").loader(path, opts)` 创建按字符查询的加载函数，可配置
-separator 和 decode。它打开并持有文件句柄，返回编码数组或 nil，不缓存查询结果；
-命中与未命中缓存由 `table.lazy` 统一管理。loader 按需缓存二分树前 6 层的
-比较键、行起点和下一行位置；额外保留深层精确命中节点，与文件句柄同生命周期。
-剩余区间不超过 64 字节时，从已对齐的下界顺序扫描，避免按字节二分反复跳到同一行。
-模块级 `read_at(file, position, aligned)`
-接收文件句柄，不为每个 loader 额外创建辅助闭包。
-
-`flash-any.tsv.loader(path, opts)` replaces the former `open` factory. It returns
-a character lookup function that owns an open file handle, not the handle itself.
-The loader does not cache results; `table.lazy` owns positive and negative caches.
-It lazily caches comparison keys, row starts and next-row offsets for the first
-six binary-search levels and deeper exact-hit nodes, with the same lifetime as
-its file handle. Remaining intervals of at most 64 bytes are scanned from the aligned
-lower bound, avoiding repeated reads of the same row near the end of a search.
-The shared `read_at` helper takes the file explicitly instead of capturing it.
-
-`require` 返回的原始码表、方案规则以及 `load(name)` 的默认缓存均可能共享。
-`normalize` 复制输入 map 和编码数组，建立私有边界；`append_space` 生成独立
-编码数组与派生缓存，防止追加的空格污染调用方或默认方案。
-
-全拼模糊音与双拼转换共用 `sources/pinyin.lua`：全拼直接拼接展开的声母、韵母，
-双拼按方案转换；不启用模糊音的全拼直接加载原表。
-
-拼音转换在文件 source 的私有副本上原地替换编码，不再保留一整份原始拼音副本
-与另一份转换 map。常用字和 TSV 解码共用转换函数，懒加载缓存只存最终编码。
-方案规则只读，模糊音分组保存在该次转换的闭包中，不深拷贝规则或向其写入配置。
-
-Raw module tables and default caches may be shared. Normalize at the ownership
-boundary, transform the private source map in place, and cache converted TSV
-entries directly. Scheme rules remain read-only; space-appending results stay isolated
-from their input tables.
-
-## 双拼规则
-
-双拼 scheme 只保存声母和韵母规则，不枚举完整音节：
-
-```lua
-{
-  syllables = { ["a"] = { "aa", "oa" } }, -- 完整音节特例
-  initials = { ["zh"] = { "v" } },
-  finals = { ["ong"] = { "s" } },
-}
-```
-
-运行时先查 `syllables[syllable]`；未命中时才从统一拼音表得到音节，拆分最长声母，分别查表并拼接。多个候选编码会做笛卡尔组合。
-
-Full-pinyin fuzzy expansion and double-pinyin conversion share `sources/pinyin.lua`.
-Full pinyin joins expanded initials and finals directly; double-pinyin schemes
-map them to keys. Full pinyin without fuzzy options loads the original table.
-
-source 统一通过 `source.load(name, opts)` 加载；工厂在 `sources/<name>.lua`，
-数据在 `tables/`。工厂可返回 `codetable = "name"`，由 source.load 统一加载为 data
-并应用补空格策略；与预先构建的 data 互斥。需要转换时仍可直接提供 data。
-无 opts 时按名称缓存 source，有 opts 时调用工厂构建独立实例。
-`table.load(name, opts)` 只加载数据，每次创建独立的常用字副本与 TSV 懒加载缓存；
-`convert` 同时用于常用字和 TSV，`extra` 在转换后合入。
-扩展协议见 [source 开发说明](sources.md)。
-
-Sources load through `source.load(name, opts)` with factories in `sources/` and
-data in `tables/`. A factory may declare `codetable = "name"`; source.load resolves
-it to data before applying padding. Prepared data remains available for custom
-transformations; the two fields are mutually exclusive. Only option-free source
-instances are cached by name.
-`table.load` creates private data and lazy caches on every call. Its `convert`
-option applies to both common and TSV entries; `extra` merges after conversion.
-See the [source author guide](sources.md).
-
-## UTF-8 调用边界
-
-buffer 行文本和自定义 matcher 输入可以是 UTF-8；内置 literal source、码表编码、拼音声母
-韵母和保留给 Flash 的 next 键是 ASCII。UTF-8 文本的字节前缀比较、CSV/TSV 的
-ASCII 分隔符识别无需解码；文本遍历使用 grapheme.each；builder 用 grapheme.each 遍历去重后的键，统计多字素词条和完整码表的最大词长，
-不为每个编码新建 Cursor。
-字符范围在初始化时规范为 UTF-8 区间，运行时直接比较字符串。utf8.len/sub/byteidx 保留原生随机访问语义，
-同时作为迭代器测试的独立对照，不用于生产代码的逐字符遍历。
-
-Buffer text and custom matcher input may be UTF-8; the built-in literal source,
-code-table encodings, pinyin components, and reserved next keys use ASCII. Byte-prefix
-comparisons and ASCII CSV/TSV delimiter parsing preserve UTF-8 without decoding.
-Use grapheme.each for text traversal. The builder traverses distinct keys with grapheme.each to count multi-grapheme
-entries and the full table’s maximum word length, without creating a Cursor per code.
-Range checks compare precompiled UTF-8 strings. Native len/sub/byteidx helpers retain their
-random-access behavior and serve as independent iterator test references.
-
-旧 `table.from_flypy` 及其方括号字符列表解析已移除；所有双拼均由统一拼音表转换。
-The unused `table.from_flypy` entry point and bracket-list parser have been
-removed; all double-pinyin schemes derive from the shared pinyin table.
-
-## 拼音 source 与编码方案
-
-内置 source 与第三方 source 共用工厂协议；主插件不维护名称注册表。
-拼音工厂读取 opts.scheme/fuzzy，提供全拼 initial、双拼 full_code 的默认值；
-Unicode 工厂提供 prefix 与 fallback，Nerd Font 工厂提供 prefix。
-配置层保留同一次配置只能选择一个 pinyin source 的约束，显式 matcher 优先。
-
-Built-in and third-party sources use the same factory protocol, without a name
-registry. The pinyin factory consumes scheme/fuzzy options and supplies initial
-or full_code defaults. Unicode supplies prefix/fallback defaults; Nerd Font
-supplies prefix. Configuration still rejects duplicate pinyin entries, and
-explicit matcher options take precedence.
-
-## 模糊音索引
-
-每次加载拼音 source 时，将 initials/finals 分组各自构建为“声母或韵母 → 候选数组”
-的哈希表。重叠分组保留第一次出现的分组；未分组的已知声母、韵母各建一个自身候选
-数组。常用字转换和 TSV 懒加载共享这两个只读索引，不在每个读音上扫描分组或分配
-自身候选数组。声母、韵母仍用 ASCII 字符串表示，无需另行维护整数枚举。
-
-Each pinyin load builds reverse hash indexes from initials/finals to candidate
-arrays. The first group wins when groups overlap; ungrouped known components
-get singleton candidates once per load. Common and lazy conversions share the
-read-only indexes. Components remain ASCII strings, without integer enums.
-
-`FlashAnySource` describes the runtime object: data, matcher, max_chars, name,
-scope and fallback. Initialization consumes scheme/fuzzy options. fallback=true makes a
-source run only when every earlier configured source returned false.
-
-配置层的 matcher 可为模式名或函数；初始化后统一为 FlashAnyMatcher 函数，
-扫描器不再解析字符串模式名。
-Matcher configuration accepts a mode name or function. Initialization resolves
-names to FlashAnyMatcher functions; the scanner only calls functions.
-
-## 配置与运行时边界
-
-FlashAnySourceConfig/FlashAnySourceSpec 定义在插件入口，只描述用户配置；
-FlashAnySource 定义在 match/init.lua，只描述编译后的运行时对象。setup 时构建
-默认配置并保存，jump 的完整独立配置则在启动 Flash 前构建。配置校验和模式名解析
-不进入扫描路径。默认 source 在多次跳转间共享码表及其懒加载缓存，setup 替换配置
-时自然替换所属对象。matcher 的动态输出是受信任的协议，不通过热路径断言
-验证；合法消费范围、同步 emit 和前缀约定由实现及测试保证。
-
-Configuration types live at the plugin entry point; runtime source types live
-in match/init.lua. Setup builds the complete defaults once, while complete
-per-jump configurations are built before Flash starts. The scanner neither parses configuration nor
-validates dynamic matcher branches. Implementations and tests own the emission
-contract. Repeated jumps reuse source data and lazy caches; setup replaces their
-owner when configuration changes.
-
-配置选择以整份 opts 为单位：build_opts 要求 sources 并创建 Flash 参数，setup 保存
-其构建结果；jump 仅选择传入配置的构建结果或已保存默认值，不逐字段兜底。labels
-由 Flash 自身处理，顶层 table 简写不再支持。
-Configuration selection is whole-object: build_opts requires sources and produces
-Flash options; setup stores the result. Jump selects a complete explicit config
-or saved defaults, with no field inheritance or plugin labels fallback. The
-legacy top-level table shorthand is removed.
-
-Unicode 名称匹配只在显式配置 unicode source 时启用，不自动追加 source。
-Unicode name matching requires an explicit unicode source; none is appended
-automatically. Configuration prepends the literal source before user sources; an empty
-configured source list therefore still matches ASCII.
-
-## Remote 操作
-
-`remote(opts)` 与 `jump(opts)` 使用相同的配置选择、扫描器和标签规则。nil 复用 setup
-已构建的 sources 及缓存，显式 opts 构建独立配置；只将最终配置传给 Flash 的公开
-remote() API，不维护另一套远程操作状态或光标恢复机制。remote 默认不创建按键映射。
-
-`remote(opts)` shares configuration selection and matching with jump(). It passes
-the compiled options to Flash's public remote() API, which owns operator execution
-and restoration. No keymap is installed automatically.
-
-## 发布检查
-
-用户安装入口为 dirichy/flash-any.nvim；Neovim 最低版本为 0.11（UTF-8 原生辅助
-函数使用 0.11 新增签名）。跳转直接返回 Flash state。sources 必须为列表，配置
-校验覆盖静态码表、模糊音分组及策略参数；动态 matcher/loader 仍由实现者保证协议。
-TSV 二分时上界使用 middle，避免跳到下一行后的 position 不变而遗漏中间字符。
-TSV 行支持 LF/CRLF，码表生成支持空常用字子集，不通过正则解析 Lua 字表。
-Builder 的 TSV/tab/auto-Tab 解析标记值列为编码列表，按逗号拆分后复用 add 的
-清理、校验及去重；Rime columns 和 CSV 保留单编码语义。生成 TSV 可无损回读。
-Builder 保留全部非空文本键，从完整输入统计去重后的多字素条目数，作为
-第三个返回值。build.table 负责写文件与计数；command 在成功后发一次 WARN 汇总，
-普通构建为 INFO，失败为 ERROR。仅 source、lua 路径必填；tsv 可省略，命令第三位置
-支持 - 占位。不输出 TSV 时仍返回完整输入计数，通知只列实际输出。常用 Lua 筛选
-不影响完整输入和 warning 计数。
-Rime 的 --- / ... 头部区间不作为数据解析，避免名称、版本等被误收录为词条。
-normalize 接受 {codes, prefixes, max_chars}，运行层根据码表元数据开启文本前缀查询。
-单字素 source 保持直接 data[text:get(1)]，不构建前缀索引。
-
-Release API: dirichy/flash-any.nvim, Neovim 0.11+, setup with a complete sources
-list, and jump returning the native Flash state. Static source data is validated
-during construction. TSV upper-bound updates shrink by byte midpoint; LF and
-CRLF are supported. Builder TSV values accept comma-separated codes, with
-per-code cleanup/validation/deduplication shared with single-code rows. Rime/CSV
-fields retain single-code semantics; generated TSV round-trips through the builder.
-Nonempty multi-grapheme keys are preserved and counted after deduplication in
-the complete input. build.table returns Lua/full-input/multi-input counts; TSV
-output is optional without changing these counts. The command supports a - TSV
-placeholder and reports only outputs actually written. The command owns
-INFO/WARN/ERROR notifications. Rime header sections are excluded from data rows.
-Normalization accepts {codes, prefixes, max_chars}; table metadata selects built-in
-text-prefix lookup; single-grapheme sources retain direct map reads. Builder common subsets are read as Lua tables, including an
-empty subset, rather than inferred from source formatting.
-
-测试（独立 Neovim 进程；Flash checkout 放在 .dev/flash.nvim，可用指向安装目录的
-符号链接，或为 tests/flash.lua 显式传入路径）：
+# 实现与验证 / Implementation and validation
+
+## 边界 / Scope
+
+运行时只有 C 后端。`setup` / `jump(opts)` / `remote(opts)` 接收 `sources` 或 `binary`；
+缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、scope
+回调、输入/文本 Cursor 或按需 loader 扩展。每个键须恰好一个完整字素，连续输入
+可以跨字素匹配。多字素词条构建时报错，不为未来词组预留运行时兼容层。
+
+Runtime is C-only. Setup builds a missing package from sources or loads an existing
+binary. Lua factories/converters execute only while building. Keys are complete
+single graphemes; continuous input crosses graphemes. Word entries are rejected.
+
+## 模块 / Modules
+
+- `build.lua`、`source.lua`、`table.lua`、`scope.lua`、`tsv.lua`：构建时读取完整数据、
+  转换、校验、过滤和合并。Lua Unicode 分段器用于构建及测试参考。
+- `src/text.h`：严格UTF8解码及Unicode17扩展字素分段，只保留当前分段状态；没有
+  文本索引数组、Cursor方法或Lua逐字素回调。
+- `src/native.c`：二进制序列化、原子写入、加载、统一字素索引查询、请求推进、候选合并、标签避让、
+  f/F/t/T识别。状态/临时存储由Lua userdata拥有，避免额外malloc生命周期。
+- `native.lua`、`init.lua`、`char.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
+  操作符、窗口、remote恢复和绘制。Flash要求的Lua matcher回调只是C入口。
+
+已有二进制时不加载Lua构建器、source或字素模块；缺失时按sources构建。
+`tests/runtime.lua`和`tests/autobuild.lua`在独立进程中验证这两个路径。
+
+Existing packages load without Lua builders or scanners. Automatic compilation and
+persistent-cache reuse are tested in fresh processes, including a missing native.so.
+
+Review C时，可先读`text.h`的`decode`/`grapheme_break`，再沿`native.c`的
+`scan_line → scan_grapheme → match_codes → emit/request`阅读。二进制读写单独看
+`write_binary`和`load_data`；`scan`负责Lua参数、缓存及GC根。源文件中的短注释
+说明跨调用的状态、位置单位和借用指针约束；`.clang-format`统一C排版。
+
+For review, start with decoding/boundaries, then follow the scanner into matching
+and request emission. Package IO is separate; `scan` owns Lua stack roots and caches.
+Format production C with `clang-format -i src/native.c src/text.h`.
+
+## 构建 / Build
+
+运行 `make`（GNU make4.3+）需要Python3、C编译器、pkg-config、LuaJIT开发文件，
+当前验证平台Linux。Unicode C数据由已入库的`grapheme_data.lua`生成，不使用另一个
+Unicode规则源。码表快照和匹配结果保存在Lua-owned userdata中，原始行由状态表持有。
+
+构建同时生成三个不入库的产物：
+
+- `lua/flash-any/native.so`
+- `build/grapheme_data.h`
+- 根目录 `compile_commands.json`
+
+曾经头文件只存在于自动删除的临时目录，导致clangd报找不到文件。现在保留于
+build/，编译数据库直接记录实际命令和pkg-config给出的LuaJIT include路径。
+native.lua首次加载时同步调用make，由Makefile维护依赖和更新；不硬编码机器库路径、
+不关闭诊断。make clean只删除这三个产物。
+
+native.load统一拥有码表缓存路径和构建：未指定binary时，按sources的稳定inspect
+表示和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
+不存在时创建目录并调用build.binary；存在时直接打开。显式binary优先使用固定路径。
+不监控外部码表/工厂内容变化；修改这些文件后清除生成缓存，再次setup自动构建。
+
+The native loader runs make once per process to check dependencies. It owns dictionary
+cache paths and missing-package compilation. Automatic paths hash source configuration
+and the format/Unicode version exported by C. Explicit binary paths take precedence;
+external table/factory file contents are not watched.
+
+The persistent generated header and exact compilation database support clangd. No
+machine-specific include path is committed. Compilation does not require a dictionary
+binary; dictionary compilation does not require loading Flash or user configuration.
+
+## 码表 / Dictionary
+
+按source顺序过滤scope、处理fallback，再合并`(matcher模式, 编码)`。空编码集合
+也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为128个键，普通源
+仍可为ASCII附加编码。运行时不保留source身份、scope或fallback状态。
+
+格式`FANYBIN\5`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
+条目数、哈希容量、页数、pool字节数和两个保留0。随后为16-byte条目（key及编码
+列表的offset/length）、复杂字素哈希槽、4352个u32页目录及每个实际页的256槽，
+最后是共享byte pool。槽存条目序号+1，0为空。相同带标记编码列表共享pool片段。
+
+列表为`[标记][ASCII编码][标记][ASCII编码]...`：0x80 literal、0x81 full_code、
+0x82 initial、0x83 prefix。标记兼作模式与分隔，不需要source ID或结束符，NUL
+可以是编码内容。模式映射由C模块统一提供给构建器。加载校验区段/引用边界、
+标记、literal内容、排序、占用及索引可达性。输出原子替换；旧格式需要重建。
+
+Lua仅传递排序后的字素及`{模式, 编码}`列表，C负责标记编码、共享池、偏移、索引、
+文件头和写入；二进制规则不在Lua重复实现。完整输出先复用读取端校验，再在目标
+目录创建临时文件、写入、关闭并rename；失败清理临时文件，保留原输出。
+
+Lua supplies sorted graphemes and mode/code pairs. C owns serialization and file IO,
+including tagged lists, shared pools, indexes and headers. The loader validates the
+complete package before writing; replacement uses a temporary file in the output directory.
+
+`open`用fread直接读入冻结userdata，避免Lua IO的额外完整字符串和mmap原地改写
+问题。不同Flash state共享只读码表，分别拥有行/查询缓存；按buffer/changedtick
+失效，随state回收。重新setup加载新快照，不改变已有搜索。
+
+Format v5 has one immutable dictionary and tagged ASCII code lists. Bounds, tags and
+index reachability are validated at load time. Package replacement is atomic. Existing
+states pin their snapshot; per-state line/result caches expire with their buffer tick.
+
+## 扫描 / Scanning
+
+每行边解码边匹配，不预建字素/码点/byte索引。解码得到一个码点时同步更新字素
+边界状态及hash，确认完整字素后立即查表匹配。判断边界需要预读下一个码点，
+预读值直接进入下一字素，不重复解码。单码点直接查页，复杂字素使用累计hash：
+初值2166136261，每码点`h=(h^cp)*16777619`，uint32回绕。非法字节使用
+`0x110000+原字节`作独立token；hash命中仍校验完整原文。
+
+每字素查一次字典，列表复用给该位置的所有输入状态。按字素/输入byte offset
+合并请求，保留最早起点，固定两槽工作区推进；C处理完整/首字母/前缀消费、
+候选合并及next-key标签避让。每字素只用一个临时候选，命中后追加到按需增长的
+结果数组；不为所有字素预分配结果槽。相同输入复用结果，改变输入重新解码缓存
+的原始行，尚未保留增量匹配前沿。跨独立跳转只复用码表。f/F/t/T在前向扫描时
+记录相邻字素位置；Lua适配器按需逐行请求屏幕外目标，避免提前扫描整个buffer。
+
+The scanner decodes and matches in one forward traversal, retaining only grapheme
+boundary state and the current glyph. It does not build per-line text indexes. Raw
+lines and identical-query results are cached; changing input decodes the saved lines
+again. Results grow only when a glyph matches. Lua handles editor/Flash integration.
+
+## 测试与 LSP / Tests and LSP
 
 ```sh
-for test in tests/init.lua tests/source.lua tests/scope.lua tests/cursor.lua tests/table.lua tests/utf8.lua tests/tsv.lua tests/build.lua tests/health.lua tests/match/*.lua; do
+make
+for test in tests/autobuild.lua tests/init.lua tests/runtime.lua tests/source.lua tests/table.lua tests/scope.lua tests/build.lua tests/health.lua tests/text.lua tests/native.lua tests/tsv.lua tests/utf8.lua tests/reference_cursor.lua tests/reference_match/*.lua tests/flash.lua tests/char.lua; do
   NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l "$test" || exit
 done
-NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
-NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
-nvim --clean --headless '+helptags doc' '+qa'
+python scripts/build_native.py --sanitize
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/text.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/native.lua
+python scripts/build_native.py
+lua-language-server --check=. --checklevel=Hint
 ```
 
-LuaLS 保留真实 Neovim runtime 和 .dev/flash.nvim/lua，检查全部诊断，不关闭类别。
+Flash checkout放在.dev/flash.nvim。`tests/text.lua`直接校验C的官方Unicode字素边界
+与非法字节；native测试对照冻结Lua参考实现。`tests/reference/`只作为测试oracle，
+不在插件runtimepath，不提供运行时兼容API。旧Cursor及Lua扫描实验脚本已经清理，
+历史性能数字保留在benchmarks文档中；当前工具入口见[scripts说明](../scripts/README.md)。
+LuaLS配置包含真实Neovim/Flash库与测试模块路径，保留全部诊断级别。
 
-### 多字素缓存 / Multi-grapheme caches
+clangd的`--check`还自测代码动作；本机SwapBinaryOperands对Lua宏有重叠替换错误。
+使用`--tweaks=ExtractFunction`避开这个动作自测，但保留全部源文件诊断；项目未
+配置诊断抑制。分别检查src/native.c及src/text.h，确认生成头和真实LuaJIT头可解析。
 
-Builder 总是输出 {codes, prefixes, max_chars, scope}，包括单字素表和空表。
-normalize 也接受仅带 codes 的结构，以及直接编码映射。prefixes 复制进独立
-continuation 缓存；max_chars/scope 存在同一码表所有的 metadata 中，由 metadata(data)
-只读访问，避免调用方管理生命周期。source
-初始化只从数据推导运行时 max_chars，不接收 multi_code/长度选项。编码数组不携带前缀
-语义；纯 Lua 缓存中 true 表示可加长，缺失表示终止，无须显式 false 或运行时建索引。
-TSV 缓存中 nil 表示未查询，数字是继续的文件位置，false 缓存终止结果。
-完整 TSV 应包含 Lua 编码条目，挂接 loader 时清空 Lua 前缀副本，以文件结果为准。
-单字素简表默认上限 1，保留直接 hash 读取。补空格和规范化复制会保留独立元数据。
-builder 按完整输入计算 max_chars，即使 Lua 常用子集为空也输出此元数据；
-只从选中的 Lua 编码条目生成真前缀集合，包含自身也有编码的可继续键。
-前缀不计入 common/full 数量，不为每个匹配查询构造结果 table。
+Tests keep the old Lua implementation solely as an independent oracle under tests.
+Production does not load it. Unicode boundaries, native/Lua differential behavior,
+Flash integration, malformed packages and GC lifetimes are covered. Full LuaLS checks
+use the real Neovim/Flash libraries. Clangd's macro code-action self-test issue is
+separate from source diagnostics; no project diagnostic suppression is installed.
 
-TSV 二分节点缓存与前缀缓存分开：前 6 层节点无条件保留，深层精确命中节点也保留，
-记录 key、position、after，供其他查询比较。offset = false 只作用于前缀加长，
-不会删除二分节点。带 offset 的查询从该行开始，必要时在后续范围二分，
-不使用对应整份文件划分的节点编号，避免错误复用节点。
-
-The builder always emits {codes, prefixes, max_chars, scope}, including empty and
-single-grapheme tables. normalize also accepts codes-only descriptors and direct
-maps. Prefix sets have a private continuation cache; max_chars/scope are owned by
-the same code map and exposed through read-only metadata(data).
-Runtime source metadata is inferred from the table, without multi_code or length
-configuration. Lua-only continuation sets contain true for extendable keys and
-omit terminal ones. Code arrays have no continuation semantics; no runtime prefix
-index is built. TSV caches use nil for unqueried, numeric file offsets to continue,
-and false to prune. Full TSV data includes every Lua code entry, so attaching a
-loader discards the static Lua prefix copy instead of merging it. Compact maps
-default to a one-grapheme bound. Normalization and padding preserve metadata.
-The builder computes the full table's bound even with an empty Lua subset, and
-generates proper prefixes only for selected Lua codes, including keys with codes.
-Prefixes do not count as code entries; queries allocate no temporary result table.
-The first six binary-search levels are cached regardless of continuation, together
-with deeper exact-hit nodes. These comparison nodes retain key/position/after
-independently of prefix pruning. Searches starting from a saved offset do not use
-whole-file heap indices because their binary partitions differ.
-
-生成的 scope 使用完整输入首字素的最小、最大 UTF-8 字符，直接作为既有 scope 区间表，
-不增加运行时策略。构建时遍历各条目的首字素求最小/最大值，不能从完整键排序两端推断。空输入为
-空范围。用户声明优先于工厂声明，再优先于文件元数据；显式 all 可取消初筛。
-补空格保留私有 metadata；extra 插入的首字素会作为 hash=true 加入文件范围，
-不扩大其他码表实例的 scope。
-
-Generated scopes use the complete input's minimum and maximum first-grapheme
-characters with the existing range-table compiler. The builder visits every first
-grapheme to compute extrema; whole-key ordering can differ from first-grapheme ordering. Empty input emits an empty set.
-User declarations override factory declarations, then file metadata; explicit all
-clears the filter. Padding preserves metadata. Extra entries add first-grapheme
-hash inclusions to the owning map's scope without changing other instances.
-
-## 字符 motion 的相邻位置 / Adjacent positions for character motions
-
-字符扫描器在识别目标时记录该字素起点及前后相邻字素起点，与候选缓存共同失效。
-char 适配层传入 f/F/t/T；t/T 只选择相邻位置，不再把字节列转换为码点下标，也不重复分段。
-行首没有前驱、行末没有后继的目标忽略，候选识别缓存可跨 motion 复用。
-
-The character scanner caches each recognized grapheme start and its neighboring starts.
-The adapter passes f/F/t/T; till motions select the adjacent position without codepoint
-conversion or repeated segmentation. Targets without a predecessor/successor are skipped.
-Recognition caches can be reused across motions and expire with their owning snapshots.
+历史性能对照见 [benchmarks](benchmarks.md)，当前架构以后续C-only收敛记录为准。

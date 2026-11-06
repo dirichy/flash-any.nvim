@@ -22,7 +22,7 @@ vim.fn.writefile(
 	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2, scope = { { "あ", "い" } } }' },
 	root .. "/lua/flash-any/tables/japan.lua"
 )
-vim.fn.writefile({ "あ\ta", "あい\tword", "い\ti" }, root .. "/lua/flash-any/tables/japan.tsv")
+vim.fn.writefile({ "あ\ta", "い\ti" }, root .. "/lua/flash-any/tables/japan.tsv")
 write("japan", {
 	'return function() return { codetable = "japan", matcher = "full_code", scope = { { "ぁ", "ヿ" } } } end',
 })
@@ -55,9 +55,11 @@ local clustered = tables.load("japan", { extra = { ["á"] = "accent", ["👩‍
 local cluster_scope = assert(tables.metadata(clustered).scope)
 assert(cluster_scope["á"] and cluster_scope["👩‍💻"] and not cluster_scope.a and not cluster_scope["👩"])
 assert(tables.metadata(source.data).scope["👩‍💻"] == nil)
-local accepts = assert(require("flash-any.scope").resolve(cluster_scope))
-local Cursor = require("flash-any.cursor")
-assert(accepts(Cursor.new("á")) and accepts(Cursor.new("👩‍💻")) and not accepts(Cursor.new("👩")))
+local scopes = require("flash-any.scope")
+local accepts = scopes.describe(cluster_scope)
+assert(
+	scopes.contains(accepts, "á") and scopes.contains(accepts, "👩‍💻") and not scopes.contains(accepts, "👩")
+)
 print("ok - external tables share lazy loading, conversion and cache ownership rules")
 
 write("romaji", { 'return function() return { codetable = "japan" } end' })
@@ -74,7 +76,9 @@ package.loaded.flash = {
 }
 local plugin = require("flash-any")
 local function run(text, pattern, specs)
-	plugin.setup({ sources = specs })
+	local path = root .. "/test.bin"
+	require("flash-any.build").binary({ sources = specs, output = path })
+	plugin.setup({ binary = path })
 	plugin.jump()
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { text })
 	return captured.matcher(0, {
@@ -84,51 +88,22 @@ local function run(text, pattern, specs)
 	}, { from = { 1, 0 }, to = { 1, 0 } })
 end
 assert(#run("あい", "ai", { "japan" }) == 1)
-assert(#run("あい", "word", { "japan" }) == 1)
+assert(#run("あい", "word", { "japan" }) == 0)
 assert(#run("あい", "word", { { name = "japan", data = { ["あ"] = "a" } } }) == 0)
 assert(#run("あい", "ai", { { name = "japan", matcher = "prefix" } }) == 1)
 assert(#run("あ", "x", { { name = "japan", data = { ["あ"] = "x" } } }) == 1)
 assert(#run("あ", "a", { { name = "japan", scope = { ["あ"] = false } } }) == 0)
 assert(#run("a", "x", { { name = "japan", data = { a = "x" }, scope = "all" } }) == 1)
 assert(#run("あ", "a", { { name = "japan", scope = {} } }) == 0)
-assert(not pcall(plugin.setup, { sources = { { name = "japan", scope = "missing" } } }))
-assert(#run(
-	"う",
-	"x",
-	{ {
-		name = "japan",
-		loader = function(char)
-			return char == "う" and { "x" } or nil
-		end,
-	} }
-) == 1, "factory scope takes precedence over narrower table metadata")
+---@type any Deliberately invalid public input.
+local invalid = { name = "japan", matcher = function() end }
+assert(not pcall(registry.resolve, { invalid }))
 print("ok - an installed source is usable by name with matcher/data/scope overrides")
 
-write("algorithm", {
-	"return function(opts)",
-	'  local key = opts.key or "x"',
-	"  return { fallback = true, matcher = function(text, stream, source, emit)",
-	'    if text:get(1) ~= "あ" then return false end',
-	'    if stream:get() == "" then emit(key)',
-	"    elseif stream:get():sub(1, 1) == key then emit(1) end",
-	"    return true",
-	"  end }",
-	"end",
-})
+write("algorithm", { 'return function(opts) return { data = { ["あ"] = { opts.key or "x" } }, fallback = true } end' })
 assert(#run("あ", "z", { { name = "algorithm", key = "z" } }) == 1)
-assert(#run("あ", "z", {
-	{ data = { ["あ"] = "a" } },
-	{ name = "algorithm", key = "z" },
-}) == 0)
-assert(#run("あ", "z", {
-	{ data = { ["あ"] = "a" } },
-	{ name = "algorithm", key = "z", fallback = false },
-}) == 1)
-assert(#run("あ", "q", {
-	{ name = "algorithm", data = { ["あ"] = "q" }, matcher = "full_code" },
-}) == 1)
-print("ok - table-free sources receive custom options; user matcher and fallback take precedence")
-
+assert(#run("あ", "z", { { data = { ["あ"] = "a" } }, { name = "algorithm", key = "z" } }) == 0)
+assert(#run("あ", "z", { { data = { ["あ"] = "a" } }, { name = "algorithm", key = "z", fallback = false } }) == 1)
 write("invalid_factory", { "return {}" })
 write("invalid_result", { "return function() return false end" })
 write("invalid_codetable", { "return function() return { codetable = {} } end" })

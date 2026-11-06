@@ -11,6 +11,9 @@ on:
       - README.md
       - README.zh-CN.md
       - lua/**
+      - src/**
+      - scripts/build_native.py
+      - Makefile
 
 permissions:
   contents: read
@@ -73,8 +76,16 @@ jobs:
           fc-match -f 'Family: %{family}\nStyle: %{style}\nFile: %{file}\n' 'Noto Sans CJK SC'
 
           test "$(fc-match -f '%{family}' 'Noto Sans CJK SC' | cut -d, -f1)" = 'Noto Sans CJK SC'
-      - name: Install Lua checker
-        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libluajit-5.1-dev python3
+      - name: Check automatic build and matching
+        run: |
+          for test in tests/autobuild.lua tests/init.lua tests/runtime.lua tests/source.lua tests/scope.lua tests/table.lua tests/build.lua tests/health.lua tests/text.lua tests/native.lua tests/tsv.lua tests/utf8.lua tests/reference_cursor.lua tests/reference_match/*.lua; do
+            nvim --clean -l "$test"
+          done
+          nvim --clean -l tests/flash.lua "$FLASH_NVIM_PATH"
+          nvim --clean -l tests/char.lua "$FLASH_NVIM_PATH"
+          nvim --clean --headless -u tests/remote.lua
       - name: record
         run: |
           demos/record.sh

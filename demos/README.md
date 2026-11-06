@@ -37,6 +37,8 @@ sh demos/record.sh char  # f: 首码与连跳
 
 需要 Neovim、VHS、ttyd、Chromium/Chrome、FFmpeg（含 ffprobe）、Python 3、fontconfig，
 以及 JetBrainsMono Nerd Font Mono、Noto CJK 和 Noto Color Emoji 字体。
+插件首次setup会自动编译，另需GNU make4.3+、C编译器、pkg-config和LuaJIT开发文件；
+码表二进制缺失时从上面的sources配置自动构建，无需手动make或导出码表。
 Flash 默认位于 `.dev/flash.nvim`，Tokyo Night 默认位于 `.dev/tokyonight.nvim`，可指定已有安装：
 
 ```sh
@@ -55,6 +57,8 @@ sh demos/record.sh
 Requires Neovim, VHS, ttyd, Chromium/Chrome, FFmpeg/ffprobe, Python 3, fontconfig,
 JetBrainsMono Nerd Font Mono, Noto CJK, and Noto Color Emoji. Run from the repository
 root. Set `FLASH_NVIM_PATH` and `TOKYONIGHT_PATH` to override local plugin paths.
+Initial setup automatically builds the native core and missing dictionaries; GNU
+make4.3+, a C compiler, pkg-config and LuaJIT development files are required.
 The isolated configuration never loads personal dotfiles. Local recording does not publish.
 
 ## 画质与验证 / Quality and verification

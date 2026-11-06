@@ -1,8 +1,9 @@
 #!/usr/bin/env -S nvim -l
+package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 
 vim.opt.runtimepath:prepend(vim.uv.cwd())
-local Cursor = require("flash-any.cursor")
-local codetable = require("flash-any.match.codetable")
+local Cursor = require("reference.cursor")
+local codetable = require("reference.codetable")
 
 local function collect(mode, char, stream, source)
 	local counts, keys, branches = {}, {}, 0
@@ -69,7 +70,7 @@ assert(known and vim.deep_equal(counts, { 1 }))
 print("ok - code-table matcher does not infer a scope from its source name")
 print("all code-table matcher tests passed")
 
-local tables = require("flash-any.table")
+local tables = require("reference.table")
 local words = tables.normalize({
 	codes = { ["中"] = "a", ["中国"] = "ab", ["中国人"] = "abc" },
 	prefixes = { ["中"] = true, ["中国"] = true },

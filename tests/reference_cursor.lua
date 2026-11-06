@@ -1,17 +1,18 @@
+package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 -- nvim --clean -l tests/cursor.lua [host-root]
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local grapheme = require("flash-any.grapheme")
 local original_each, runs, decoded = grapheme.each, 0, 0
-rawset(grapheme, "each", function(value, emit)
+rawset(grapheme, "each", function(value, emit, emit_codepoint)
 	runs = runs + 1
 	original_each(value, function(first, after, count, last)
 		decoded = decoded + count
 		emit(first, after, count, last)
-	end)
+	end, emit_codepoint)
 end)
-local Cursor = require("flash-any.cursor")
+local Cursor = require("reference.cursor")
 rawset(grapheme, "each", original_each)
-local utf8 = require("flash-any.utf8")
+local utf8 = require("reference.utf8")
 local function equal(a, b, context)
 	assert(vim.deep_equal(a, b), context .. "\nactual=" .. vim.inspect(a) .. "\nexpected=" .. vim.inspect(b))
 end
@@ -19,15 +20,18 @@ end
 local view = Cursor.new("👩‍💻🇨🇳áx")
 local before_runs, before_decoded = runs, decoded
 equal({ view:get(1) }, { "👩‍💻", #"👩‍💻", #"👩‍" }, "whole cluster with final codepoint endpoint")
+assert(view:get_codepoint() == 0x1F469 and view:get_codepoint(1) == 0x200D and view:get_codepoint(2) == 0x1F4BB)
 equal({ view:get(2) }, { "👩‍💻🇨🇳", #"👩‍💻🇨🇳", #"👩‍💻🇨" }, "two clusters")
 assert(view:shift(2) and view.offset == #"👩‍💻🇨🇳")
 equal({ view:get(1) }, { "á", #"👩‍💻🇨🇳á", #"👩‍💻🇨🇳a" }, "combining accent")
+assert(view:get_codepoint() == 0x61 and view:get_codepoint(1) == 0x301 and view:get_codepoint(-1) == 0x1F1F3)
 assert(not pcall(view.set_offset, view, #"👩‍"), "cluster-internal boundary must be rejected")
 view:set_offset(0)
 assert(view:get(99) == view.value and not view:shift(99) and view.offset == 0)
 assert(select("#", view:get()) == 1)
 assert(view:shift(4) and view.offset == #view.value and not view:shift())
 equal({ view:get(1) }, { "" }, "read at end")
+assert(view:get_codepoint() == nil and view:get_codepoint(-1) == 0x78)
 equal({ runs, decoded }, { before_runs, before_decoded }, "all revisits reuse a single segmentation")
 for _, invalid in ipairs({ 0, -1, 0.5, false, "1", math.huge }) do
 	assert(not pcall(view.get, view, invalid))
@@ -36,17 +40,30 @@ end
 for _, invalid in ipairs({ -1, 0.5, false, "1", #view.value + 1, math.huge }) do
 	assert(not pcall(view.set_offset, view, invalid))
 end
+for _, invalid in ipairs({ 0.5, false, "1", math.huge, -math.huge }) do
+	assert(not pcall(view.get_codepoint, view, invalid))
+end
 
 local cases = 0
-local function check(value, expected)
+local function check(value, expected, codepoints)
 	equal(grapheme.split(value), expected, "split clusters")
 	assert(grapheme.len(value) == #expected)
 	local text, positions = Cursor.new(value), { 0 }
 	for i, cluster in ipairs(expected) do
 		positions[i + 1] = positions[i] + #cluster
 	end
+	local codepoint_index = 1
 	for index = 0, #expected do
 		text:set_offset(positions[index + 1])
+		if codepoints then
+			assert(text:get_codepoint() == codepoints[codepoint_index], "current codepoint")
+			for pos = -#codepoints - 1, #codepoints + 1 do
+				assert(text:get_codepoint(pos) == codepoints[codepoint_index + pos], "relative codepoint: " .. pos)
+			end
+			if index < #expected then
+				codepoint_index = codepoint_index + utf8.len(expected[index + 1])
+			end
+		end
 		assert(text:get() == value:sub(text.offset + 1))
 		for count = 1, #expected + 1 do
 			local actual = { text:get(count) }
@@ -69,12 +86,13 @@ end
 for line in io.lines("tests/data/GraphemeBreakTest-17.0.0.txt") do
 	local body = line:match("^([^#]+)")
 	if body and body:find("÷", 1, true) then
-		local clusters, current, marker = {}, "", nil
+		local clusters, current, marker, codepoints = {}, "", nil, {}
 		for token in body:gmatch("%S+") do
 			if token == "÷" or token == "×" then
 				marker = token
 			else
 				local cp = assert(tonumber(token, 16))
+				codepoints[#codepoints + 1] = cp
 				if marker == "÷" and current ~= "" then
 					clusters[#clusters + 1], current = current, ""
 				end
@@ -84,11 +102,17 @@ for line in io.lines("tests/data/GraphemeBreakTest-17.0.0.txt") do
 		if current ~= "" then
 			clusters[#clusters + 1] = current
 		end
-		check(table.concat(clusters), clusters)
+		check(table.concat(clusters), clusters, codepoints)
 	end
 end
-check("", {})
+check("", {}, {})
 check("\255x\240\159", { "\255", "x", "\240", "\159" })
+local malformed = Cursor.new("\255x\240\159")
+for pos, codepoint in ipairs({ -1, 0x78, -1, -1 }) do
+	assert(malformed:get_codepoint(pos - 1) == codepoint)
+end
+local scalars = Cursor.new("\0" .. vim.fn.nr2char(0x10FFFF))
+assert(scalars:get_codepoint() == 0 and scalars:get_codepoint(1) == 0x10FFFF)
 
 check("👩🏽‍💻🇦🇧🇨1️⃣á", { "👩🏽‍💻", "🇦🇧", "🇨", "1️⃣", "á" })
 check("a" .. ("́"):rep(100), { "a" .. ("́"):rep(100) })

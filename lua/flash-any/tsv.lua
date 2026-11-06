@@ -92,4 +92,23 @@ function M.loader(path, opts)
 	end
 end
 
+---Read a complete table during binary compilation; runtime lookups stay lazy.
+---@param path string
+---@param decode fun(value: string): string[]
+---@return table<string, string[]>
+function M.read(path, decode)
+	local ret = {}
+	for line in io.lines(vim.fn.expand(path)) do
+		local key, value = split(line, "\t")
+		if key and value then
+			local codes = decode(value)
+			if #codes > 0 then
+				ret[key] = ret[key] or {}
+				vim.list_extend(ret[key], codes)
+			end
+		end
+	end
+	return ret
+end
+
 return M

@@ -100,20 +100,6 @@ local empty_common = dofile(opts.lua)
 assert(empty_common.max_chars == 2 and next(empty_common.codes) == nil and next(empty_common.prefixes) == nil)
 local loaded = tables.from_files(opts.lua, opts.tsv)
 assert(tables.metadata(loaded).max_chars == 2)
-local built_in = require("flash-any.match.codetable")
-local Cursor = require("flash-any.cursor")
-local span
-assert(
-	built_in.full_code(
-		Cursor.new("中国"),
-		Cursor.new("country"),
-		{ data = loaded, matcher = built_in.full_code },
-		function(_, chars)
-			span = chars
-		end
-	)
-)
-assert(span == 2, "empty common Lua metadata must still enable full TSV words")
 assert(vim.deep_equal(loaded["中国"], { "country", "word" }))
 assert(vim.deep_equal(loaded["きゃ"], { "kya" }))
 assert(vim.deep_equal(loaded["é"], { "eacute" }))
@@ -152,10 +138,14 @@ local scope_common = write("scope-common.lua", 'return { ["🧑‍💻"] = {"old
 local scope_n = build.table({ source = scope_input, lua = scope_lua, common = scope_common })
 assert(scope_n == 1)
 local generated_scope = dofile(scope_lua).scope
-assert(vim.deep_equal(generated_scope, { { "😀", "🧑‍💻" } }), "scope covers all entry starts before common filtering")
-local accepts = assert(require("flash-any.scope").resolve(generated_scope))
-assert(accepts(Cursor.new("😀")) and accepts(Cursor.new("🧑‍💻")))
-assert(not accepts(Cursor.new("💻")) and not accepts(Cursor.new("‍")), "continuation codepoints do not widen scope")
+assert(
+	vim.deep_equal(generated_scope, { { "😀", "🧑‍💻" } }),
+	"scope covers all entry starts before common filtering"
+)
+local scopes = require("flash-any.scope")
+local accepts = scopes.describe(generated_scope)
+assert(scopes.contains(accepts, "😀") and scopes.contains(accepts, "🧑‍💻"))
+assert(not scopes.contains(accepts, "💻") and not scopes.contains(accepts, "‍"))
 print("ok - generated scope covers complete-input first graphemes, including supplementary Unicode")
 
 opts.common, opts.format = nil, "csv"
@@ -178,18 +168,12 @@ opts.source = write("invalid.dict.yaml", "---\ncolumns:\n  - code\n  - text\n...
 assert(not pcall(build.table, opts))
 
 local notices = {}
----@type table<string, any>
-local jump = {}
 local notify = vim.notify
 rawset(vim, "notify", function(message, level)
 	notices[#notices + 1] = { message = message, level = level }
 end)
-package.loaded.flash = {
-	jump = function(value)
-		jump = value
-	end,
-}
-local plugin = require("flash-any")
+package.loaded.flash = {}
+require("flash-any")
 local command_source = write("command.csv", '"中","ab"\n')
 local command_lua, command_tsv = root .. "/command.lua", root .. "/command.tsv"
 vim.cmd("FlashAnyBuildTable " .. table.concat({ command_source, command_lua, command_tsv, "-", "csv", "utf-8" }, " "))
@@ -224,31 +208,9 @@ vim.cmd.lcd(previous_cwd)
 rawset(vim, "notify", notify)
 print("ok - commands support omitted/placeholder TSV paths and report full-input warnings")
 
-plugin.jump({
-	sources = {
-		{
-			lua = command_lua,
-			tsv = command_tsv,
-			matcher = "full_code",
-		},
-	},
-})
-vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })
-local get_matches = assert(jump.matcher)
-local matches = get_matches(0, {
-	pattern = function()
-		return "country"
-	end,
-}, { from = { 1, 0 }, to = { 1, 0 } })
-assert(#matches == 1 and matches[1].pos[2] == 0 and matches[1].end_pos[2] == 3)
--- The same generated Lua file works without TSV or any source flags.
-plugin.jump({ sources = { { lua = command_lua } } })
-local pure_matches = assert(jump.matcher)(0, {
-	pattern = function()
-		return "country"
-	end,
-}, { from = { 1, 0 }, to = { 1, 0 } })
-assert(#pure_matches == 1 and pure_matches[1].end_pos[2] == 3)
+assert(
+	not pcall(build.binary, { sources = { { lua = command_lua, tsv = command_tsv } }, output = root .. "/words.bin" })
+)
 local clusters = write("clusters.tsv", "é\teacute\n👩‍💻\tdeveloper\n")
 local clusters_lua = root .. "/clusters.lua"
 local _, _, cluster_words = build.table({ source = clusters, lua = clusters_lua })
@@ -267,12 +229,12 @@ local prefix_order = write("prefix-order.tsv", "a💻\tword\ná\taccent\n")
 build.table({ source = prefix_order, lua = clusters_lua })
 local scope_definition = dofile(clusters_lua)
 assert(vim.deep_equal(scope_definition.scope, { { "a", "á" } }))
-local full_scope = assert(require("flash-any.scope").resolve(scope_definition.scope))
-assert(full_scope(Cursor.new("a💻")) and full_scope(Cursor.new("á")))
+local full_scope = assert(require("flash-any.scope").describe(scope_definition.scope))
+assert(require("flash-any.scope").contains(full_scope, "a") and require("flash-any.scope").contains(full_scope, "á"))
 local one_cluster = write("one-cluster.tsv", "👩‍💻\tdev\n")
 build.table({ source = one_cluster, lua = clusters_lua })
 scope_definition = dofile(clusters_lua)
 assert(vim.deep_equal(scope_definition.scope, { { "👩‍💻", "👩‍💻" } }))
-assert(require("flash-any.scope").resolve(scope_definition.scope)(Cursor.new("👩‍💻")))
+assert(require("flash-any.scope").contains(require("flash-any.scope").describe(scope_definition.scope), "👩‍💻"))
 print("ok - scope extrema use complete first graphemes independently of whole-key order")
 print("all build API tests passed")

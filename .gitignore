@@ -3,3 +3,6 @@ demos/output/
 nvim.log
 __pycache__/
 *.pyc
+/lua/flash-any/native.so
+/build/
+/compile_commands.json

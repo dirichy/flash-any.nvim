@@ -1,6 +1,5 @@
 local M = {}
 local grapheme = require("flash-any.grapheme")
-local Cursor = require("flash-any.cursor")
 
 -- Nonempty UTF-8 text -> ASCII encodings. Prefix metadata belongs to the map.
 ---@alias FlashAnyTable table<string, string[]>
@@ -23,6 +22,9 @@ local loaders = setmetatable({}, { __mode = "k" })
 ---@field scope? FlashAnyScopeTable
 ---@type table<FlashAnyTable, FlashAnyTableMetadata>
 local metadata = setmetatable({}, { __mode = "k" })
+-- Complete-file readers are owned alongside lazy caches; only build.binary uses them.
+---@type table<FlashAnyTable, fun(): FlashAnyTable>
+local readers = setmetatable({}, { __mode = "k" })
 local defaults = { max_chars = 1 }
 
 ---Read metadata owned by this map; callers treat it as immutable.
@@ -61,7 +63,7 @@ end
 ---@return FlashAnyTable
 function M.lazy(data, loader)
 	loaders[data] = loader
-	offsets[data] = nil
+	offsets[data], readers[data] = nil, nil
 	return setmetatable(data, {
 		__index = function(self, key)
 			if offsets[self] then
@@ -106,19 +108,30 @@ function M.append_space(data, below)
 	for char, codes in pairs(data) do
 		ret[char] = space_codes(codes, below)
 	end
+	local read = readers[data]
 	if not loaders[data] then
 		if offsets[data] then
 			offsets[ret] = vim.deepcopy(offsets[data])
 		end
 		return ret
 	end
-	return M.lazy(ret, function(char, offset, prefix_lookup)
+	M.lazy(ret, function(char, offset, prefix_lookup)
 		if not prefix_lookup then
 			return space_codes(data[char], below)
 		end
 		local codes, after = M.lookup(data, char, offset)
 		return space_codes(codes, below), after
 	end)
+	if read then
+		readers[ret] = function()
+			local values = read()
+			for key, codes in pairs(values) do
+				values[key] = space_codes(codes, below)
+			end
+			return values
+		end
+	end
+	return ret
 end
 
 ---把单编码字符串转为数组，并复制 map 和数组，避免修改调用方或 require 缓存。
@@ -216,7 +229,13 @@ function M.load(name, opts)
 			common[char] = codes
 			local scope = metadata[common].scope
 			if scope then
-				scope[Cursor.new(char):get(1)] = true
+				local first
+				grapheme.each(char, function(_, after)
+					if not first then
+						first = char:sub(1, after)
+					end
+				end)
+				scope[assert(first)] = true
 			end
 		end
 	end
@@ -230,7 +249,12 @@ function M.load(name, opts)
 			return convert(csv(value)) or {}
 		end
 	end
-	return M.lazy(common, require("flash-any.tsv").loader(files[1], { decode = decode }))
+	local path = files[1]
+	M.lazy(common, require("flash-any.tsv").loader(path, { decode = decode }))
+	readers[common] = function()
+		return require("flash-any.tsv").read(path, decode)
+	end
+	return common
 end
 
 ---加载用户指定的 Lua 码表，复制后按需挂接 TSV；不复用内置方案缓存。
@@ -243,7 +267,23 @@ function M.from_files(lua_path, tsv_path)
 		return common
 	end
 	local lookup = require("flash-any.tsv").loader(tsv_path, { decode = csv })
-	return M.lazy(common, lookup)
+	M.lazy(common, lookup)
+	readers[common] = function()
+		return require("flash-any.tsv").read(tsv_path, csv)
+	end
+	return common
+end
+
+---Snapshot complete known table data for binary compilation, preserving Lua overrides.
+---@param data FlashAnyTable
+---@return FlashAnyTable
+function M.materialize(data)
+	assert(not loaders[data] or readers[data], "binary build cannot enumerate a custom Lua loader")
+	local ret = readers[data] and readers[data]() or {}
+	for key, codes in pairs(data) do
+		ret[key] = codes and vim.deepcopy(codes) or nil
+	end
+	return ret
 end
 
 return M
