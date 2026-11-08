@@ -107,7 +107,7 @@ require("flash-any").setup({
 })
 ```
 
-Source order, scopes, fallback, schemes, fuzzy spelling and padding resolve when
+Source order, fallback, schemes, fuzzy spelling and padding resolve when
 building. Automatic packages live under `stdpath("cache")/flash-any/`, keyed by source
 configuration and the C package/Unicode version. Changing source configuration selects
 its own package. External dictionary, Rime import, Lua/TSV companion and converter
@@ -152,7 +152,7 @@ Any weighted file can assign optional suffixes without a Tiger source:
 Candidates are ranked by weight, then original order. Bare codes remain valid;
 following text can consume leftover keys. Requires full_code and currently cannot
 combine with converter, append_space_below or shared groups.
-See [shared groups, selection and source factories](docs/sources.md).
+See [file selection and source factories](docs/sources.md).
 
 ### Custom tables
 
@@ -180,11 +180,11 @@ See [integration and converters](docs/sources.md) and
 [recording / README templates](demos/README.md#第三方码表--third-party-tables).
 
 `data` accepts a code string or array per key; codes must be nonempty ASCII.
-Scopes accept names (`all`, `ascii`, `chinese`, `unicode`, `private_use`) or mixed
-character/range declarations, such as `{ { "a", "z" }, a = false, ["👩‍💻"] = true }`.
-Scopes filter only during compilation. Matcher/scope functions and custom lazy
-loaders are unsupported. Lua factories and build-time converters can generate
-tables; see the [table author guide](docs/sources.md).
+Runtime Lua matchers and custom loaders are unsupported. Lua factories and build-time
+converters can generate
+tables. Follow the [step-by-step source guide](docs/writing-sources.md) for local
+installation, verification and demo publication; see the [reference](docs/sources.md)
+for complete options.
 
 **Each key must contain exactly one complete Unicode17 grapheme**, such as á or
 👩‍💻. Multi-grapheme keys such as 中国 are rejected; continuous input can still

@@ -1,9 +1,14 @@
 # 构建码表 / Building dictionaries
 
-扩展只提供构建时数据，不再提供运行时 Lua matcher、Cursor、scope 函数或按需
+首次编写 source，先看[分步教程](writing-sources.zh-CN.md)；本文面向 source 作者，供查阅构建接口；安装配置见各 source 的 README。
+Start with the [step-by-step guide](writing-sources.md) when writing your first
+source; this is the author-facing build reference. For installation settings, use
+the source package's README.
+
+扩展只提供构建时数据，不再提供运行时 Lua matcher、Cursor 或按需
 loader。运行时统一使用 C；setup 接收 `sources`，缺失二进制时自动调用构建器。
 
-Extensions provide build-time data, not runtime Lua matchers, cursors, scope callbacks
+Extensions provide build-time data, not runtime Lua matchers, cursors
 or lazy loaders. Setup accepts `sources` and builds missing packages; matching is C-only.
 
 ## 直接读取码表 / Dictionary files
@@ -112,7 +117,10 @@ Requires full_code; converter, padding and group references on the same record a
 not supported together. Ranking is static and never serialized. Factories that read
 their own weights may call build.selectors(data, ranks, keys) and return selectors.
 
-## 共享编码组 / Shared code groups
+## 内部编码组 / Internal spelling groups
+
+以下是 source 工厂提供给构建器的数据，不是安装使用者需要配置的选项。
+Source factories provide this data to the builder; it is not an installation setting.
 
 ```lua
 {
@@ -211,7 +219,6 @@ return function(opts)
   return {
     data = { ["あ"] = { "a" }, ["い"] = { "i" } },
     matcher = "full_code",
-    scope = { { "ぁ", "ヿ" } },
     fallback = false,
   }
 end
@@ -240,30 +247,23 @@ require("flash-any").setup({
 - 编码为非空 ASCII 字符串或数组。空数组表示已认识但没有匹配，可屏蔽 fallback。
 - `matcher` 只能是 `full_code`、`initial`、`prefix`。前者接受完整编码，initial
   同时接受首字母和完整编码，prefix 接受任意非空前缀。
-- `scope` 为预定义名称或混合字符/区间表。字符键优先，false 可排除区间内字素。
-  端点为码点整数或单字素字符串，区间按完整 UTF8 字节序比较。
-- 普通源都贡献编码；fallback 仅在此前源未认识时贡献。scope 过滤不算认识。
+- 普通源都贡献编码；fallback 仅在此前源未认识时贡献。码表内容决定覆盖范围。
 - 相同 matcher 模式和编码自动去重，不保留 source 归属。
 
 Each key is exactly one complete Unicode17 grapheme. Codes are nonempty ASCII strings
 or arrays; an empty array recognizes without matching. The three built-in modes are
-full code, initial/full code, and arbitrary nonempty code prefix. Scope declarations
-filter before fallback resolution; exact character overrides take priority over byte-
-ordered ranges. Ordinary sources contribute independently; fallbacks contribute only
+full code, initial/full code, and arbitrary nonempty code prefix. Dictionary contents
+define coverage. Ordinary sources contribute independently; fallbacks contribute only
 for previously unknown graphemes. Duplicate mode/code pairs merge without source IDs.
-
-```lua
-scope = { { "a", "z" }, a = false, ["👩‍💻"] = true }
-```
 
 ## 覆盖与文件 / Overrides and files
 
 `name` 调用工厂取得默认值；显式 `data` 或 `lua`/`tsv` 覆盖数据，显式 matcher、
-scope、fallback 覆盖默认规则，包括 `fallback = false`。`append_space_below` 在
+fallback 覆盖默认规则，包括 `fallback = false`。`append_space_below` 在
 主构建器应用，工厂不要重复补空格。独立 source 使用一份完整 TSV；用户显式提供
 Lua 覆盖项或 extra 时仍保持优先。每次构建读取完整数据，不依赖先前搜索命中过什么字。
 
-Named factories supply defaults. Explicit data/files and matcher/scope/fallback
+Named factories supply defaults. Explicit data/files and matcher/fallback
 options override them. Padding is applied by the host, not repeated by factories.
 Optional sources use a single complete TSV. Explicit Lua overrides/extras win. Compilation
 reads the complete table, independently of previous searches.

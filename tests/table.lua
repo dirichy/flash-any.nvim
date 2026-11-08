@@ -71,17 +71,7 @@ local invalid_codes = { ["中"] = true }
 assert(not pcall(tables.normalize, invalid_codes))
 print("ok - code maps and prefix sets remain independent, copied, precise and loader-authoritative")
 
-local scoped_input = { codes = { ["α"] = "alpha" }, scope = { { "α", "ω" } } }
-local scoped = tables.normalize(scoped_input)
-scoped_input.scope[1][1] = "a"
-assert(tables.metadata(scoped).max_chars == 1)
-assert(tables.metadata(scoped).scope[1][1] == "α")
-assert(scoped["codes"] == nil and scoped["scope"] == nil, "metadata must not leak into the encoding map")
-local scoped_copy = tables.normalize(scoped)
-local scoped_padded = tables.append_space(scoped, 9)
-assert(tables.metadata(scoped_copy).scope[1][1] == "α")
-assert(tables.metadata(scoped_padded).scope[1][1] == "α")
-assert(tables.metadata(scoped).scope ~= tables.metadata(scoped_copy).scope)
-assert(tables.metadata(scoped).scope ~= tables.metadata(scoped_padded).scope)
-assert(not pcall(tables.normalize, { codes = {}, scope = "all" }))
-print("ok - codes-only descriptors and scope metadata survive isolated normalization and padding")
+local descriptor = tables.normalize({ codes = { ["α"] = "alpha" } })
+assert(vim.deep_equal(tables.metadata(descriptor), { max_chars = 1 }))
+assert(descriptor.codes == nil, "metadata must not leak into the encoding map")
+print("ok - codes-only descriptors retain only length metadata")

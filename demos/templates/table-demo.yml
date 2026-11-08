@@ -16,12 +16,7 @@ jobs:
     with:
       flash-any-ref: main
       table-ref: ${{ github.sha }}
-      file: table.tsv
-      # format: auto
-      # columns: '["code","text","weight"]'
-      matcher: full_code
-      # converter: converter.lua
-      # config: demo.lua # Optional targets, comments and sample file.
+      config: demo.lua
 
   publish:
     needs: record

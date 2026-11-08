@@ -51,19 +51,16 @@ local function book(mode, fuzzy, unicode, matcher)
 end
 
 if task == "build" then
-	local registry, tables, scopes = require("flash-any.source"), require("flash-any.table"), require("flash-any.scope")
+	local registry, tables = require("flash-any.source"), require("flash-any.table")
 	local source = registry.resolve({ { name = "pinyin" } })[2]
-	local scope = scopes.describe(source.scope_spec)
 	local original = tables.materialize(source.data)
 	local spelling_set, examples = {}, {}
 	for text, codes in pairs(original) do
-		if scopes.contains(scope, text) then
-			for _, code in ipairs(codes) do
-				if code:match("^[a-z]+$") then
-					spelling_set[code] = true
-					if not examples[code] or text < examples[code] then
-						examples[code] = text
-					end
+		for _, code in ipairs(codes) do
+			if code:match("^[a-z]+$") then
+				spelling_set[code] = true
+				if not examples[code] or text < examples[code] then
+					examples[code] = text
 				end
 			end
 		end
@@ -119,22 +116,20 @@ if task == "build" then
 					rows[char] = { { prototype.modes.literal, char } }
 				end
 				for text, codes in pairs(mode == "expanded" and expanded or original) do
-					if scopes.contains(scope, text) then
-						rows[text] = rows[text] or {}
-						for _, code in ipairs(codes) do
-							local kind, value = prototype.modes.initial, code
-							if mode == "syllables" and ids[code] ~= nil then
-								kind, value = prototype.modes.pinyin, ids[code]
-							elseif mode == "skip" and ids[code] ~= nil then
-								value = optional_byte(code, fuzzy == "fuzzy")
-								kind = value:find(string.char(0xA0), 1, true) and prototype.modes.skip or kind
-							end
-							rows[text][#rows[text] + 1] = { kind, value }
+					rows[text] = rows[text] or {}
+					for _, code in ipairs(codes) do
+						local kind, value = prototype.modes.initial, code
+						if mode == "syllables" and ids[code] ~= nil then
+							kind, value = prototype.modes.pinyin, ids[code]
+						elseif mode == "skip" and ids[code] ~= nil then
+							value = optional_byte(code, fuzzy == "fuzzy")
+							kind = value:find(string.char(0xA0), 1, true) and prototype.modes.skip or kind
 						end
-						if unicode then
-							rows[text][#rows[text] + 1] =
-								{ prototype.modes.full_code, ("u%04x"):format(vim.fn.char2nr(text)) }
-						end
+						rows[text][#rows[text] + 1] = { kind, value }
+					end
+					if unicode then
+						rows[text][#rows[text] + 1] =
+							{ prototype.modes.full_code, ("u%04x"):format(vim.fn.char2nr(text)) }
 					end
 				end
 				local keys, records = vim.tbl_keys(rows), {}

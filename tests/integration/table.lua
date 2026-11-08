@@ -9,6 +9,17 @@ for _, name in ipairs(names) do
 	assert(source == registry.load(name))
 	assert(next(tables.materialize(source.data)))
 end
+-- A table entry must not be silently discarded because of its Unicode block.
+for name, text in pairs({ pinyin = "", tiger = "⺀", nerdfont = "⚡" }) do
+	local data = assert(registry.load(name).data)
+	local code = assert(data[text], name .. " regression entry disappeared")[1]
+	local file = vim.fn.tempname() .. ".bin"
+	require("flash-any.build").binary({ sources = { name }, output = file })
+	local engine = require("flash-any.native").load(file)
+	assert(#engine:scan(0, 0, 1, 1, 1, { text }, code, nil) == 1, name .. " discarded a table entry")
+	vim.uv.fs_unlink(file)
+end
+print("all table entries remain eligible regardless of character range")
 local pinyin = assert(registry.load("pinyin").data)
 local flypy = assert(registry.load("pinyin", { scheme = "flypy" }).data)
 local rules = require("flash-any.pinyin.schemes")

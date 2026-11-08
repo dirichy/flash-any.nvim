@@ -54,7 +54,7 @@ jobs:
         run: |
           demos/record.sh
           demos/record.sh char
-          demos/record.sh table demos/templates/table-demo.lua
+          TABLE_FILE="$PWD/demos/templates/table.dict.yaml" demos/record.sh table demos/templates/table-demo.lua
       - uses: actions/upload-artifact@v4
         if: always()
         with:

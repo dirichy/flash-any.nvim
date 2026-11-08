@@ -32,7 +32,7 @@ if arg[1] then
 		return
 	end
 	if arg[1] == "cached" then
-		for _, module in ipairs({ "build", "source", "table", "grapheme", "tsv", "scope" }) do
+		for _, module in ipairs({ "build", "source", "table", "grapheme", "tsv" }) do
 			assert(package.loaded["flash-any." .. module] == nil, "cached setup loaded " .. module)
 		end
 		return

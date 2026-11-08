@@ -5,7 +5,6 @@ local tables = require("flash-any.table")
 ---@field codetable? string Table name under flash-any.tables; mutually exclusive with data.
 ---@field data? FlashAnyTable Prepared data; may have a lazy __index.
 ---@field matcher? "full_code"|"initial"|"prefix"
----@field scope? FlashAnyScope
 ---@field fallback? boolean
 ---@field prepared? boolean Factory owns data overrides and padding.
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
@@ -77,7 +76,6 @@ end
 ---@field [string] any Source-defined build options are validated by its factory.
 ---@field name? string
 ---@field matcher? "full_code"|"initial"|"prefix"
----@field scope? FlashAnyScope
 ---@field fallback? boolean
 ---@field data? FlashAnyTableInput
 ---@field lua? string
@@ -110,7 +108,6 @@ end
 ---@class FlashAnySource
 ---@field data? FlashAnyTable
 ---@field mode string
----@field scope_spec? FlashAnyScope
 ---@field fallback? boolean
 ---@field name? string
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
@@ -133,7 +130,6 @@ function M.resolve(values)
 		if
 			value.name
 			or value.matcher
-			or value.scope ~= nil
 			or value.data
 			or value.lua
 			or value.tsv
@@ -203,14 +199,6 @@ function M.resolve(values)
 			if matcher == nil then
 				matcher = defaults.matcher
 			end
-			local metadata = data and tables.metadata(data)
-			local scope = value.scope
-			if scope == nil then
-				scope = defaults.scope
-			end
-			if scope == nil and metadata then
-				scope = metadata.scope
-			end
 			local fallback = value.fallback
 			if fallback == nil then
 				fallback = defaults.fallback
@@ -223,7 +211,6 @@ function M.resolve(values)
 			ret[#ret + 1] = {
 				data = data,
 				mode = mode,
-				scope_spec = scope,
 				name = value.name,
 				fallback = fallback,
 				selectors = selectors,
@@ -232,8 +219,7 @@ function M.resolve(values)
 		else
 			---@cast value FlashAnyTableInput
 			local data = tables.normalize(value)
-			local metadata = tables.metadata(data)
-			ret[#ret + 1] = { data = data, mode = "full_code", scope_spec = metadata.scope }
+			ret[#ret + 1] = { data = data, mode = "full_code" }
 		end
 	end
 	return ret

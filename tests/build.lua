@@ -30,7 +30,7 @@ local n, all, multi = build.table(opts)
 assert(n == 1 and all == 3 and multi == 1)
 assert(vim.deep_equal(lua_codes(opts.lua), { ["中"] = { "ab" } }))
 assert(read(opts.tsv) == "中\tab\n中国\tword\n国\tcd\n")
-assert(vim.deep_equal(dofile(opts.lua).scope, { { "中", "国" } }))
+assert(dofile(opts.lua).scope == nil, "generated tables must not contain scope metadata")
 opts.common = write("empty.lua", "return {}\n")
 n, all, multi = build.table(opts)
 assert(n == 0 and all == 3 and multi == 1 and next(lua_codes(opts.lua)) == nil)
@@ -134,27 +134,11 @@ assert(vim.deep_equal(lua_codes(lua_only.lua), { ["中国"] = { "country", "word
 assert(dofile(lua_only.lua).max_chars == 2)
 print("ok - Lua-only builds retain prefix metadata, full-input counts and common filtering")
 
-local scope_input = write("scope.tsv", "🧑‍💻\tdev\n😀\tgrin\n")
-local scope_lua = root .. "/scope.lua"
-local scope_common = write("scope-common.lua", 'return { ["🧑‍💻"] = {"old"} }')
-local scope_n = build.table({ source = scope_input, lua = scope_lua, common = scope_common })
-assert(scope_n == 1)
-local generated_scope = dofile(scope_lua).scope
-assert(
-	vim.deep_equal(generated_scope, { { "😀", "🧑‍💻" } }),
-	"scope covers all entry starts before common filtering"
-)
-local scopes = require("flash-any.scope")
-local accepts = scopes.describe(generated_scope)
-assert(scopes.contains(accepts, "😀") and scopes.contains(accepts, "🧑‍💻"))
-assert(not scopes.contains(accepts, "💻") and not scopes.contains(accepts, "‍"))
-print("ok - generated scope covers complete-input first graphemes, including supplementary Unicode")
-
 opts.common, opts.format = nil, "csv"
 opts.source = write("empty-keys.csv", '"","ab"\n" ","ab"\n')
 n, all, multi = build.table(opts)
 assert(n == 0 and all == 0 and multi == 0)
-assert(vim.deep_equal(dofile(opts.lua), { codes = {}, prefixes = {}, max_chars = 1, scope = {} }))
+assert(vim.deep_equal(dofile(opts.lua), { codes = {}, prefixes = {}, max_chars = 1 }))
 for _, code in ipairs({ "中", "ab,中" }) do
 	opts.source = write("invalid.tsv", "中国\t" .. code .. "\n")
 	opts.format = "tsv"
@@ -229,17 +213,3 @@ definition = dofile(clusters_lua)
 assert(definition.max_chars == 2 and vim.deep_equal(definition.prefixes, { ["👩‍💻"] = true }))
 assert(tables.metadata(tables.normalize({ codes = { ["👩‍💻"] = "dev" } })).max_chars == 1)
 print("ok - builder counts graphemes and emits only cluster-boundary prefixes")
--- Sorting full keys cannot determine first-grapheme extremes: a💻 sorts after á.
-local prefix_order = write("prefix-order.tsv", "a💻\tword\ná\taccent\n")
-build.table({ source = prefix_order, lua = clusters_lua })
-local scope_definition = dofile(clusters_lua)
-assert(vim.deep_equal(scope_definition.scope, { { "a", "á" } }))
-local full_scope = assert(require("flash-any.scope").describe(scope_definition.scope))
-assert(require("flash-any.scope").contains(full_scope, "a") and require("flash-any.scope").contains(full_scope, "á"))
-local one_cluster = write("one-cluster.tsv", "👩‍💻\tdev\n")
-build.table({ source = one_cluster, lua = clusters_lua })
-scope_definition = dofile(clusters_lua)
-assert(vim.deep_equal(scope_definition.scope, { { "👩‍💻", "👩‍💻" } }))
-assert(require("flash-any.scope").contains(require("flash-any.scope").describe(scope_definition.scope), "👩‍💻"))
-print("ok - scope extrema use complete first graphemes independently of whole-key order")
-print("all build API tests passed")

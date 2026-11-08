@@ -139,11 +139,13 @@ assert(#native.load(root .. "/empty.bin"):scan(0, 0, 1, 1, 1, { "甲" }, "a", ni
 local source =
 	require("flash-any.source").resolve({ { name = "pinyin", data = { ["中"] = "custom" }, fuzzy = true } })[2]
 assert(source.groups == nil and vim.deep_equal(source.data["中"], { "custom" }))
--- Repeated factory names are allowed; aliases stay local to each configured source.
+-- Repeated factory names keep their own prepared data and spelling groups.
+local normal = require("flash-any.sources.pinyin")({})
+local fuzzy = require("flash-any.sources.pinyin")({ fuzzy = true })
 require("flash-any.build").binary({
 	sources = {
-		{ name = "pinyin", matcher = "full_code", scope = { ["中"] = true } },
-		{ name = "pinyin", matcher = "full_code", scope = { ["忠"] = true }, fuzzy = true },
+		{ name = "pinyin", matcher = "full_code", data = { ["中"] = normal.data["中"] }, groups = normal.groups },
+		{ name = "pinyin", matcher = "full_code", data = { ["忠"] = fuzzy.data["忠"] }, groups = fuzzy.groups },
 	},
 	output = root .. "/combined.bin",
 })

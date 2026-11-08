@@ -99,7 +99,7 @@ require("flash-any").setup({
 })
 ```
 
-源列表的顺序、scope、fallback、双拼、模糊音和补空格均在构建时处理。自动产物
+源列表的顺序、fallback、双拼、模糊音和补空格均在构建时处理。自动产物
 保存在 `stdpath("cache")/flash-any/`，按 sources 配置及 C 格式/Unicode 版本区分，
 修改 sources 配置会使用对应的新缓存。外部词典、Rime 导入、Lua/TSV 伴随文件及
 converter 按绝对路径、大小和修改时间（含纳秒）跟踪，不为计算内容哈希读取完整码表。
@@ -163,11 +163,10 @@ sources = {
 只在构建时执行。[接入与 converter 说明](docs/sources.md) ·
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
-`data` 接受单编码字符串或编码数组；编码必须为非空 ASCII 字符串。scope 支持
-预定义名称（`all`、`ascii`、`chinese`、`unicode`、`private_use`）和字符/区间表，
-例如 `{ { "a", "z" }, a = false, ["👩‍💻"] = true }`。scope 只在构建时过滤。
-不支持 matcher 函数、scope 函数或自定义按需 loader；可通过 Lua 工厂及构建时
-转换生成码表，详见 [码表开发说明](docs/sources.md)。
+`data` 接受单编码字符串或编码数组；编码必须为非空 ASCII 字符串。
+不支持运行时 Lua matcher 或自定义按需 loader；可通过 Lua 工厂及构建时
+转换生成码表。首次编写扩展可按[分步 source 教程](docs/writing-sources.zh-CN.md)
+完成本地安装、验证和演示发布；完整选项见[码表开发说明](docs/sources.md)。
 
 **每个键必须恰好是一个 Unicode 17 完整字素**，例如 `á` 或 `👩‍💻`；当前不接收
 “中国”这类多字素键。连续输入仍可逐字素匹配“中国”。不做 Unicode 归一化。

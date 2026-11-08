@@ -3,8 +3,9 @@
 -- All relative paths start at this file's directory, not the shell's working directory.
 -- 所有相对路径均以本文件所在目录为基准。
 return {
+	-- Replace SOURCE with your source name / 将 SOURCE 换成 source 名称。
 	-- Dictionary file / 码表路径。One grapheme per key; codes are inferred automatically.
-	file = "table.dict.yaml",
+	file = "lua/flash-any/tables/SOURCE.tsv",
 
 	-- Built-in matching mode / 匹配模式：full_code (default), initial, or prefix.
 	matcher = "full_code",
@@ -12,7 +13,7 @@ return {
 	-- format = "tsv", -- auto, rime, tsv, csv, space, fcitx, ibus
 	-- columns = { "text", "code", "weight" }, -- Column order / 列顺序。
 	-- encoding = "UTF-8", -- Input encoding / 原码表编码。
-	-- header = true, -- Skip a TSV/CSV header / 是否有标题行。
+	-- header = true, -- Skip a CSV header / 是否有标题行。
 	-- converter = "converter.lua", -- Build-time code converter / 构建时编码转换。
 
 	-- Name shown in the title and default narration / 标题、默认旁白中的文本名称。

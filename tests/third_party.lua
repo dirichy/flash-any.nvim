@@ -27,6 +27,17 @@ local native = require("flash-any.native")
 local function matches(book, text, pattern)
 	return book:new_state():scan(0, 0, 0, 1, 1, { text }, pattern, "ab")
 end
+local filtered_file = write("filtered.tsv", { "あ\ta", "⚡\tbolt" })
+local filter = write("filter.lua", {
+	'return function(codes) if codes[1] == "a" then return nil end return codes end',
+})
+local filtered_book = native.load(nil, {
+	{ file = filtered_file, converter = filter },
+	{ data = { ["あ"] = "fallback" }, fallback = true },
+})
+assert(#matches(filtered_book, "あ", "a") == 0)
+assert(#matches(filtered_book, "あ", "fallback") == 1, "converter-removed entries must not suppress fallback")
+assert(#matches(filtered_book, "⚡", "bolt") == 1)
 local specs = { { file = table_path, converter = converter, matcher = "full_code" } }
 local book = native.load(nil, specs)
 assert(#matches(book, "中国", "ZHONGGUO") == 1)

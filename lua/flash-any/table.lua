@@ -8,7 +8,6 @@ local grapheme = require("flash-any.grapheme")
 ---@field codes FlashAnyTableMap
 ---@field prefixes? table<string, true> Proper prefixes, including those with codes.
 ---@field max_chars? integer Maximum text graphemes in the full table, including TSV.
----@field scope? FlashAnyScopeTable Coarse first-grapheme filter, covering the complete input.
 ---@alias FlashAnyTableInput FlashAnyTableMap|FlashAnyTableDefinition
 ---@alias FlashAnyTableLoader fun(key: string, offset?: number, prefix_lookup?: boolean): string[]?, (number|boolean)?
 -- Continuations share the map's lifetime: true for Lua prefixes, numeric TSV
@@ -19,7 +18,6 @@ local offsets = setmetatable({}, { __mode = "k" })
 local loaders = setmetatable({}, { __mode = "k" })
 ---@class FlashAnyTableMetadata
 ---@field max_chars integer
----@field scope? FlashAnyScopeTable
 ---@type table<FlashAnyTable, FlashAnyTableMetadata>
 local metadata = setmetatable({}, { __mode = "k" })
 -- Complete-file readers are owned alongside lazy caches; only build.binary uses them.
@@ -148,18 +146,17 @@ end
 ---@param map FlashAnyTableInput
 ---@return FlashAnyTable
 function M.normalize(map)
-	local prefixes, maximum, scope
+	local prefixes, maximum
 	local values = map
 	local structured = type(map.codes) == "table"
 	if structured then
 		---@cast map FlashAnyTableDefinition
-		maximum, prefixes, scope, values = map.max_chars, map.prefixes, map.scope, map.codes
+		maximum, prefixes, values = map.max_chars, map.prefixes, map.codes
 		assert(prefixes == nil or type(prefixes) == "table", "prefixes must be a table")
-		assert(scope == nil or type(scope) == "table", "table scope must be a character/range table")
 	else
 		local properties = metadata[map]
 		if properties then
-			maximum, scope = properties.max_chars, properties.scope
+			maximum = properties.max_chars
 		end
 		if not loaders[map] then
 			prefixes = offsets[map]
@@ -203,7 +200,7 @@ function M.normalize(map)
 		offsets[ret] = cache
 	end
 	assert(maximum == nil or maximum >= length, "max_chars is shorter than the Lua entries or prefixes")
-	metadata[ret] = { max_chars = maximum or length, scope = scope and vim.deepcopy(scope) or nil }
+	metadata[ret] = { max_chars = maximum or length }
 	return ret
 end
 
@@ -263,16 +260,6 @@ function M.load(name, opts)
 	if opts and opts.extra then
 		for char, codes in pairs(M.normalize(opts.extra)) do
 			data[char] = codes
-			local scope = metadata[data].scope
-			if scope then
-				local first
-				grapheme.each(char, function(_, after)
-					if not first then
-						first = char:sub(1, after)
-					end
-				end)
-				scope[assert(first)] = true
-			end
 		end
 	end
 	if not files[1] or not lua_files[1] then

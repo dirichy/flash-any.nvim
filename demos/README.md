@@ -99,7 +99,7 @@ CSV 标题行可在 Lua 中设置 `header = true`。所有相对路径以 Lua �
    [Code-table demo](../.github/workflows/table-demo.yml)，填写 `table-repository`、
    `table-ref`、`file` 和可选 format/columns/converter/matcher/config。路径相对码表仓库。
 2. **在码表仓库运行**：复制 [调用模板](templates/table-demo.yml) 为
-   `.github/workflows/demo.yml`，修改码表路径、matcher 和可选的 config；推送 main 自动录制，也可手动运行。
+   `.github/workflows/demo.yml`，用 `config: demo.lua` 读取 Lua 配置；推送 main 自动录制，也可手动运行。
 
 ```sh
 gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
@@ -191,6 +191,20 @@ FLASH_ANY_SOURCE_PATH to their parent directory. External file recordings need n
 source plugins. Set repository variable FLASH_ANY_SOURCE_OWNER after publishing the
 separate source repositories to enable default demo CI. Core CI runs independently.
 
+
+## Source 包模板 / Source package templates
+
+[维护模板](templates/maintenance.md#package-layout--包结构)列出完整包结构。
+复制 [source 工厂](templates/source.lua)、中英文 README、demo.lua 和工作流，替换
+同一 SOURCE 名称即可按 source 名安装。语言类 source 将对应语言放到 README.md，
+英文版放到 README.en.md；非单一语言包可保留英文主页。工作流仅传 config，字表路径与模式由 Lua 文件负责。
+
+The [maintenance template](templates/maintenance.md#package-layout--包结构) lists the package layout.
+Copy the factory, bilingual READMEs, Lua demo config and workflow; replace SOURCE
+consistently. Language-specific packages use the supported language for README.md
+and link to README.en.md for English; language-neutral packages may keep English as
+the homepage. Installation uses the named source. The workflow passes config only,
+so dictionary paths and matching modes stay in the Lua file.
 
 ## 自动码表场景 / Automatic table scenes
 

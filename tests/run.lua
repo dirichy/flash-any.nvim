@@ -20,7 +20,6 @@ local tests = {
 	"demo",
 	"groups",
 	"selection",
-	"scope",
 	"table",
 	"build",
 	"health",

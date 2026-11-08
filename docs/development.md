@@ -1,19 +1,24 @@
 # 实现与验证 / Implementation and validation
 
-## 边界 / Scope
+## 边界 / Boundaries
 
 运行时只有 C 后端。`setup` / `jump(opts)` / `remote(opts)` 接收 `sources` 或 `binary`；
-缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、scope
-回调、输入/文本 Cursor 或按需 loader 扩展。每个键须恰好一个完整字素，连续输入
+缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。每个键须恰好一个完整字素，连续输入
 可以跨字素匹配。多字素词条构建时报错，不为未来词组预留运行时兼容层。
 
 Runtime is C-only. Setup builds a missing package from sources or loads an existing
 binary. Lua factories/converters execute only while building. Keys are complete
 single graphemes; continuous input crosses graphemes. Word entries are rejected.
 
+字表内容决定收录范围，构建器不另做字符范围过滤。需要删条目时更新码表，或由
+converter 返回 nil/空数组。fallback 仍按此前码表是否认识该字素判断。
+Dictionary contents define coverage; the builder applies no separate character-range
+filter. Remove entries in the dictionary or return nil/an empty array from a converter.
+Fallback still depends on whether earlier dictionaries recognized the grapheme.
+
 ## 模块 / Modules
 
-- `build.lua`、`source.lua`、`table.lua`、`scope.lua`、`tsv.lua`：构建时读取完整数据、
+- `build.lua`、`source.lua`、`table.lua`、`tsv.lua`：构建时读取完整数据、
   转换、校验、过滤和合并。Lua Unicode 分段器用于构建及测试参考。
 - `src/text.h`：严格UTF8解码及Unicode17扩展字素分段，只保留当前分段状态；没有
   文本索引数组、Cursor方法或Lua逐字素回调。
@@ -88,9 +93,9 @@ namespace, require explicit rebuilding.
 
 ## 码表 / Dictionary
 
-按source顺序过滤scope、处理fallback，再合并`(matcher模式, 编码)`。空编码集合
+按source顺序处理fallback，再合并`(matcher模式, 编码)`。空编码集合
 也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为128个键，普通源
-仍可为ASCII附加编码。运行时不保留source身份、scope或fallback状态。
+仍可为ASCII附加编码。运行时不保留source身份或fallback状态。
 
 格式`FANYBIN\x08`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
 条目数、哈希容量、页数、pool字节数、编码组区字节数和一个保留0。随后为16-byte条目（key及编码

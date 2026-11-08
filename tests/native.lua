@@ -121,11 +121,10 @@ compare({ "👩‍💻á👩‍💻💻1️⃣", "中国中国", "きゃきゃ"
 	},
 })
 compare({ "a á z ź 中 𠀀 👩‍💻 👩🏽‍💻", "\255x\0" }, { "x", "xx", "a", "z" }, {
-	{ data = { a = "x", ["á"] = "x", z = "x", ["ź"] = "x" }, scope = { { "a", "z" }, a = false, ["ź"] = true } },
-	{ data = { ["中"] = "x", ["𠀀"] = "x" }, scope = "chinese" },
+	{ data = { a = "x", ["á"] = "x", z = "x", ["ź"] = "x" } },
+	{ data = { ["中"] = "x", ["𠀀"] = "x" } },
 	{
 		data = { ["👩‍💻"] = "x", ["👩🏽‍💻"] = "x" },
-		scope = { ["👩‍💻"] = true, ["👩🏽‍💻"] = false },
 	},
 	{ data = { ["\255"] = "x", ["\0"] = "x" }, fallback = true },
 })
@@ -167,7 +166,7 @@ if #vim.api.nvim_get_runtime_file("lua/flash-any/sources/pinyin.lua", false) > 0
 		end
 	end
 
-	-- Recognition, scope and fallback disappear at build time, including empty lists.
+	-- Recognition and fallback disappear at build time, including empty lists.
 	compare(
 		{ "中国，a。𠮷😀󰊢", "重行长" },
 		{ "z", "zhong", "zg", "x", "g", "grin", "fa", "a" },
@@ -233,12 +232,7 @@ for _, specs in ipairs({
 			return false
 		end,
 	} },
-	{ {
-		data = { ["中"] = "a" },
-		scope = function()
-			return true
-		end,
-	} },
+
 	{ {
 		loader = function()
 			return { "a" }

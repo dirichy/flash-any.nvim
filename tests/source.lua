@@ -19,12 +19,12 @@ print("ok - runtime discovery does not execute source modules")
 -- Build a private external plugin fixture instead of shipping example sources.
 vim.fn.mkdir(root .. "/lua/flash-any/tables", "p")
 vim.fn.writefile(
-	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2, scope = { { "あ", "い" } } }' },
+	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2 }' },
 	root .. "/lua/flash-any/tables/japan.lua"
 )
 vim.fn.writefile({ "あ\ta", "い\ti" }, root .. "/lua/flash-any/tables/japan.tsv")
 write("japan", {
-	'return function() return { codetable = "japan", matcher = "full_code", scope = { { "ぁ", "ヿ" } } } end',
+	'return function() return { codetable = "japan", matcher = "full_code" } end',
 })
 assert(vim.tbl_contains(registry.available(), "japan"))
 assert(package.loaded["flash-any.tables.japan"] == nil)
@@ -48,18 +48,11 @@ local converted = tables.load("japan", {
 })
 assert(converted["あ"][1] == "extra" and converted["い"][1] == "I")
 local extended = tables.load("japan", { extra = { a = "ascii" } })
-assert(tables.metadata(extended).scope.a == true)
-assert(tables.metadata(source.data).scope.a == nil, "extras cannot widen another instance's metadata")
+assert(extended.a[1] == "ascii" and source.data.a == nil)
 assert(source.data["あ"][1] == "a" and source.data["い"][1] == "i")
 local clustered = tables.load("japan", { extra = { ["á"] = "accent", ["👩‍💻"] = "dev" } })
-local cluster_scope = assert(tables.metadata(clustered).scope)
-assert(cluster_scope["á"] and cluster_scope["👩‍💻"] and not cluster_scope.a and not cluster_scope["👩"])
-assert(tables.metadata(source.data).scope["👩‍💻"] == nil)
-local scopes = require("flash-any.scope")
-local accepts = scopes.describe(cluster_scope)
-assert(
-	scopes.contains(accepts, "á") and scopes.contains(accepts, "👩‍💻") and not scopes.contains(accepts, "👩")
-)
+assert(clustered["á"][1] == "accent" and clustered["👩‍💻"][1] == "dev")
+assert(source.data["á"] == nil and source.data["👩‍💻"] == nil)
 print("ok - external tables share lazy loading, conversion and cache ownership rules")
 
 write("romaji", { 'return function() return { codetable = "japan" } end' })
@@ -92,16 +85,14 @@ assert(#run("あい", "word", { "japan" }) == 0)
 assert(#run("あい", "word", { { name = "japan", data = { ["あ"] = "a" } } }) == 0)
 assert(#run("あい", "ai", { { name = "japan", matcher = "prefix" } }) == 1)
 assert(#run("あ", "x", { { name = "japan", data = { ["あ"] = "x" } } }) == 1)
-assert(#run("あ", "a", { { name = "japan", scope = { ["あ"] = false } } }) == 0)
-assert(#run("a", "x", { { name = "japan", data = { a = "x" }, scope = "all" } }) == 1)
-assert(#run("あ", "a", { { name = "japan", scope = {} } }) == 0)
+assert(#run("a", "x", { { name = "japan", data = { a = "x" } } }) == 1)
 ---@type any Deliberately invalid public input.
 local invalid = { name = "japan", matcher = function() end }
 assert(not pcall(registry.resolve, { invalid }))
 assert(#run("あ", "x ", { { name = "japan", groups = { a = { "x" } }, append_space_below = 2 } }) == 1)
 assert(#run("あ", "A", { { name = "japan", groups = { a = { "A" } } } }) == 1)
 assert(source.groups == nil, "configured groups must not alter the default source")
-print("ok - an installed source is usable by name with matcher/data/scope overrides")
+print("ok - an installed source is usable by name with matcher/data overrides")
 
 write("algorithm", { 'return function(opts) return { data = { ["あ"] = { opts.key or "x" } }, fallback = true } end' })
 assert(#run("あ", "z", { { name = "algorithm", key = "z" } }) == 1)

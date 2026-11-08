@@ -350,21 +350,8 @@ function M.table(opts)
 	local all = vim.tbl_keys(rows)
 	table.sort(all)
 	local multi, maximum = 0, 1
-	local first, last
 	for _, key in ipairs(all) do
-		local count = 0
-		grapheme.each(key, function(start, after)
-			count = count + 1
-			if start == 0 then
-				local char = key:sub(1, after)
-				if not first or char < first then
-					first = char
-				end
-				if not last or char > last then
-					last = char
-				end
-			end
-		end)
+		local count = grapheme.len(key)
 		if count > 1 then
 			multi = multi + 1
 		end
@@ -408,12 +395,6 @@ function M.table(opts)
 		lua:write(string.format("    [%s] = true,\n", quote(key)))
 	end
 	lua:write(("  },\n  max_chars = %d,\n"):format(maximum))
-	if first then
-		-- Whole-key order can differ from first-grapheme order (a💻 vs á).
-		lua:write(("  scope = { { %s, %s } },\n"):format(quote(first), quote(last)))
-	else
-		lua:write("  scope = {},\n")
-	end
 	lua:write("}\n")
 	lua:close()
 
@@ -482,7 +463,7 @@ function M.binary(opts)
 		values[i] = type(value) == "string" and { name = value } or value
 	end
 	local sources = require("flash-any.source").resolve(values)
-	local scopes, tables = require("flash-any.scope"), require("flash-any.table")
+	local tables = require("flash-any.table")
 	local native = require("flash-any.native")
 	local modes = native.modes
 	local known, merged, groups, group_ids = {}, {}, {}, {}
@@ -525,7 +506,6 @@ function M.binary(opts)
 				aliases[name] = group_ids[identity]
 			end
 		end
-		local scope = scopes.describe(source.scope_spec)
 		local data = mode ~= 0 and source.data and tables.materialize(source.data) or {}
 		if mode == 0 then
 			for byte = 0, 127 do
@@ -538,8 +518,7 @@ function M.binary(opts)
 				type(key) == "string" and key ~= "" and grapheme.len(key) == 1,
 				"binary keys must contain exactly one complete grapheme: " .. tostring(key)
 			)
-			local allowed = scopes.contains(scope, key)
-			if allowed and (not source.fallback or not known[key]) then
+			if not source.fallback or not known[key] then
 				-- Recognition precedes matching: even an empty list blocks later fallbacks.
 				known[key] = true
 				local set = merged[key] or {}
