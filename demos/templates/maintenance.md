@@ -27,13 +27,15 @@ short sample file. Codes come from the table automatically.
 
 Pin the workflow reference and flash-any-ref to the same tested core commit.
 Push to main to record automatically, or run the workflow manually. After verification,
-the caller workflow commits the GIF to docs/table.gif so the README updates automatically.
-Only the publishing job needs contents:write. GIF-only commits do not start another
-recording; outdated runs skip publication when main has changed. MP4 and playback
-reports remain available in the artifact; no release is created.
-推送 main 自动录制，也可手动运行。验证成功后，调用工作流自动提交 docs/table.gif，
-更新 README 演示。仅发布任务需要 contents:write；只更新 GIF 不会再次触发录制。
-main 已变化时跳过旧录制的发布。MP4 和验证报告保留在 artifact 中，不创建 Release。
+the caller workflow replaces the GIF, MP4, cover and reports in the dedicated `demos`
+prerelease. README links use stable release asset URLs; generated media is never
+committed. Only the publishing job needs contents:write. Outdated runs skip publication
+when main has changed. Authenticated downloads verify the published assets, including
+for private repositories. Artifacts remain available for diagnosis.
+推送 main 自动录制，也可手动运行。验证成功后，调用工作流替换独立 `demos` prerelease
+中的 GIF、MP4、封面与报告。README 引用固定附件地址，生成媒体不提交到 Git。
+仅发布任务需要 contents:write；main 已变化时跳过旧录制。发布后使用认证下载核对附件，
+也适用于私有仓库。artifact 同时保留用于排查问题。
 
 For local commands, dependencies, font coverage and playback checks, see the
 [recording guide](https://github.com/dirichy/flash-any.nvim/blob/main/demos/README.md).

@@ -5,7 +5,9 @@
 配合 [flash-any.nvim](https://github.com/dirichy/flash-any.nvim/tree/main)，
 在 Neovim 中输入本码表的编码搜索跳转。
 
-![搜索跳转](docs/table.gif)
+![搜索跳转](https://github.com/OWNER/TABLE/releases/download/demos/table.gif)
+
+[高清 MP4](https://github.com/OWNER/TABLE/releases/download/demos/table.mp4)
 
 ## 安装
 

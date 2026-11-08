@@ -111,9 +111,9 @@ gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
 到同一发布提交，并固定 `table-ref`，可以复现同一配置；main 为开发分支。
 功能发布到相应远程 ref 后才能调用，本地修改不会改变 GitHub 上的工作流。
 核心可复用工作流只需 contents:read，只上传 `table-demo` artifact。调用模板另有
-contents:write 发布任务，验证成功后提交 `docs/table.gif`，让 README 自动更新；
-仅图片更新不再触发录制，旧提交的录制不会覆盖新 main。MP4 与报告保留在 artifact，
-不创建 Release；失败时也保留本轮报告和日志。可使用
+contents:write 发布任务，验证成功后替换 `demos` prerelease 的 GIF、MP4、封面与报告，
+并用认证下载核对附件。README 引用固定 Release 地址，不提交生成媒体；
+旧提交的录制不会覆盖新 main。失败时保留本轮 artifact 和日志。可使用
 [中文](templates/README.zh-CN.md) / [English](templates/README.md) README 模板；
 将[维护模板](templates/maintenance.md)放到码表仓库的 `docs/maintenance.md`。
 
@@ -129,8 +129,9 @@ or copy the tiny caller workflow into the table project to record on main pushes
 or manual dispatches. Pin both the workflow ref
 and flash-any-ref to the same published commit. It uploads the table-demo artifact
 without writing to the caller repository. The caller template adds a contents:write
-job that commits docs/table.gif after verification. GIF-only commits do not retrigger
-recording, and outdated runs skip publication. No release is created. Unpushed workflow changes cannot be called
+job that replaces the dedicated demos prerelease assets after verification, then
+checks authenticated downloads. README links use stable release URLs; generated
+media is never committed. Outdated runs skip publication. Unpushed workflow changes cannot be called
 from GitHub. The README templates focus on installation and use. Copy the maintenance template
 to docs/maintenance.md for table updates and recording instructions.
 

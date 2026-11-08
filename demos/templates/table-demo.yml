@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore: [docs/table.gif]
 permissions:
   contents: read
 concurrency:
@@ -31,31 +30,42 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
       - uses: actions/download-artifact@v4
         with:
           name: table-demo
           path: ${{ runner.temp }}/table-demo
-      - name: Update README demo
+      - name: Replace demo release assets
         env:
-          DEMO_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
           DEMO_ARTIFACT: ${{ runner.temp }}/table-demo
         run: |
-          # A newer source commit needs its own recording; never publish an older run over it.
-          if test "$(git rev-parse HEAD)" != "$DEMO_SHA"; then
+          # A newer source commit needs its own recording.
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if test "$head" != "$GITHUB_SHA"; then
             echo 'Skipping an outdated recording; main has changed.'
             exit 0
           fi
           python3 -c 'import json, os; from pathlib import Path; r = json.loads((Path(os.environ["DEMO_ARTIFACT"]) / "table-verification.json").read_text()); assert r["verified"], r.get("error")'
-          mkdir -p docs
-          cp "$DEMO_ARTIFACT/table.gif" docs/table.gif
-          if git diff --quiet -- docs/table.gif && test -n "$(git ls-files docs/table.gif)"; then
-            exit 0
+          cat > "$RUNNER_TEMP/demo-notes.md" <<EOF
+          Automatically recorded demos for commit $GITHUB_SHA.
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          Assets are replaced after each successful recording. This is not a plugin release.
+          EOF
+          if ! gh release view demos --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create demos --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title 'Demo recordings' --prerelease --latest=false \
+              --notes-file "$RUNNER_TEMP/demo-notes.md"
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/table.gif
-          git commit -m 'docs: update demo recording'
-          git push origin HEAD:main
+          gh release upload demos --repo "$GITHUB_REPOSITORY" --clobber \
+            "$DEMO_ARTIFACT/table.gif" "$DEMO_ARTIFACT/table.mp4" "$DEMO_ARTIFACT/table.png" \
+            "$DEMO_ARTIFACT/table-verification.json" "$DEMO_ARTIFACT/table-media.json"
+          gh release edit demos --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+            --notes-file "$RUNNER_TEMP/demo-notes.md"
+          # Authenticated downloads work for private repositories too.
+          gh release download demos --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/published" \
+            --pattern table.gif --pattern table.mp4 --pattern table-verification.json
+          for file in table.gif table.mp4 table-verification.json; do
+            cmp "$DEMO_ARTIFACT/$file" "$RUNNER_TEMP/published/$file"
+          done
