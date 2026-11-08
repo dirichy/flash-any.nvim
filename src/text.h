@@ -12,7 +12,7 @@
 #include <limits.h>
 #include "grapheme_data.h"
 
-/* Must match the packed properties generated from grapheme_data.lua:
+/* Must match the packed properties generated from scripts/data/grapheme_data.lua:
  * low 4 bits = GCB, bit 4 = Extended_Pictographic, bits 5–6 = InCB. */
 enum {
   GCB_OTHER = 0,

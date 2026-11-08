@@ -53,4 +53,4 @@ for page in range(0x1100):
     if ranges:
         out.append(f"\t[0x{page:X}] = {{ " + ", ".join(map(str, ranges)) + " },")
 out.append("}")
-Path("lua/flash-any/grapheme_data.lua").write_text("\n".join(out) + "\n")
+Path("scripts/data/grapheme_data.lua").write_text("\n".join(out) + "\n")

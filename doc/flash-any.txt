@@ -1,5 +1,10 @@
 *flash-any.txt*  按字素编码进行 Flash 跳转 / C-based grapheme matching
 
+main 分支正在迁移，暂不稳定；API 和配置可能变化，不兼容旧接口。
+旧版请使用 master，试用新版需显式选择 main；更新并 make 后重启 Nvim。
+Migration in progress: main is unstable and does not preserve the legacy API.
+Use master for the legacy version, or explicitly select main to try the C migration.
+
 ===============================================================================
 目录                                           *flash-any* *flash-any-contents*
 
@@ -13,8 +18,8 @@
 ===============================================================================
 1. 概述                                                    *flash-any-intro*
 
-需要 Neovim 0.11+、flash.nvim、C 编译器、Python3、pkg-config、LuaJIT 开发文件和
-GNU make 4.3+。运行时仅使用 C；Lua 负责构建码表和 Flash 桥接。
+需要 Neovim 0.11+、flash.nvim，以及构建时使用的 make 和 C 工具链（GCC 或 Clang）。
+make 直接调用 C 编译器，不需要 Python、CMake、pkg-config 或单独的 LuaJIT 开发包。
 
 按 s，输入编码，再按标签跳转。zhongguo 或 zg 匹配“中国”，可和 ASCII 连续混输。
 配置 unicode 表后 grin 匹配 😀。每个码表键恰好一个 Unicode17 完整字素，例如
@@ -26,26 +31,29 @@ can match across successive graphemes. No runtime Lua matchers or Cursor API.
 ===============================================================================
 2. 构建与配置                                              *flash-any-setup*
 
-配置 sources 即可，无需手动构建： >lua
+先通过管理器构建钩子或手动执行 make，再配置 sources；码表自动构建： >lua
     require("flash-any").setup({
-      sources = { "pinyin", "nerdfont", "unicode" },
+      sources = {},
       -- labels = "asdfghjkl",
     })
     vim.keymap.set({ "n", "x", "o" }, "s", function()
       require("flash-any").jump()
     end)
 <
-首次加载会自动检查/编译 C 模块。setup 在码表二进制缺失时立即同步构建，已有文件
+插件管理器需配置安装/更新时执行 make（lazy.nvim: build="make"）；也可在插件目录
+手动执行 make。插件不会自动编译 C 模块；缺失或无法加载时提示构建。
+setup 在码表二进制缺失时立即同步构建，已有文件
 直接加载；搜索过程仍由 C 完成。缓存位于 stdpath("cache")/flash-any/，按 sources
-配置及 C 格式/Unicode 版本区分。更改配置选择新缓存；修改原路径下的外部码表或
-工厂内容后，应清除生成缓存并再次 setup，文件内容不自动监控。
+配置及 C 格式/Unicode 版本区分。外部词典、Rime 导入、lua/tsv 和 converter
+按路径、大小、修改时间跟踪。lua/flash-any 下安装的 Lua/TSV 每进程检查一次，
+插件更新后重启 Nvim。大小及修改时间均未变的编辑、命名空间外的 Lua 间接依赖需手动重建。
 
 可选 binary 指定固定产物路径；文件缺失时根据 sources 构建。仅提供 binary 则
 加载现有文件。构建时应用双拼、模糊音、补空格、scope、顺序和 fallback。
 构建失败保留旧输出；已有搜索持有旧快照。开发工具仍可调用 build.binary 导出。
 
 Setup builds a missing dictionary from sources and reuses existing packages. Native
-compilation is automatic. Source configurations use separate cached packages.
+compilation is handled by the plugin manager or by running make manually. Source configurations use separate cached packages.
 
 跳转：                                                       *flash-any-jump*
 
@@ -77,18 +85,27 @@ yr 后输入 zg、标签、iw，可复制远处单词并返回；dr 用于删除
 ===============================================================================
 3. 码表                                                    *flash-any-sources*
 
+data 用于标点和少量自定义符号；自动缓存检查时，显式 data 合计超过 200 个文本条目会警告一次，
+不限制使用。大表建议使用 file，避免每次 setup 复制和计算整个 data 的缓存键。
+
 sources 在 setup 中配置，构建时解析： >lua
     sources = {
       { name = "pinyin", scheme = "flypy", fuzzy = true },
-      -- { name = "tiger", append_space_below = 4 },
+      -- { name = "tiger" },
       "nerdfont",
       "unicode",
       { data = { ["👩‍💻"] = { "dev", "coder" } }, matcher = "prefix" },
     }
 <
-内置 pinyin、tiger、wubi86、nerdfont、unicode。pinyin 省略 scheme 为全拼及首字母，
+核心仅内置 ASCII literal；sources={} 可独立使用。
+pinyin、tiger、wubi86、nerdfont、unicode 均需分别安装对应 source 插件。pinyin 省略 scheme 为全拼及首字母，
 scheme 可选 flypy、pyjj、natural、abc、mspy、st；双拼默认完整编码。fuzzy 可为 true
 或 initials/finals 等价分组。append_space_below 给短于阈值的编码加一个空格。
+全拼按音节共享模糊拼写，双拼仍在构建时逐字展开。声母/韵母变体组合相乘；
+过多分组可能增大双拼码表、构建时间和匹配开销，建议只配置需要的分组。
+Full pinyin shares fuzzy spellings per syllable; double pinyin expands per character.
+Many initial/final combinations increase build and matching work, especially double-
+pinyin dictionary size; enable only needed groups.
 
 用户可提供 data，或 lua 与可选完整 tsv 文件。Lua 工厂放在
 lua/flash-any/sources/name.lua，返回 {data/codetable, matcher, scope, fallback}。
@@ -109,6 +126,7 @@ initial     同时接受首字母和完整编码。
 prefix      接受编码的任意非空前缀。
 
 matcher 仅选择以上字符串，不接受函数。码表编码必须是非空 ASCII 字符串或数组。
+构建阶段的字素计数和切分也调用 C；Lua 不再维护独立的字素分割算法。
 相同模式/编码自动去重。Lua Cursor、逐字素 emit 回调和旧 Lua 扫描器不再是 API。
 
 ===============================================================================
@@ -116,26 +134,68 @@ matcher 仅选择以上字符串，不接受函数。码表编码必须是非空
 
     :FlashAnyBuildTable input output.lua [full.tsv|-] [common.lua|-] [format] [encoding]
 
-输入及 Lua 输出必填；其他位置可用 - 占位。format 为 auto/rime/tsv/tab/csv/space，
-encoding 默认 utf-8。TSV 以 Tab 分列，编码列用逗号分隔多个编码。生成器合并重复
-编码，保留并报告多字素条目；编译当前二进制前须筛选为单字素。导入的编码不能
-含逗号、Tab 或换行，直接 Lua data 则可使用其他 ASCII 字节。
+输入及 Lua 输出必填；其他位置可用 - 占位。format 为 auto/rime/tsv/tab/csv/space/fcitx/ibus，
+encoding 默认 utf-8。TSV 每行一对文本和编码，多编码重复写行，逗号原样保留。生成器合并重复
+编码，保留并报告多字素条目；file 接入自动过滤词组，Lua/data 则需要手动过滤。
+导入的编码不能含 Tab 或换行，直接 Lua data 则可使用其他 ASCII 字节。
+
+虎码默认配置：
+    { name = "tiger", selection = { keys = { " ", ";" } } }
+
+按权重和原始行序排名，默认首选空格、次选分号，不启用三选键。
+选键始终可省略，裸码可继续匹配。每个编码只保存一份，由 C 可选后缀 matcher
+同时保留消费和省略分支。不拒绝其他选键；剩余输入无人消费时自然失败。
+gch; 可匹配二选“羔”，也允许匹配一选“赤”后紧跟的字面分号。
+selection=false 关闭选键，keys 可配置更多排名；force、punctuation 和
+append_space_below 不支持。完整规则见 docs/sources.md。
 
 二进制格式：                                                *flash-any-binary*
 
-build.binary 生成 FANYBIN v5。码点分页数组、多码点字素 hash 和带 matcher 标记的
+build.binary 生成 FANYBIN v8。码点分页数组、多码点字素 hash 和带 matcher 标记的
 编码列表合在同一文件。hash 命中校验原文，NUL 不作结束符。升级格式需重建。
+
+第三方码表可直接配置，无需 Lua 伴随文件：
+
+    { file = "/path/table.dict.yaml", matcher = "full_code" }
+
+支持 Rime、TSV、CSV、空白分隔、Fcitx、IBus。format 默认 auto，columns 可指定列序。
+TSV 每行一对字素和编码，多编码重复写行；逗号原样保留，无需排序。
+file 接入自动过滤多字素词组并报告数量；Lua/data 键仍须为单个完整字素。
+matcher 标识为 full_code、initial 或 prefix；不支持自定义 matcher。
+可选 converter = "/path/converter.lua"；文件返回 function(codes)，在构建时
+接收一个字素的全部编码，返回新数组，nil/空数组略过该字素。扫描不执行 converter。
+自动缓存按元数据跟踪依赖；不为计算内容哈希读取整个码表。显式 binary 仅在缺失时构建。
+第三方接入、录制和 README 模板见 docs/sources.md 与 demos/README.md。
 
 ===============================================================================
 6. 健康检查                                                *flash-any-health*
 
     :checkhealth flash-any
 
-make 会同时生成 native.so、build/grapheme_data.h、compile_commands.json。
-首次加载自动调用 make；也可在开发时手动执行。clangd 使用真实 LuaJIT include
-路径；不需要关闭诊断。
+native.so 由插件管理器或用户构建，插件只负责加载。lazy.nvim 可配置
+build = "make"，在安装和更新阶段编译；手动构建只需：
+
+    make
+
+Makefile 兼容 GNU make 3.81，不调用 Neovim。Unicode 头文件随源码提交，
+无需安装时生成；公开 Lua/C 头文件随插件提供，符号由 Neovim 提供。
+CC、CPPFLAGS、CFLAGS 和 LDFLAGS 可覆盖默认编译设置。
+compile_flags.txt 为 clangd 提供编译参数，无需生成编译数据库。
 
 Code is MIT licensed. Bundled data retains upstream licenses; see THIRD_PARTY.md.
 English usage and build instructions: README.md. Internal details: docs/development.md.
 
 vim:tw=78:ts=8:ft=help:norl:
+
+OPTIONAL SOURCES / 独立 SOURCE
+
+五个 source 现已独立，迁移期尚未公开发布。安装本地 source 插件时，在
+setup 前将其根目录加入 runtimepath，或作为插件管理器的本地依赖。
+External sources are separate Lua/data plugins and need no make. Load each selected
+source before setup. Source packages are not yet publicly released during migration.
+
+groups={name={"code1","code2"}} 提供通用共享拼写，data 中同名编码引用该组。
+组名属于 source，实际内容相同时跨 source 共享，三种 matcher 都适用。
+selection={keys={" ",";"}} 可用于任意加权 file，按权重分配可选后缀。
+Groups share ASCII spelling alternatives; weighted file selection assigns optional
+suffixes. Neither feature depends on a particular input method. See docs/sources.md.

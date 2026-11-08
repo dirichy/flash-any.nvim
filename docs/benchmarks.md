@@ -2,12 +2,16 @@
 
 本文按实现演进保留历史数据。旧Cursor、Lua匹配器及其12个实验脚本已经清理；
 早期章节中的脚本路径和命令仅描述当时测量，不能在当前版本直接执行。
-当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见本文末尾
+当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见本文
 “单趟解码匹配替换文本索引”。`tests/reference/`仍供差分测试使用，不是运行时后端。
+用户侧构建现已改用Neovim Lua和随附头文件，只需C编译器；下文的旧Python构建及
+GNU make4.3要求属于历史实现。Python仍可用于独立性能实验。
 
 Historical results and commands describe their original implementation. Obsolete
 Cursor/Lua experiment scripts have been removed. See [current tools](../scripts/README.md)
-for supported entry points; the final section records the sequential C scanner.
+for supported entry points and the section on sequential decoding/matching for the current scanner.
+Native builds now use Neovim Lua, bundled headers and a C compiler; older Python
+build commands and GNU make4.3 requirements below are historical.
 
 ## 历史 Matcher 压力测试
 
@@ -1431,3 +1435,379 @@ fixture, cold first input improved by 18–25%; warmed eight-input totals regres
 The matched-result buffer now grows on demand. Retained search-state Lua allocations
 fell from about253 to22KiB on this fixture, excluding dictionaries and original strings;
 this is not peak memory or RSS. The sequential version is retained to favor first input.
+
+## 单字素 Lua matcher 由 C 调用的实验
+
+复现：`python3 scripts/bench_lua_matcher.py --samples 9`。生成的C模块仅存在于
+临时目录；生产C代码和API不变。实验接口为：
+
+```lua
+matcher(grapheme, input, pos) --> consumed_bytes?, next_ascii_byte?
+```
+
+grapheme是完整字素字符串，input是完整输入，pos为Lua的1-based byte位置。
+函数每个待匹配输入状态调用一次，返回一个消费长度及/或一个下一键byte值。
+本次只实现每字素一个ASCII全码，不复原Cursor、source或emit协议，也不声称
+覆盖多消费分支的任意Lua matcher。ASCII literal仍由C负责。
+
+固定单核，各模式9个独立Neovim进程，轮换顺序。common沿用40行中英混排文本、
+八次输入z→zhongguo；complex使用组合音标、ZWJ emoji、旗帜和肤色修饰字素，
+八次输入a/ac/acc/accent/accentd/accentde/accentdev/dev。warm预热30轮，再测30轮；
+先取进程内中位数，再取9进程中位数。C和Lua使用同一小型码表，非整套拼音表。
+不含字典构建/加载、buffer读取和Flash绘制，含C扫描、参数传递及结果Lua表转换。
+
+| 40行场景（ms） | 生产纯C | 实验模块关闭回调 | 每字素空回调 | 每输入状态空回调 | Lua全码matcher |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| common，冷首次 | 0.1550 | 0.1519 | 0.3090 | 0.3060 | 0.3428 |
+| common，冷八次合计 | 1.2709 | 1.2502 | 2.4780 | 2.5041 | 2.6511 |
+| common，warm八次合计 | 1.0702 | 1.0820 | 2.2780 | 2.3211 | 2.3722 |
+| complex，冷首次 | 0.1340 | 0.1336 | 0.1961 | 0.2008 | 0.2266 |
+| complex，warm八次合计 | 1.1268 | 1.1286 | 1.6287 | 1.6814 | 1.6242 |
+
+common每轮八次输入共39840次Lua matcher调用；每字素空回调为38400次。
+complex分别16000和14080次。空回调对照显示此fixture的主要增量来自调用、参数
+和字素字符串传递；Lua字典查询和短码比较增加较少。单行warm八次输入则为
+common0.0324→0.0657ms、complex0.0322→0.0432ms，绝对增量很小。
+
+字素字符串在每次扫描中每字素只推入一次，供该字素所有待匹配状态复用；没有
+输入子串切片或Lua Cursor对象。计时期间不运行Lua计数包装器；调用次数单独统计。
+所有模式的完整位置、末尾位置、下一键和标签签名一致。回调错误可传播到外层
+pcall，随后扫描仍正常。实验模块关闭回调的对照用于区分插桩和实际Lua调用成本。
+
+另做500000次/轮、预热5轮及测量11轮的分派微测，9进程取中位数：C循环经Lua C API
+调用三参数、双数值返回的简单函数约19.90ns/次；LuaJIT直接循环约2.30ns/次。
+前者包含C循环、参数压栈、Lua表取值和返回处理，并非纯VM边界成本；后者允许
+LuaJIT内联，不能把倍数直接用于完整扫描。实际空回调扫描增量约31ns/调用。
+
+当前结论：C调用简单Lua matcher可用，但对每字素/输入状态无条件调用会积累成本。
+此场景warm完整扫描约慢2.22倍（common）或1.44倍（complex），不能把所有回调
+模式概括为同一个比例。只在少量候选上调用预计影响较小，这是按调用次数作出的
+推断，尚未测试混合分派策略。更复杂Lua matcher的函数体成本也需另测。
+
+原始记录 `/tmp/flash-any-lua-matcher-h5_st6ko/{raw.json,summary.json,micro.json}`，
+同目录native.c为完整实验实现。两个脚本及LuaLS Hint检查通过，未更改生产接口。
+
+English: A temporary C module calls a single-grapheme Lua matcher with the grapheme,
+complete input and 1-based byte position. On a small one-code-per-glyph fixture,
+warmed eight-input totals increased from1.07 to2.37ms on40 common-text lines and
+from1.13 to1.62ms on40 complex-grapheme lines. Empty callbacks explain most of the
+increase. C-to-Lua dispatch including arguments/results measured about20ns per call,
+versus2.3ns for an inlineable LuaJIT loop; this microbenchmark ratio is not a scan ratio.
+Result signatures and callback-error recovery agree. Production APIs remain unchanged.
+
+## 多个 Lua matcher：分别跨界与一次 Lua 分派
+
+复现：`python3 scripts/bench_lua_matcher.py --multiple --samples 9`。沿用临时C模块、
+三参数单字素matcher。比较：
+
+- direct：C持有函数数组，每个输入状态逐个调用N个Lua函数并合并结果。
+- batch：C仅调用一个Lua函数，Lua遍历同一组N个函数，再把结果交回C。
+
+每个状态两种方式均完整执行N个matcher，不因命中而短路。使用同类函数（同一
+函数原型、各自拥有码表），分别测试空函数、拆分码表（一个字素最多属于一个
+matcher）、重叠码表（每个matcher持有独立副本并完成相同匹配）。这些fixture
+各状态最多产生一个不同的消费长度/下一键，batch可无分配地合并为两个标量。
+一般的多分支matcher可能需要更复杂的结果合并，不属于此次测量。
+
+40行common文本，warm八次输入合计，预热30轮、测量30轮，9个独立进程取中位数。
+同一CPU核，每个N内轮换direct/batch顺序；保持构建和加载在计时外。单位ms：
+
+| matcher数 | 重叠码表：分别C→Lua | 重叠码表：一次C→Lua后批量 | 拆分码表：分别C→Lua | 拆分码表：批量 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 2.924 | 2.603 | 2.875 | 2.635 |
+| 2 | 3.858 | 2.688 | 3.918 | 2.788 |
+| 4 | 5.700 | 2.995 | 5.845 | 2.942 |
+| 8 | 9.577 | 3.335 | 9.669 | 3.081 |
+| 16 | 16.665 | 4.117 | 15.875 | 3.405 |
+
+本次纯C对照1.178ms，实验模块关闭回调1.133ms；不要用此前不同运行的1.070ms
+计算本次倍率。重叠码表batch从1到16个仅增至约1.58倍，direct约5.70倍；这不是
+固定无增长，Lua内部循环、各函数工作和结果合并仍随N增加。
+
+空函数batch为2.599、2.595、2.674、2.717、2.827ms；direct为2.888、3.728、5.478、
+8.881、15.405ms。16个空函数的direct与真实重叠matcher分别为15.405和16.665ms，
+而batch分别为2.827和4.117ms。此简单函数下，大部分可避免增量来自重复跨C/Lua
+边界及相应参数/返回处理，而不是函数体本身。空函数可被LuaJIT优化，代表下界；
+Lua/C字典路径也不同，差值不能解释为严格分离出的函数体CPU时间。
+
+每轮八次扫描，direct跨界39840×N次，batch始终39840次；Lua内部仍调用N个函数。
+计数在计时外做。位置、范围、下一键及标签的完整签名与纯C对照一致，错误传播
+和恢复测试通过。没有构建Lua Cursor、输入子串或每matcher临时结果表。
+
+另用不同闭包参数的简单数值函数做微测（100000组/轮，预热3轮、测7轮，9进程）：
+
+| 函数数 | C逐个调用（ns/组） | Lua内部批量（ns/组） |
+| --- | ---: | ---: |
+| 1 | 20.96 | 22.20 |
+| 2 | 42.48 | 21.85 |
+| 4 | 82.44 | 24.60 |
+| 8 | 166.93 | 25.84 |
+| 16 | 326.06 | 31.93 |
+
+检查两种方式的返回值累加和相同；LuaJIT可内联/优化Lua内部调用及算术，该微测
+不是任意Lua matcher的固定成本。实际趋势可表达为：分别调用约为C扫描成本+
+N次跨界与函数工作；批量约为C扫描成本+一次跨界+N份Lua工作与合并。复杂或不同
+原型的matcher、不同结果协议仍需另测，不能承诺16个任意函数都只慢1.58倍。
+
+原始记录 `/tmp/flash-any-lua-matcher-c45duhfq/{baseline.json,raw.json,summary.json,micro.json}`；
+生产代码未改，默认单matcher实验回归和LuaLS Hint检查均通过。
+
+English: With40 warmed text lines and eight inputs,16 overlapping matchers cost
+16.67ms when C called them separately and4.12ms when C called one Lua dispatcher.
+The single-matcher batched baseline was2.60ms. Sixteen empty functions cost15.41ms
+versus2.83ms. Batching largely avoids repeated VM/API entry costs, but Lua loop,
+function and merge work still grows with matcher count. All functions execute;
+these homogeneous fixtures merge into two scalars without temporary result tables.
+Results match the pure-C baseline. Complex heterogeneous matchers require separate tests.
+
+
+## 高频记录的短编号体积原型 / Compact record dictionary prototype
+
+本轮仅验证文件体积，不修改生产 C 格式或匹配器。原型将完整 matcher、参数和编码
+作为共享项，0xC0–0xDF 表示 32 个单字节编号，0xE0–0xFF 加一字节表示
+8,192 个双字节编号。唯一码内联。先对已有去重后的编码列表统计重复次数，
+再按预计收益选择共享项；构建结果继续对整份列表去重。
+共享项的 offset/length 目录每项 8 字节，字典本体和目录全部计入下表。
+
+环境：Linux，Neovim 0.11.0，当前 FANYBIN v7 输入。字节大小确定，不涉及计时。
+“唯一码”在相同 44,397 个非 ASCII 字符上增加 uxxxx，保持字符覆盖和索引不变。
+默认组合为 pinyin/nerdfont/unicode；全部组合为 pinyin/tiger/wubi86/nerdfont/unicode。
+
+| 配置 | 原始 KiB | 原型 KiB | 节省 KiB | 节省比例 | 单字节/双字节共享项 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全拼 | 1285.6 | 1267.9 | 17.7 | 1.38% | 32/331 |
+| 全拼＋内置模糊音 | 1300.1 | 1274.3 | 25.8 | 1.98% | 32/352 |
+| 全拼＋唯一码 | 1733.2 | 1618.2 | 115.0 | 6.63% | 32/359 |
+| 全拼＋模糊音＋唯一码 | 1841.9 | 1663.2 | 178.7 | 9.70% | 32/377 |
+| 默认内置组合 | 3835.3 | 3652.3 | 183.0 | 4.77% | 32/3933 |
+| 全部内置 source | 6090.9 | 5807.1 | 283.8 | 4.66% | 32/5169 |
+| 全部内置 source＋模糊音 | 6199.6 | 5852.7 | 346.9 | 5.60% | 32/5187 |
+
+原型输出 .tokens 文件，不能交给当前 C 加载器使用。重新读取输出文件，验证全部
+字符键、共享字典和编码列表能还原到输入的原始字节；七组共校验 1,391,876 条记录。
+最大组合使用 32＋5,187 项，尚未耗尽预留编号。尚未测试运行时解引用成本。
+
+复现：先用 build.binary 导出要比较的包，再运行：
+
+```sh
+python scripts/bench_code_pool.py /tmp/package.bin
+```
+
+This is a size-only prototype, not a production-format change. Repeated complete
+matcher/code records use 32 one-byte or up to 8,192 two-byte tokens; unique records
+remain inline. Existing whole-list sharing is preserved. Reported sizes include
+eight-byte offset/length entries and all dictionary payloads. The serialized files
+are read back and every key and code record is verified against the source.
+The seven cases above verify 1,391,876 records. Runtime lookup speed is unmeasured.
+
+
+### 双拼对照 / Double-pinyin comparison
+
+沿用上面的相同原型和统计口径，只把拼音转换为 flypy。两字母编码连 matcher
+通常占 3 字节，单/双字节 token 分别省 2/1 字节，再扣除共享字典开销。
+
+| 配置 | 原始 KiB | 原型 KiB | 节省 KiB | 节省比例 |
+| --- | ---: | ---: | ---: | ---: |
+| 小鹤双拼 | 1275.0 | 1266.8 | 8.1 | 0.64% |
+| 小鹤双拼＋唯一码 | 1678.1 | 1616.7 | 61.4 | 3.66% |
+| 小鹤双拼＋内置模糊音 | 1284.7 | 1273.2 | 11.5 | 0.89% |
+| 小鹤双拼＋模糊音＋唯一码 | 1750.4 | 1660.6 | 89.7 | 5.13% |
+
+每一行均对同一包做压缩前后比较并完整还原校验。纯双拼包为 44,521 个条目；
+加入原先的唯一码文件后为 44,525 个条目，因唯一码覆盖了四个无双拼输出的条目。
+只评价体积，不代表扫描速度提升。
+
+The same prototype also saves space for two-letter flypy codes, but less than
+full pinyin. Each row compares the same package before/after encoding and passes
+complete round-trip checks. Unicode-code coverage adds four otherwise absent
+entries (44,521 to 44,525). Scan performance remains unmeasured.
+
+
+## 全拼音节与可选字节原型 / Full-pinyin syllable and optional-byte prototypes
+
+本轮只测全拼，不测双拼，也没有改生产代码。基线是现有 native.so；两个实验版本
+由 scripts/bench_pinyin.py 在 /tmp 中复制并补充 C 扫描器后编译。实验模块使用独立
+userdata 类型与文件 magic，不能替代生产模块。音节版的共享数据单独输出，体积已计入。
+
+- expanded：现有逐字展开模糊音。
+- syllables：字引用 426 个标准音节 ID；C Trie 对每个输入位置识别完整音节、简拼、
+  未完成输入和 next，生成一次匹配表，供所有行复用。
+- skip：仅把内置 zh/z、ch/c、sh/s 和 ang/an、eng/en、ing/in 表示为可选 h/g；
+  C 用小型位集 NFA 匹配。没有可选标记的编码仍走原有路径。
+
+### 文件体积 / File size
+
+44,525 个相同条目；唯一码为同一批字符加 uxxxx。没有叠加之前的短编号压缩。
+
+| 实现 | 无模糊音 KiB | 有模糊音 KiB | 模糊音额外 KiB | 加唯一码后无模糊音 KiB | 加唯一码后有模糊音 KiB | 模糊音额外 KiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| expanded | 1285.56 | 1300.15 | 14.59 | 1733.17 | 1841.90 | 108.73 |
+| syllables | 1278.52 | 1279.57 | 1.05 | 1681.58 | 1682.63 | 1.05 |
+| skip | 1285.56 | 1287.77 | 2.21 | 1733.17 | 1764.48 | 31.31 |
+
+音节版的逐字主体文件在开关模糊音时逐字节相同，变化仅在共享拼写数据：
+3,497 → 4,573 bytes，增加 1,076 bytes。唯一码不会破坏这一性质。
+
+### 扫描 / Scanning
+
+Linux、Neovim 0.11.0、GCC -O3、固定单个 CPU，每个配置独立进程 7 次；
+每进程 25 轮取中位数，再取进程中位数。每轮更改 tick 强制重扫文本。
+每行重复四次“中国人民学习中文，ASCII flash_any 混合文本。”。
+首次输入 z；后续七次为 zh/zho/zhon/zhong/zhongg/zhonggu/zhongguo。
+CPU 包含 C 查询图构建、扫描和 Lua 结果返回，不含 Flash UI；Wall 包含相同扫描调用。
+
+| 模糊音 | 行数 | 实现 | 首次 CPU ms | 后续七次 CPU ms | 首次 Wall ms | 后续七次 Wall ms |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| plain | 1 | expanded | 0.006 | 0.029 | 0.006 | 0.029 |
+| plain | 1 | syllables | 0.007 | 0.033 | 0.007 | 0.033 |
+| plain | 1 | skip | 0.006 | 0.029 | 0.006 | 0.029 |
+| plain | 40 | expanded | 0.143 | 0.836 | 0.144 | 0.838 |
+| plain | 40 | syllables | 0.141 | 0.804 | 0.141 | 0.808 |
+| plain | 40 | skip | 0.140 | 0.818 | 0.140 | 0.820 |
+| fuzzy | 1 | expanded | 0.007 | 0.030 | 0.007 | 0.030 |
+| fuzzy | 1 | syllables | 0.007 | 0.033 | 0.007 | 0.034 |
+| fuzzy | 1 | skip | 0.007 | 0.033 | 0.007 | 0.033 |
+| fuzzy | 40 | expanded | 0.166 | 0.878 | 0.166 | 0.881 |
+| fuzzy | 40 | syllables | 0.157 | 0.800 | 0.157 | 0.802 |
+| fuzzy | 40 | skip | 0.169 | 0.961 | 0.170 | 0.965 |
+
+共享音节在一行时有小额解析固定成本；40 行模糊音测试后续七次约 0.800 ms，
+基线约 0.878 ms。skip 原型约 0.961 ms，当前更慢，不能因代码更少就认为更快。
+测试只代表此输入/文本样本，不代表所有真实缓冲区；没有完整输入法的词频和组词模型。
+
+### 复杂度与验证 / Complexity and validation
+
+C 核心在 prototype_pinyin.h 共 256 行：共享音节/序列化/Trie/输入匹配约 210 行，
+可选字节 NFA 约 40 行；隔离扫描器接入净增约 37 行。其余脚本是构建、计时和对照。
+音节版每次新输入分配 (输入字节数+1)×426×8 bytes 的临时匹配表，跨行复用；
+尚未实现按输入追加复用解析图。Trie 加载后由引擎共享。
+可选字节版只覆盖这六组插删关系，不支持 l/n、f/h 等替换关系。
+
+与生产基线做 33,296 项结果对照，覆盖所有 426 个音节的代表字、变体前缀、
+简拼、连续音节、错误后缀、标点、非法 UTF-8 和 f/F/t/T；结果位置、next、标签一致。
+UBSan 通过，LuaLS 与生成 C 源码的 clangd 检查无诊断。生产代码未切换。
+
+```sh
+python scripts/bench_pinyin.py --baseline-native /path/to/v7/native.c --samples 7 --nvim .dev/nvim-0.11.0/bin/nvim
+```
+
+These are isolated full-pinyin prototypes, not production changes. A shared-syllable
+Trie builds matching information once per input position, retaining ambiguity,
+abbreviations, partial matches and next bytes. Its per-character dictionary is
+byte-identical with fuzzy matching enabled/disabled; only the shared spelling
+profile grows by 1,076 bytes. The optional-byte prototype supports only the six
+built-in insertion/deletion groups. It saves space but is slower on this workload.
+CPU and wall measurements above cover scanning and returned matches, not Flash UI.
+All 33,296 comparisons agree with production and pass UBSan. Neither prototype
+supports double pinyin in this experiment or replaces the production matcher.
+
+
+## 按需音节 matcher 与预建输入图 / Direct syllable matcher versus prebuilt graph
+
+在上面的音节原型中增加 ondemand：每个字引用一个或多个标准音节 ID，访问到该字时
+才对其音节的每种拼写求最长公共前缀，再按 full/initial/prefix 生成消费长度和 next。
+不同拼写的合法结果全部保留，相同消费长度去重。没有建所有位置的结果表，也没有
+按需结果缓存。两版共用相同的标准读音、模糊拼写和二进制文件。
+
+为使三种模式共用同一拼写数据，简拼不再作为独立拼写写入 profile，而由 C 的
+initial 模式生成；这使 profile 从上一轮的 3,497/4,573 bytes 降为 2,655/3,731 bytes。
+模糊音仍只增加 1,076 bytes；逐字码表主体开关模糊音仍逐字节相同。
+
+沿用固定 CPU、独立进程 7 次、每进程 25 轮取中位数的扫描条件。默认 initial 模式
+计时，全拼 full/initial/prefix 均做正确性校验。
+
+| 模糊音 | 行数 | 实现 | 首次 CPU ms | 后续七次 CPU ms | 首次 Wall ms | 后续七次 Wall ms | 音节常驻结构 KiB |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| plain | 1 | syllables | 0.007 | 0.033 | 0.0067 | 0.0334 | 164.46 |
+| plain | 1 | ondemand | 0.006 | 0.029 | 0.0058 | 0.0290 | 12.66 |
+| plain | 40 | syllables | 0.142 | 0.807 | 0.1417 | 0.8099 | 164.46 |
+| plain | 40 | ondemand | 0.142 | 0.814 | 0.1417 | 0.8209 | 12.66 |
+| fuzzy | 1 | syllables | 0.008 | 0.033 | 0.0074 | 0.0338 | 261.62 |
+| fuzzy | 1 | ondemand | 0.006 | 0.029 | 0.0063 | 0.0289 | 17.37 |
+| fuzzy | 40 | syllables | 0.159 | 0.811 | 0.1593 | 0.8141 | 261.62 |
+| fuzzy | 40 | ondemand | 0.158 | 0.816 | 0.1575 | 0.8202 | 17.37 |
+
+40 行模糊音测试中约为 0.811/0.816 ms，差异很小；单行按需版少了固定的图构建成本。
+按需常驻结构包括音节拼写和 offsets，约 17.37 KiB；预建版还包含当前原型的
+稠密 Trie 与终止项，约 261.62 KiB，尚未压缩 Trie 或收紧预留容量。两者均不含字典主体。
+预建版另外为每次新输入分配 (字节数+1)×426×8 的临时表；按需版只用栈上 8-byte 结果。
+这组数据支持优先采用按需版：性能近似，状态更少；不证明所有文本上都更快。
+
+全拼 full/initial/prefix、全部 426 音节代表字和变体前缀、连续输入、多音字、
+标点以及 f/F/t/T 共 93,912 项结果对照通过；含混合唯一码。UBSan、LuaLS 和
+包含实验头文件的生成 C 源码 clangd 检查均通过。生产模块仍未修改。
+
+The direct variant computes common prefixes only for the syllables referenced by
+each text grapheme. Matching mode then determines all valid consumed lengths and
+next bytes; alternatives are unioned, not reduced to one global longest match.
+It shares exactly the same serialized syllable data with the prebuilt variant.
+On this workload, 40-line CPU times are nearly equal, while direct matching avoids
+the graph startup cost for one line and reduces retained prototype profile memory.
+The prebuilt trie has not been memory-optimized. All 93,912 comparisons across
+full/initial/prefix match production, including punctuation and mixed Unicode codes.
+
+
+## 正式按需音节实现 / Production on-demand syllables (2026-11-08)
+
+全拼已接入正式扫描器，格式为 v8。0x08 引用标志与三种模式正交组合，
+普通编码与音节拼写复用 match_spelling；未接入预建 Trie 或可选字节 NFA。
+脚本的 shared 是正式实现，expanded 使用同一正式 C 模块读取逐字展开的编码，
+其余三项仍是 v7 快照生成的隔离原型。实验源使用独立 metatable，不覆盖正式模块。
+
+同机固定单核、每组七个独立进程，每进程 25 轮；下表为进程均值的中位数，
+单位 ms CPU，开启全部内置模糊音，未混入 UX。输入为 z，随后连续七次追加。
+
+| 行数 | 编码方式 | 首次扫描 | 后续七次合计 |
+| --- | --- | ---: | ---: |
+| 1 | 展开编码 | 0.006 | 0.030 |
+| 1 | 正式共享音节 | 0.006 | 0.027 |
+| 40 | 展开编码 | 0.158 | 0.835 |
+| 40 | 正式共享音节 | 0.148 | 0.764 |
+
+这是扫描及 Lua 结果转换的局部测试，不包含 Flash UI，不代表所有文本的固定收益。
+正式版 profile_memory 字段没有单独插桩，脚本中的 0 不表示没有音节视图分配。
+
+正式 v8 文件（bytes）：无模糊音 1,308,365，全部内置模糊音 1,309,441；
+混入每字 UX 唯一码后为 1,721,092 / 1,722,168。两种情形模糊音均只增 1,076 bytes。
+音节区本身为 2,655 / 3,731 bytes；高频码 token 原型未参与正式实现。
+
+本轮原型、正式实现和展开编码共 134,160 次差分对照通过。
+常规测试另有 100,920 次音节对照及 1,406 次 Lua 参考扫描对照；包括三种模式、
+补空格、多音字、next、f/F/t/T、非法 UTF-8、损坏文件、GC 保活和大音节区。
+Make 3.81、Nvim 0.11、真实 Flash jump/char/remote、UBSan、LuaLS、clangd 检查通过。
+双拼尚未切换为共享音节，用户配置保持不变。
+
+Full pinyin now uses flag-based references in the production v8 codec. All three
+modes share the inline spelling implementation. Isolated-process measurements above
+compare expanded records and shared references using the same production scanner;
+only data representation varies. Fuzzy spellings add 1,076 bytes even alongside
+unique per-character UX codes. These are local CPU timings, not end-to-end UI latency.
+Double pinyin retains its existing build-time expansion. The prototype runner needs
+a v7 native.c snapshot via --baseline-native; historical results above remain historical.
+
+
+## 通用组去重 / Generic group interning (2026-11-08)
+
+外置 source 后，核心按规范化拼写列表而非拼音名称共享编码组。source 内的组名只负责
+引用，不进入二进制。相同内容（包括顺序不同或重复项）会合并；不同 source 的同名组
+可有不同内容。选键分配也已成为通用的 build.selectors，默认键由 source 提供。
+
+使用同一套 44,525 字素及相同 C v8 格式重新构建：
+
+| 全拼配置 | 文件 bytes | 编码组数 | 组区 bytes |
+| --- | ---: | ---: | ---: |
+| 无模糊音 | 1,308,365 | 426 | 2,655 |
+| 全部内置模糊音 | 1,306,155 | 334 | 2,539 |
+| 无模糊音 + UX | 1,721,092 | 426 | 2,655 |
+| 全部内置模糊音 + UX | 1,720,706 | 334 | 2,539 |
+
+模糊音使部分标准读音拥有完全相同的拼写组，当前实现将其合并，因此本例开启模糊音
+反而略小。这里只测体积，不声称新的 CPU 收益；扫描算法与上轮一致，仅去除了专用命名。
+独立 source 包及核心分别通过 LuaLS，核心 C 通过 clangd；核心不安装任何 source 时
+测试通过，五个包各自单独安装及一起安装的集成测试均通过。
+
+Generic interning keys groups by normalized spelling contents rather than local
+names. Built-in fuzzy pinyin collapses 426 groups to 334, so these particular binaries
+become slightly smaller. The same v8 codec and scanning algorithm are retained;
+these figures measure file size only. Source packages are independently installed
+and are no longer shipped as part of the core repository.

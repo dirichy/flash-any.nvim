@@ -1,0 +1,20 @@
+# Copy to .github/workflows/demo.yml in a code-table repository.
+name: Code-table demo
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  record:
+    # Pin both refs to the same released commit for reproducible recordings.
+    uses: dirichy/flash-any.nvim/.github/workflows/table-demo.yml@main
+    with:
+      flash-any-ref: main
+      table-ref: ${{ github.sha }}
+      file: table.tsv
+      # format: auto
+      # columns: '["code","text","weight"]'
+      matcher: full_code
+      # converter: converter.lua
+      # text: 文
+      # query: wen

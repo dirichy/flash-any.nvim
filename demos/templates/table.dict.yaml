@@ -1,0 +1,9 @@
+# Rime dictionary: one code per row, with optional frequency.
+---
+name: table_demo
+version: "1"
+...
+中	zhong	100
+文	wen	100
+文	w,en	50
+中国	zhong guo	100

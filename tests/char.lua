@@ -12,7 +12,7 @@ local plugin = require("flash-any")
 local Char = require("flash.plugins.char")
 local Pos = require("flash.search.pos")
 require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false } } })
-fixture.setup({ sources = { { name = "pinyin", scheme = "flypy" } } })
+fixture.setup({ sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } } })
 
 local function reset(lines, pos)
 	if Char.state then

@@ -1,0 +1,29 @@
+name: Core tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: folke/flash.nvim
+          ref: 5f0f270fdc7c5b0c21d903ee85b9cb06f2ac636a
+          path: .dev/flash.nvim
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: v0.11.0
+      - name: Build and test without optional sources
+        run: |
+          make
+          nvim --clean -l tests/run.lua
+          nvim --clean -l tests/flash.lua .dev/flash.nvim
+          nvim --clean -l tests/char.lua .dev/flash.nvim
+          nvim --clean --headless -u tests/remote.lua

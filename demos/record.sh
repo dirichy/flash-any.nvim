@@ -6,11 +6,12 @@ scene=${1:-demo}
 case "$scene" in
   demo) verification=verification.json ;;
   char) verification=char-verification.json ;;
-  *) printf 'Usage: %s [demo|char]\n' "$0" >&2; exit 1 ;;
+  table) verification=table-verification.json ;;
+  *) printf 'Usage: %s [demo|char|table [config.json]]\n' "$0" >&2; exit 1 ;;
 esac
 
 mkdir -p demos/output
-for tool in nvim vhs ttyd ffmpeg ffprobe python3 fc-match; do
+for tool in nvim make vhs ttyd ffmpeg ffprobe python3 fc-match; do
   command -v "$tool" >/dev/null || { printf 'Install %s before recording.\n' "$tool" >&2; exit 1; }
 done
 font=$(fc-match -f '%{family}' 'JetBrainsMono Nerd Font Mono')
@@ -27,7 +28,17 @@ done
 
 # Empty old evidence so an interrupted recording cannot reuse a previous success.
 : > "demos/output/$verification"
-vhs "demos/$scene.tape"
+make
+if test "$scene" = table; then
+  if test "$#" -ge 2; then
+    nvim --clean -l demos/prepare-table.lua "$2"
+  else
+    nvim --clean -l demos/prepare-table.lua
+  fi
+  vhs demos/output/table.tape
+else
+  vhs "demos/$scene.tape"
+fi
 python3 - "$scene" "$verification" <<'PYTHON'
 import json
 import subprocess
@@ -75,7 +86,7 @@ subprocess.run([
 ], check=True)
 # Keep local preview links usable without release assets.
 previews = ['# Local demos', '']
-for name, title in [('demo', 'Pinyin and mixed input'), ('char', 'First-code f jumps')]:
+for name, title in [('demo', 'Pinyin and mixed input'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
     if (output / f'{name}.gif').exists():
         previews.extend([f'## {title}', '', f'![{title}]({name}.gif)', '', f'[MP4]({name}.mp4)', ''])
 (output / 'README.local.md').write_text('\n'.join(previews))

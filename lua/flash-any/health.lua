@@ -27,7 +27,8 @@ function M.check()
 		vim.health.ok("C matching core is available")
 	else
 		vim.health.error("Unable to load the C matching core: " .. tostring(native_error), {
-			"Install GNU make 4.3+, Python 3, a C compiler, pkg-config and LuaJIT development files",
+			"Install make and a C toolchain (GCC or Clang); CC may select the compiler",
+			"Configure the plugin manager's build hook to run make, or run make in the plugin directory",
 		})
 	end
 
@@ -41,7 +42,7 @@ function M.check()
 	if #sources > 0 then
 		vim.health.ok("Available sources: " .. table.concat(sources, ", "))
 	else
-		vim.health.warn("No source is available")
+		vim.health.ok("ASCII literal matching is available; optional sources are installed separately")
 	end
 
 	if vim.tbl_contains(vim.fn.getcompletion("flash-any", "help"), "flash-any") then

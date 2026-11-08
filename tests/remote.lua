@@ -15,15 +15,26 @@ vim.keymap.set("o", "r", function()
 end)
 
 local cases = {
-	{ sources = { "pinyin" }, input = "yrzga", target = "中国 target", text = "中国" },
 	{
-		sources = { { name = "pinyin", scheme = "flypy" } },
+		sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } },
+		input = "yrzga",
+		target = "中国 target",
+		text = "中国",
+	},
+	{
+		sources = { { data = { ["中"] = "vs", ["国"] = "go" } } },
 		input = "drvsgoa",
 		target = "中国 target",
 		text = "中国",
 		after = " target",
 	},
-	{ sources = { "pinyin" }, input = "yrzga", target = "中国 target", text = "中国", split = true },
+	{
+		sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } },
+		input = "yrzga",
+		target = "中国 target",
+		text = "中国",
+		split = true,
+	},
 }
 local index = 0
 local next_case

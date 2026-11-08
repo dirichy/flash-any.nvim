@@ -16,13 +16,11 @@ table.sort(keys)
 for _, newline in ipairs({ "\n", "\r\n" }) do
 	local rows = {}
 	for _, key in ipairs(keys) do
-		rows[#rows + 1] = key .. "\t" .. table.concat(entries[key], ",")
+		for _, code in ipairs(entries[key]) do
+			rows[#rows + 1] = key .. "\t" .. code
+		end
 	end
-	local lookup = tsv.loader(fixture(table.concat(rows, newline) .. newline), {
-		decode = function(value)
-			return vim.split(value, ",", { plain = true })
-		end,
-	})
+	local lookup = tsv.loader(fixture(table.concat(rows, newline) .. newline))
 	for _, key in ipairs(keys) do
 		assert(vim.deep_equal(lookup(key), entries[key]), key)
 	end

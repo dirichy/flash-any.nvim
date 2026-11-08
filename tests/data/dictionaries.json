@@ -1,0 +1,125 @@
+[
+  {
+    "name": "csv-xhup",
+    "repo": "mruru/xhup",
+    "revision": "932c9e8528a915eb1b2f75aed218d5b4d2ec0c8b",
+    "path": "小鹤音形单字.csv",
+    "sha256": "7afb03f64aa0a369b6ca6b695a20411edf35a92190de782a85278d38fdd35e17",
+    "format": "csv",
+    "options": {
+      "header": true
+    }
+  },
+  {
+    "name": "fcitx-array30",
+    "repo": "fcitx/fcitx5-table-extra",
+    "revision": "dbc7154a7f0b9fc04313160ae8066ed4d8cbc446",
+    "path": "tables/array30.txt",
+    "sha256": "ce63a2d1bbdbd30b286f1b96a866b7a7245f8651259496f2270e0c64f4f67c1a",
+    "format": "fcitx",
+    "options": {}
+  },
+  {
+    "name": "fcitx-compose",
+    "repo": "fcitx/fcitx5-table-other",
+    "revision": "0716685056e6c5f0710142164011ca0f2f8bc633",
+    "path": "tables/other/compose.txt",
+    "sha256": "edab2b7a1c1f9119f9521373e9ff13c6547770df76e9a5a77a12bad1e2270f12",
+    "format": "fcitx",
+    "options": {}
+  },
+  {
+    "name": "fcitx-translit",
+    "repo": "fcitx/fcitx5-table-other",
+    "revision": "0716685056e6c5f0710142164011ca0f2f8bc633",
+    "path": "tables/ru/translit.txt",
+    "sha256": "a145a6ac3dc3532bb2031e6998e4c6aec593c1f7d339ecc7b15ed04d2754e975",
+    "format": "fcitx",
+    "options": {}
+  },
+  {
+    "name": "ibus-latex",
+    "repo": "moebiuscurve/ibus-table-others",
+    "revision": "35863cede0de0c1fbb652d2a5757ce2c24c535c8",
+    "path": "tables/latex.txt",
+    "sha256": "c905ecc8e0a07b516cf4595d3667925e0c41d16be84b342bfc278bca715300ae",
+    "format": "ibus",
+    "options": {}
+  },
+  {
+    "name": "ibus-translit",
+    "repo": "moebiuscurve/ibus-table-others",
+    "revision": "35863cede0de0c1fbb652d2a5757ce2c24c535c8",
+    "path": "tables/translit.txt",
+    "sha256": "21dae9834c5ba67bc344abf0427290dafbaa6cab3a3490c1727e6cbc4a74c21f",
+    "format": "ibus",
+    "options": {}
+  },
+  {
+    "name": "rime-luna",
+    "repo": "rime/rime-luna-pinyin",
+    "revision": "56b934b099dfbeab842320f13aa8b461a6ab3e42",
+    "path": "luna_pinyin.dict.yaml",
+    "sha256": "75bcf6eb3ff62b129882ed89cc22b2d80a5347aa72bcfa2ccc839bac298e7314",
+    "format": "rime",
+    "options": {}
+  },
+  {
+    "name": "rime-terra",
+    "repo": "rime/rime-terra-pinyin",
+    "revision": "723e51bc266cf9464530c1ddedb856aa18e3da34",
+    "path": "terra_pinyin.dict.yaml",
+    "sha256": "2f881a239e09a61e5993e79257655f98f81c3789dc8aeea5f33477f710345b27",
+    "format": "rime",
+    "options": {}
+  },
+  {
+    "name": "space-bpmf",
+    "repo": "openvanilla/McBopomofo",
+    "revision": "745e8641a95d958532f0820c3ee679c2a585d8e3",
+    "path": "Source/Data/BPMFBase.txt",
+    "sha256": "46e64a53dc9c6baa2cbe6e0b1af572f8ef6aafb50597178b5fd53df804316ce7",
+    "format": "space",
+    "options": {
+      "columns": [
+        "text",
+        "bpmf",
+        "code"
+      ]
+    }
+  },
+  {
+    "name": "tsv-mozc",
+    "repo": "google/mozc",
+    "revision": "c4ed4683fb400b240e81d0a3895d024e3e21325e",
+    "path": "src/data/dictionary_oss/dictionary00.txt",
+    "sha256": "9e07ce292932c4fff327ed8cb06274c09acca556bd8bdf7c7ef1f6173eae3b61",
+    "format": "tsv",
+    "options": {
+      "columns": [
+        "code",
+        "left",
+        "right",
+        "weight",
+        "text"
+      ]
+    }
+  },
+  {
+    "name": "tsv-mozc-suffix",
+    "repo": "google/mozc",
+    "revision": "c4ed4683fb400b240e81d0a3895d024e3e21325e",
+    "path": "src/data/dictionary_oss/suffix.txt",
+    "sha256": "37ace4c057615a10c2e06e19e57010916390b0709f0156d1ee17ce82f3272dd9",
+    "format": "tsv",
+    "options": {
+      "columns": [
+        "code",
+        "left",
+        "right",
+        "weight",
+        "text"
+      ]
+    }
+  }
+]

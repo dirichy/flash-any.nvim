@@ -7,18 +7,23 @@
 #include <sys/stat.h>
 #include "text.h"
 /* Header: magic[8], Unicode version, file bytes, entry count, hash slots,
- * scalar pages, pool bytes, reserved[2]. All numeric fields are little-endian u32. */
-#define BINARY_MAGIC "FANYBIN\5"
+ * scalar pages, pool bytes, code-group bytes, reserved. All numeric fields are little-endian u32. */
+#define BINARY_MAGIC "FANYBIN\x08"
 #define BINARY_HEADER 40u
 #define BINARY_ENTRY 16u
 #define UNICODE_VERSION 17u
 #define ENGINE_MT "flash-any.native-engine"
 #define NONE UINT32_MAX
-/* High-bit tags delimit ASCII codes, so no separator or terminator is needed. */
+/* High-bit tags delimit inline ASCII codes; group references use fixed-width IDs. */
 #define MATCHER_TAG 0x80u
 #define REQUEST_SLOTS 2u
+#define GROUP_FLAG 0x08u
+#include "groups.h"
 
-enum { MATCH_LITERAL, MATCH_FULL, MATCH_INITIAL, MATCH_PREFIX };
+/* 0x80..0x9F identify matchers. 0xA0..0xBF are reserved for future pattern operators.
+ * Optional-suffix metadata: suffix byte count and ASCII suffix, before the base code.
+ * Both the base and base+suffix consumption branches remain valid. */
+enum { MATCH_LITERAL, MATCH_FULL, MATCH_INITIAL, MATCH_PREFIX, MATCH_SUFFIX };
 
 enum { EMIT_CONSUMED, EMIT_NEXT };
 
@@ -39,6 +44,7 @@ typedef struct {
 
 typedef struct {
   Dictionary table;
+  const CodeGroups *groups;
 } Engine;
 
 typedef struct {
@@ -66,6 +72,7 @@ typedef struct {
 
 typedef struct {
   Slice codes;
+  const CodeGroups *groups;
   const char *input;
   uint32_t input_size, input_offset; /* Byte length and current input position. */
   uint32_t glyph_index;
@@ -236,7 +243,7 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
   if (word(data + 8) != UNICODE_VERSION) {
     return luaL_error(L, "unsupported binary Unicode version");
   }
-  if (word(data + 12) != size || word(data + 32) || word(data + 36)) {
+  if (word(data + 12) != size || word(data + 36)) {
     return luaL_error(L, "invalid flash-any binary: size/flags");
   }
   uint32_t entry_count = word(data + 16);
@@ -251,10 +258,15 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
   const unsigned char *hashes = section(L, &at, end, capacity, 4);
   const unsigned char *pages = section(L, &at, end, npages ? UNICODE_PAGES + npages * 256 : 0, 4);
   const unsigned char *pool = section(L, &at, end, pool_size, 1);
+  uint32_t groups_size = word(data + 32);
+  const unsigned char *profile = section(L, &at, end, groups_size, 1);
   if (at != end) {
     return luaL_error(L, "invalid flash-any binary: trailing data");
   }
+  CodeGroups *groups = groups_size ? load_groups(L, profile, groups_size) : NULL;
+  int groups_owner = groups ? lua_gettop(L) : 0;
   Engine *instance = (Engine *)lua_newuserdata(L, sizeof(Engine));
+  instance->groups = groups;
   Dictionary *dictionary = &instance->table;
   dictionary->nentry = entry_count;
   dictionary->capacity = capacity;
@@ -274,8 +286,27 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
     const unsigned char *p = (const unsigned char *)entry.codes.data, *limit = p + entry.codes.size;
     while (p < limit) {
       unsigned mode = *p++;
-      if (mode < MATCHER_TAG || mode > MATCHER_TAG + MATCH_PREFIX) {
+      if (mode >= MATCHER_TAG + GROUP_FLAG + MATCH_FULL &&
+          mode <= MATCHER_TAG + GROUP_FLAG + MATCH_PREFIX) {
+        if (limit - p < 2 || !groups || short_word(p) >= groups->count) {
+          return luaL_error(L, "invalid binary group reference");
+        }
+        p += 2;
+        continue;
+      }
+      if (mode < MATCHER_TAG || mode > MATCHER_TAG + MATCH_SUFFIX) {
         return luaL_error(L, "invalid binary matcher ID");
+      }
+      if (mode == MATCHER_TAG + MATCH_SUFFIX) {
+        if (p == limit || !*p || *p >= 128 || (size_t)(limit - p - 1) < *p) {
+          return luaL_error(L, "invalid binary input-key metadata");
+        }
+        unsigned count = *p++;
+        for (unsigned j = 0; j < count; ++j) {
+          if (*p++ >= 128) {
+            return luaL_error(L, "binary input-key metadata must be ASCII");
+          }
+        }
       }
       const unsigned char *code = p;
       while (p < limit && *p < 128) {
@@ -331,6 +362,10 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
   lua_createtable(L, 0, 2);
   lua_pushvalue(L, owner);
   lua_setfield(L, -2, "bytes");
+  if (groups_owner) {
+    lua_pushvalue(L, groups_owner);
+    lua_setfield(L, -2, "groups");
+  }
   lua_newtable(L);
   lua_setfield(L, -2, "windows");
   lua_setfenv(L, -2);
@@ -370,8 +405,13 @@ static uint32_t intern(lua_State *L, int pool, int value, uint32_t *size) {
   return offset;
 }
 
-/* Lua: write(keys, codes, path), with byte-sorted keys and codes[i] = {{mode, code}, ...}. */
+/* write(keys, codes, path, groups?): rows contain mode, ASCII code or group ID, optional suffix. */
 static int write_binary(lua_State *L) {
+  lua_settop(L, 4);
+  write_groups(L, 4);
+  size_t profile_size;
+  const char *profile = lua_tolstring(L, -1, &profile_size);
+  unsigned group_count = profile_size ? short_word((const unsigned char *)profile) : 0;
   luaL_checktype(L, 1, LUA_TTABLE);
   luaL_checktype(L, 2, LUA_TTABLE);
   size_t path_size;
@@ -414,7 +454,19 @@ static int write_binary(lua_State *L) {
       lua_rawgeti(L, -1, 1);
       int mode = luaL_checkint(L, -1);
       lua_pop(L, 1);
-      if (mode < MATCH_LITERAL || mode > MATCH_PREFIX) {
+      if (mode >= (int)GROUP_FLAG + MATCH_FULL && mode <= (int)GROUP_FLAG + MATCH_PREFIX) {
+        lua_rawgeti(L, -1, 2);
+        lua_Number value = luaL_checknumber(L, -1);
+        if (!(value >= 0 && value < group_count) || value != (unsigned)value) {
+          return luaL_error(L, "invalid group reference");
+        }
+        unsigned id = (unsigned)value;
+        lua_pop(L, 2);
+        luaL_addchar(&buffer, (char)(MATCHER_TAG + mode));
+        add_short(&buffer, id);
+        continue;
+      }
+      if (mode < MATCH_LITERAL || mode > MATCH_SUFFIX) {
         return luaL_error(L, "invalid binary matcher mode");
       }
       lua_rawgeti(L, -1, 2);
@@ -429,9 +481,28 @@ static int write_binary(lua_State *L) {
           return luaL_error(L, "binary codes must be ASCII");
         }
       }
-      /* codes pins the string; pop our pair before the buffer pushes chunks. */
+      const char *parameters = NULL;
+      size_t parameter_size = 0;
+      if (mode == MATCH_SUFFIX) {
+        lua_rawgeti(L, -2, 3);
+        parameters = luaL_checklstring(L, -1, &parameter_size);
+        if (!parameter_size || parameter_size >= 128) {
+          return luaL_error(L, "invalid input-key metadata");
+        }
+        for (size_t k = 0; k < parameter_size; ++k) {
+          if ((unsigned char)parameters[k] >= 128) {
+            return luaL_error(L, "input-key metadata must be ASCII");
+          }
+        }
+        lua_pop(L, 1);
+      }
+      /* codes pins both strings; pop our pair before the buffer pushes chunks. */
       lua_pop(L, 2);
       luaL_addchar(&buffer, (char)(MATCHER_TAG + mode));
+      if (mode == MATCH_SUFFIX) {
+        luaL_addchar(&buffer, (char)parameter_size);
+        luaL_addlstring(&buffer, parameters, parameter_size);
+      }
       luaL_addlstring(&buffer, code, length);
     }
     luaL_pushresult(&buffer);
@@ -441,14 +512,14 @@ static int write_binary(lua_State *L) {
     entries[i * 4 + 3] = (uint32_t)code_size;
     lua_pop(L, 2);
   }
-  uint64_t total = BINARY_HEADER + count * BINARY_ENTRY + index_size + pool_size;
+  uint64_t total = BINARY_HEADER + count * BINARY_ENTRY + index_size + pool_size + profile_size;
   if (total > UINT32_MAX || total > SIZE_MAX) {
     return luaL_error(L, "binary table exceeds format limits");
   }
   unsigned char *data = (unsigned char *)lua_newuserdata(L, (size_t)total);
   int owner = lua_gettop(L);
   uint32_t header[] = {
-      UNICODE_VERSION, (uint32_t)total, (uint32_t)count, capacity, pages, pool_size, 0, 0};
+      UNICODE_VERSION, (uint32_t)total, (uint32_t)count, capacity, pages, pool_size, (uint32_t)profile_size, 0};
   pack_words(header, 8);
   pack_words(entries, (uint32_t)count * 4);
   memcpy(data, BINARY_MAGIC, 8);
@@ -466,6 +537,7 @@ static int write_binary(lua_State *L) {
     at += length;
     lua_pop(L, 1);
   }
+  memcpy(at, profile, profile_size);
   /* All Lua allocations and format checks precede opening the temporary file. */
   load_data(L, data, (size_t)total, owner);
   lua_pop(L, 1);
@@ -726,16 +798,78 @@ static int one_byte_input(MatchContext *context) {
   return g != GCB_EXTEND && g != GCB_ZWJ && g != GCB_SPACING_MARK;
 }
 
+/* All spellings share these semantics, whether inline or read through a group ID. */
+typedef struct {
+  uint32_t prefix;
+  int initial;
+} SpellingMatches;
+
+static uint32_t match_spelling(MatchContext *context, unsigned mode, const unsigned char *code,
+                               uint32_t length, SpellingMatches *matches) {
+  uint32_t size = context->input_size - context->input_offset, common = 0;
+  while (common < size && common < length &&
+         code[common] == (unsigned char)context->input[context->input_offset + common]) {
+    ++common;
+  }
+  if (length > size && common == size) {
+    emit(context, EMIT_NEXT, code[size]);
+  }
+  if (common == length &&
+      (mode == MATCH_FULL || mode == MATCH_SUFFIX || (mode == MATCH_INITIAL && length > 1))) {
+    emit(context, EMIT_CONSUMED, length);
+  }
+  if (mode == MATCH_INITIAL && common) {
+    matches->initial = 1;
+  }
+  if (mode == MATCH_PREFIX && common > matches->prefix) {
+    matches->prefix = common;
+  }
+  return common;
+}
+
+static void match_group(MatchContext *context, unsigned mode, unsigned id,
+                        SpellingMatches *matches) {
+  const CodeGroup *group = &context->groups->groups[id];
+  uint32_t size = context->input_size - context->input_offset;
+  if (group->first < 128) {
+    if (!size) {
+      emit(context, EMIT_NEXT, group->first);
+      return;
+    }
+    if ((unsigned char)context->input[context->input_offset] != group->first) {
+      return;
+    }
+  }
+  /* Keep matches from every spelling; a shorter branch may match the next glyph. */
+  for (const unsigned char *p = group->begin; p < group->end;) {
+    unsigned length = *p++;
+    match_spelling(context, mode, p, length, matches);
+    p += length;
+  }
+}
+
 static void match_codes(MatchContext *context) {
   if (!context->codes.size) {
     return;
   }
   const unsigned char *p = (const unsigned char *)context->codes.data,
                       *end = p + context->codes.size;
-  uint32_t size = context->input_size - context->input_offset, maximum = 0;
-  int initial = 0;
+  uint32_t size = context->input_size - context->input_offset;
+  SpellingMatches matches = {0};
   while (p < end) {
     unsigned mode = *p++ - MATCHER_TAG;
+    if (mode & GROUP_FLAG) {
+      match_group(context, mode & ~GROUP_FLAG, short_word(p), &matches);
+      p += 2;
+      continue;
+    }
+    unsigned suffix_size = 0;
+    const unsigned char *suffix = NULL;
+    if (mode == MATCH_SUFFIX) {
+      suffix_size = *p++;
+      suffix = p;
+      p += suffix_size;
+    }
     const unsigned char *code = p;
     while (p < end && *p < 128) {
       ++p;
@@ -750,29 +884,26 @@ static void match_codes(MatchContext *context) {
       }
       continue;
     }
-    uint32_t common = 0;
-    while (common < size && common < length &&
-           code[common] == (unsigned char)context->input[context->input_offset + common]) {
-      ++common;
-    }
-    if (length > size && common == size) {
-      emit(context, EMIT_NEXT, code[size]);
-    }
-    if (common == length && (mode == MATCH_FULL || (mode == MATCH_INITIAL && length > 1))) {
-      emit(context, EMIT_CONSUMED, length);
-    }
-    if (mode == MATCH_INITIAL && common) {
-      initial = 1;
-    }
-    if (mode == MATCH_PREFIX && common > maximum) {
-      maximum = common;
+    uint32_t common = match_spelling(context, mode, code, length, &matches);
+    if (mode == MATCH_SUFFIX && common == length) {
+      uint32_t tail = 0, available = size - length;
+      while (tail < available && tail < suffix_size &&
+             suffix[tail] == (unsigned char)context->input[context->input_offset + length + tail]) {
+        ++tail;
+      }
+      /* Omitting the suffix stays valid even when following text consumes the same keys. */
+      if (tail == suffix_size) {
+        emit(context, EMIT_CONSUMED, length + tail);
+      } else if (tail == available) {
+        emit(context, EMIT_NEXT, suffix[tail]);
+      }
     }
   }
-  /* Emit shared initial/prefix lengths once, even when several codes agree. */
-  if (initial) {
+  /* Emit shared initial/prefix lengths once, even when several spellings agree. */
+  if (matches.initial) {
     emit(context, EMIT_CONSUMED, 1);
   }
-  for (uint32_t bytes = 1; bytes <= maximum; ++bytes) {
+  for (uint32_t bytes = 1; bytes <= matches.prefix; ++bytes) {
     emit(context, EMIT_CONSUMED, bytes);
   }
 }
@@ -863,6 +994,7 @@ static Result *scan_line(lua_State *L, int result_index, Result *result, Engine 
     memset(requests->lookahead, 0, (size_t)REQUEST_SLOTS * sizeof(uint32_t));
   }
   MatchContext context = {0};
+  context.groups = instance->groups;
   context.input = input;
   context.input_size = size;
   context.text_size = text.size;
@@ -954,7 +1086,7 @@ static int results(lua_State *L, Result *r, int character, char motion) {
     if (col == NONE) {
       continue;
     }
-    lua_createtable(L, 0, 5);
+    lua_createtable(L, 0, 6);
     lua_pushvalue(L, 2);
     lua_setfield(L, -2, "win");
     position_field(L, "pos", m->row, col);
@@ -1105,6 +1237,62 @@ static int scan(lua_State *L) {
   return results(L, result, character, mode ? mode[0] : 0);
 }
 
+/* Build-time enumeration uses the same decoder/boundary state as scan_line.
+ * The two closures differ only in whether boundaries are emitted or counted. */
+static int graphemes(lua_State *L) {
+  luaL_checktype(L, 1, LUA_TSTRING);
+  size_t size;
+  const unsigned char *text = (const unsigned char *)lua_tolstring(L, 1, &size);
+  if (size >= INT_MAX) {
+    return luaL_error(L, "text too large");
+  }
+  int each = lua_toboolean(L, lua_upvalueindex(1));
+  int codepoints = each && !lua_isnoneornil(L, 3);
+  if (each) {
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    if (codepoints) {
+      luaL_checktype(L, 3, LUA_TFUNCTION);
+    }
+  }
+  GraphemeState state = {.previous = -1};
+  uint32_t at = 0, start = 0, last = 0, count = 0, clusters = 0;
+  while (1) {
+    uint32_t col = at;
+    int32_t scalar = col < size ? decode(text, (uint32_t)size, &at) : -1;
+    if (codepoints && col < size) {
+      lua_pushvalue(L, 3);
+      lua_pushinteger(L, scalar);
+      lua_pushinteger(L, at);
+      lua_call(L, 2, 0);
+    }
+    if ((col == size || grapheme_break(&state, scalar)) && count) {
+      ++clusters;
+      if (each) {
+        lua_pushvalue(L, 2);
+        lua_pushinteger(L, start);
+        lua_pushinteger(L, col);
+        lua_pushinteger(L, count);
+        lua_pushinteger(L, last);
+        lua_call(L, 4, 0);
+      }
+      count = 0;
+    }
+    if (col == size) {
+      break;
+    }
+    if (!count) {
+      start = col;
+    }
+    last = col;
+    ++count;
+  }
+  if (each) {
+    return 0;
+  }
+  lua_pushinteger(L, clusters);
+  return 1;
+}
+
 int luaopen_flash_any_native(lua_State *L) {
   static const luaL_Reg methods[] = {
       {"new_state", new_state}, {"has", has_lines}, {"scan", scan}, {NULL, NULL}};
@@ -1120,13 +1308,23 @@ int luaopen_flash_any_native(lua_State *L) {
   lua_setfield(L, -2, "open");
   lua_pushcfunction(L, write_binary);
   lua_setfield(L, -2, "write");
+  lua_newtable(L);
+  lua_pushboolean(L, 0);
+  lua_pushcclosure(L, graphemes, 1);
+  lua_setfield(L, -2, "len");
+  lua_pushboolean(L, 1);
+  lua_pushcclosure(L, graphemes, 1);
+  lua_setfield(L, -2, "each");
+  lua_setfield(L, -2, "grapheme");
   lua_pushfstring(L, "%s/%d", BINARY_MAGIC, UNICODE_VERSION);
   lua_setfield(L, -2, "version");
-  lua_createtable(L, 0, 4);
+  lua_createtable(L, 0, 6);
+  integer_field(L, "group", GROUP_FLAG);
   integer_field(L, "literal", MATCH_LITERAL);
   integer_field(L, "full_code", MATCH_FULL);
   integer_field(L, "initial", MATCH_INITIAL);
   integer_field(L, "prefix", MATCH_PREFIX);
+  integer_field(L, "suffix", MATCH_SUFFIX);
   lua_setfield(L, -2, "modes");
   return 1;
 }

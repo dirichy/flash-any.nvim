@@ -1,3 +1,4 @@
+dofile("scripts/source_path.lua")
 -- nvim --clean -l scripts/bench_merge.lua ROOT OUT build|cold|warm CASE
 vim.opt.runtimepath:prepend(assert(arg[1]))
 local output, phase, case = assert(arg[2]), assert(arg[3]), arg[4]

@@ -22,11 +22,19 @@ single graphemes; continuous input crosses graphemes. Word entries are rejected.
 - `native.lua`、`init.lua`、`char.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
   操作符、窗口、remote恢复和绘制。Flash要求的Lua matcher回调只是C入口。
 
-已有二进制时不加载Lua构建器、source或字素模块；缺失时按sources构建。
+已有二进制时不加载source或字素模块；外部file的依赖检查只加载构建器的文件读取部分。
+缺失时按sources构建。Lua的grapheme.lua只封装C的each/len，UTF-8解码和UAX #29
+规则仅在text.h中实现；构建和扫描共用同一实现。旧Lua算法仅在tests/reference中作为独立对照。
 `tests/runtime.lua`和`tests/autobuild.lua`在独立进程中验证这两个路径。
 
-Existing packages load without Lua builders or scanners. Automatic compilation and
-persistent-cache reuse are tested in fresh processes, including a missing native.so.
+Cached external files load only the dependency-reading portion of the builder,
+without grapheme/source modules. Build-time grapheme counting and enumeration call
+the same C decoder and boundary rules used by scanning. The Lua grapheme module
+is a thin adapter; the old Lua algorithm lives only in tests/reference as an
+independent oracle. Bundled Unicode input data lives under scripts/data.
+Explicit binaries and cached built-in sources load without Lua builders or scanners. Fresh-process tests
+cover missing/broken native modules, external make, automatic dictionary compilation
+and persistent-cache reuse. Loading/setup never invokes a compiler.
 
 Review C时，可先读`text.h`的`decode`/`grapheme_break`，再沿`native.c`的
 `scan_line → scan_grapheme → match_codes → emit/request`阅读。二进制读写单独看
@@ -39,34 +47,44 @@ Format production C with `clang-format -i src/native.c src/text.h`.
 
 ## 构建 / Build
 
-运行 `make`（GNU make4.3+）需要Python3、C编译器、pkg-config、LuaJIT开发文件，
-当前验证平台Linux。Unicode C数据由已入库的`grapheme_data.lua`生成，不使用另一个
-Unicode规则源。码表快照和匹配结果保存在Lua-owned userdata中，原始行由状态表持有。
+用户需要make和C工具链（GCC或Clang）；`make`直接编译C，不调用Neovim、Python、
+pkg-config或系统LuaJIT开发包。Makefile使用GNU make 3.81兼容语法，支持CC、
+CPPFLAGS、CFLAGS和LDFLAGS覆盖。`vendor/luajit`内置未修改的公开Lua/C头文件，
+符号从宿主Neovim解析，不链接第二份LuaJIT。Linux已验证，macOS的
+bundle/dynamic_lookup路径待实机验证。
 
-构建同时生成三个不入库的产物：
+Unicode数据的来源是`scripts/data/grapheme_data.lua`，生成的`src/grapheme_data.h`随源码提交。
+维护者更新数据后运行`nvim --clean -l scripts/generate_grapheme.lua`并提交两份数据；
+安装构建不会运行生成器。`compile_flags.txt`为clangd提供静态编译参数，无需生成
+compile_commands.json；旧的编译数据库可以删除。
 
-- `lua/flash-any/native.so`
-- `build/grapheme_data.h`
-- 根目录 `compile_commands.json`
-
-曾经头文件只存在于自动删除的临时目录，导致clangd报找不到文件。现在保留于
-build/，编译数据库直接记录实际命令和pkg-config给出的LuaJIT include路径。
-native.lua首次加载时同步调用make，由Makefile维护依赖和更新；不硬编码机器库路径、
-不关闭诊断。make clean只删除这三个产物。
+native.lua直接加载native.so，不检查源码mtime、不调用编译器；缺失或加载失败时提示
+在插件目录执行make。插件管理器或用户负责安装/更新时运行make。Makefile是编译参数
+和平台分支的唯一来源；编译到临时文件后原子替换native.so，避免影响已加载的进程。
+Lua-owned userdata持有码表快照和匹配结果，状态表持有原始行。
 
 native.load统一拥有码表缓存路径和构建：未指定binary时，按sources的稳定inspect
 表示和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
 不存在时创建目录并调用build.binary；存在时直接打开。显式binary优先使用固定路径。
-不监控外部码表/工厂内容变化；修改这些文件后清除生成缓存，再次setup自动构建。
+外部词典、Rime导入、lua/tsv及converter按绝对路径、大小和mtime（秒/纳秒）生成缓存键，
+修改后下次setup生成新快照。UTF-8 Rime只读头部发现导入，其他编码的自动检测/Rime
+仍复用整文件解码；显式非Rime格式只需stat。
+runtimepath中lua/flash-any下的Lua/TSV同样参与缓存键，每进程检查一次，与require生命周期一致。
+更新插件后重启Nvim；无需执行工厂或加载码表即可检查缓存。大小/mtime均未改变的编辑
+不能检测；命名空间外的任意Lua间接依赖不自动跟踪。显式binary仅在缺失时构建。
 
-The native loader runs make once per process to check dependencies. It owns dictionary
-cache paths and missing-package compilation. Automatic paths hash source configuration
-and the format/Unicode version exported by C. Explicit binary paths take precedence;
-external table/factory file contents are not watched.
-
-The persistent generated header and exact compilation database support clangd. No
-machine-specific include path is committed. Compilation does not require a dictionary
-binary; dictionary compilation does not require loading Flash or user configuration.
+Make directly invokes the C compiler; GNU make 3.81 syntax is sufficient. Unicode
+headers are committed, and regeneration is a maintainer-only step. Bundled public
+Lua/C headers and compile_flags.txt keep builds and clangd independent of local
+LuaJIT development packages. Plugin managers or users run make on installation and
+updates; loading native.so never builds it and reports actionable load errors.
+The dictionary loader owns cache paths;
+external dictionary, Rime import, Lua/TSV companion and converter paths, sizes and
+nanosecond mtimes select cache snapshots. UTF-8 Rime dependency discovery reads headers
+only; non-UTF-8 auto/Rime input still uses whole-file decoding. Installed Lua/TSV files
+under lua/flash-any are checked once per process, requiring a restart after updates.
+Changes preserving both size and mtime, and arbitrary Lua dependencies outside this
+namespace, require explicit rebuilding.
 
 ## 码表 / Dictionary
 
@@ -74,13 +92,14 @@ binary; dictionary compilation does not require loading Flash or user configurat
 也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为128个键，普通源
 仍可为ASCII附加编码。运行时不保留source身份、scope或fallback状态。
 
-格式`FANYBIN\5`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
-条目数、哈希容量、页数、pool字节数和两个保留0。随后为16-byte条目（key及编码
+格式`FANYBIN\x08`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
+条目数、哈希容量、页数、pool字节数、编码组区字节数和一个保留0。随后为16-byte条目（key及编码
 列表的offset/length）、复杂字素哈希槽、4352个u32页目录及每个实际页的256槽，
-最后是共享byte pool。槽存条目序号+1，0为空。相同带标记编码列表共享pool片段。
+随后是共享byte pool及编码组区。槽存条目序号+1，0为空。相同带标记编码列表共享pool片段。
 
 列表为`[标记][ASCII编码][标记][ASCII编码]...`：0x80 literal、0x81 full_code、
-0x82 initial、0x83 prefix。标记兼作模式与分隔，不需要source ID或结束符，NUL
+0x82 initial、0x83 prefix；组引用为0x89–0x8B，后跟u16 ID，详见末节。
+普通编码标记兼作模式与分隔，不需要source ID或结束符，NUL
 可以是编码内容。模式映射由C模块统一提供给构建器。加载校验区段/引用边界、
 标记、literal内容、排序、占用及索引可达性。输出原子替换；旧格式需要重建。
 
@@ -123,17 +142,31 @@ again. Results grow only when a glyph matches. Lua handles editor/Flash integrat
 ## 测试与 LSP / Tests and LSP
 
 ```sh
-make
-for test in tests/autobuild.lua tests/init.lua tests/runtime.lua tests/source.lua tests/table.lua tests/scope.lua tests/build.lua tests/health.lua tests/text.lua tests/native.lua tests/tsv.lua tests/utf8.lua tests/reference_cursor.lua tests/reference_match/*.lua tests/flash.lua tests/char.lua; do
-  NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l "$test" || exit
-done
+make -B
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/run.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
-python scripts/build_native.py --sanitize
+make -B CFLAGS='-O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined'
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/text.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/native.lua
-python scripts/build_native.py
+make -B
 lua-language-server --check=. --checklevel=Hint
 ```
+
+Linux已实测Neovim 0.11.0 + GNU make 3.81，以及系统Neovim 0.12.6 + make 4.4.1。
+旧版本工具安装在忽略的.dev目录，不替换系统工具；切换方法：
+
+```sh
+export PATH="$PWD/.dev/make-3.81/bin:$PWD/.dev/nvim-0.11.0/bin:$PATH"
+make clean
+make -j4
+nvim --clean -l tests/autobuild.lua
+```
+
+Both Neovim 0.11.0 / GNU make 3.81 and Neovim 0.12.6 / GNU make 4.4.1 passed
+the full test suite on Linux, including real Flash jump, char and remote integration.
+The `.dev` tool installations are local and are not distributed with the plugin.
 
 Flash checkout放在.dev/flash.nvim。`tests/text.lua`直接校验C的官方Unicode字素边界
 与非法字节；native测试对照冻结Lua参考实现。`tests/reference/`只作为测试oracle，
@@ -143,7 +176,7 @@ LuaLS配置包含真实Neovim/Flash库与测试模块路径，保留全部诊断
 
 clangd的`--check`还自测代码动作；本机SwapBinaryOperands对Lua宏有重叠替换错误。
 使用`--tweaks=ExtractFunction`避开这个动作自测，但保留全部源文件诊断；项目未
-配置诊断抑制。分别检查src/native.c及src/text.h，确认生成头和真实LuaJIT头可解析。
+配置诊断抑制。分别检查src/native.c及src/text.h，确认生成头和随附公开Lua/C头可解析。
 
 Tests keep the old Lua implementation solely as an independent oracle under tests.
 Production does not load it. Unicode boundaries, native/Lua differential behavior,
@@ -152,3 +185,103 @@ use the real Neovim/Flash libraries. Clangd's macro code-action self-test issue 
 separate from source diagnostics; no project diagnostic suppression is installed.
 
 历史性能对照见 [benchmarks](benchmarks.md)，当前架构以后续C-only收敛记录为准。
+
+## 真实上游码表 / Real upstream dictionaries
+
+可选运行 `python scripts/check_dictionaries.py --download --nvim .dev/nvim-0.11.0/bin/nvim`。
+Python 和 iconv 仅用于这套开发测试，不增加插件构建或运行依赖。下载文件和报告位于
+忽略的 `.dev/real-tables`，固定版本及校验和在 `tests/data/dictionaries.json`。
+见 [测试范围与结果](dictionary-tests.md)。
+
+The optional upstream corpus suite compares every text/code pair using an independent
+Python reader and samples C matches. Python/iconv are developer-test dependencies only.
+Downloaded data and reports stay in .dev; normal tests and plugin setup require no network.
+
+## 可选后缀与二进制 v7 / Optional suffixes and binary v7
+
+Lua 按每个编码的权重和原始顺序分配选键，默认首选空格、次选分号。
+每个编码只存一份，分配选键的记录使用 suffix matcher：标签、参数长度、ASCII
+后缀、原始编码。没有选键的候选继续使用完整码 matcher。C 不读取权重或排名。
+后缀匹配始终保留原码消费分支，匹配后缀时再增加一个消费长度；部分后缀产生 next。
+不维护全组选键的拒绝集合，后续文字可正常消费与选键相同的输入。
+
+字节编号规划（未分配的编号当前均拒绝，不代表已经实现）：
+
+| 范围 | 用途 |
+| --- | --- |
+| 0x00–0x7F | ASCII 编码或参数；参数由长度界定 |
+| 0x80–0x9F | matcher 标签；目前 0x80 literal、0x81 full、0x82 initial、0x83 prefix、0x84 suffix |
+| 0xA0–0xBF | 预留的小模式操作码，目前未使用 |
+| 0xC0–0xFF | 后续扩展保留 |
+
+格式 v7 的自动缓存会重建；显式旧 binary 需重新导出。make 后重启 Nvim 加载新模块。
+
+Lua assigns suffixes at build time; weights and ranks are not serialized. A suffix
+record stores its matcher tag, parameter byte count, ASCII suffix and original code.
+The C matcher always retains base-code consumption, optionally consumes the suffix,
+and emits next for a partial suffix. Following glyphs may consume identical keys;
+there is no global selector rejection set. Base codes are never expanded into aliases.
+Matcher tags occupy 0x80–0x9F (currently five modes); 0xA0–0xBF is reserved for future
+pattern operators and 0xC0–0xFF for later extensions. All unassigned tags currently
+fail validation. Version 7 invalidates automatic caches; rebuild explicit old binaries
+and restart Nvim after make.
+
+
+## 共享音节与二进制 v8 / Shared syllables and binary v8
+
+全拼字表保存标准读音，构建时为读音分配 u16 ID；每个音节的所有模糊拼写只存一次。
+用户仍选 full_code、initial、prefix。标签低位 0x08 表示音节引用：0x89、0x8A、0x8B
+分别对应这三种模式，后接两字节 little-endian ID；普通编码仍使用 0x81–0x83。
+六种组合复用 match_spelling，不维护六套 matcher。literal、suffix 不能设置引用标志。
+
+40 字节文件头的偏移 32 保存音节区字节数，偏移 36 仍为零；音节区紧跟字符串池。
+音节区为 u16 音节数，各音节为 u16 拼写数，再逐项保存 u8 长度和 ASCII 拼写。
+C 负责写入、验证和解码；Lua 只组织 ID 与拼写数组，不拼装二进制字段。
+音节的运行时视图由引擎持有并在 new_state 间共享，与底层字节一同保活。
+扫描只在遇到引用时比较该音节的拼写，保留每个拼写的匹配和 next；不预建输入图，
+不保存跨输入匹配缓存。双拼暂时沿用展开编码的构建流程。
+
+Full pinyin stores canonical readings and shares fuzzy spellings per syllable.
+A 0x08 flag in the matcher tag selects a u16 syllable reference instead of inline
+ASCII: 0x89/0x8A/0x8B use the same full/initial/prefix implementation as 0x81/0x82/0x83.
+Literal and optional-suffix records cannot carry the flag. Header offset 32 stores
+the byte size of the profile appended after the string pool; offset 36 remains zero.
+C owns its codec and validates every reference. Immutable spelling views and backing
+bytes belong to the engine and are retained by child states. Spellings are matched
+on demand, preserving all alternatives and next bytes without an input graph or
+cross-input match cache. Double pinyin continues to expand codes at build time.
+
+v8 会使自动缓存重新构建；显式旧 binary 需重新导出，make 后重启 Nvim。
+Version 8 rebuilds automatic caches; regenerate explicit old binaries and restart
+Nvim after make. Previous format descriptions above document their original revisions.
+
+
+## Source 外置与通用组 / External sources and shared groups
+
+核心 Lua/C 不再识别拼音或虎码名称。groups.h 保存通用编码组视图和 codec，
+GROUP_FLAG=0x08 与 full/initial/prefix 正交；二进制布局仍为 v8，无格式迁移。
+组名只在 source 内解析，构建器按排序去重后的拼写内容分配全局 ID，避免多个
+source 使用相同组名时互相覆盖。选键排名由 build.selectors 负责，C 只认识后缀。
+source 自行维护数据、分音/模糊音/键位转换、默认选键及字符覆盖。
+
+五个独立插件根目录在独立的 source checkout，未纳入核心仓库，尚未发布远程。
+只有安装到 runtimepath 的工厂才参与发现；核心可用 sources={} 单独运行。
+更新 source 的 lua/flash-any 下 Lua/TSV 文件会进入已有元数据缓存失效机制。
+核心不负责下载、更新 source；source 插件无 C 编译步骤。
+
+The core has no pinyin/Tiger name dispatch. groups.h owns the generic v8 spelling
+codec; local names are resolved before groups are interned by normalized contents.
+Ranking belongs to build.selectors; the C engine sees only optional suffix metadata.
+Source packages own tables, conversions and defaults. They are separately installed
+runtimepath plugins and have no compilation step. Local publication-ready directories
+are under .dev/source-packages; public source releases are not yet available.
+
+```
+make
+nvim --clean -l tests/run.lua
+FLASH_ANY_SOURCE_PATH="$PWD/.dev/source-packages" nvim --clean -l tests/run.lua
+```
+
+The default suite needs no source tables. The opt-in integration suite checks all
+five real packages. Demo CI needs published source repositories and repository variable
+FLASH_ANY_SOURCE_OWNER; core CI runs independently while that variable is unset.

@@ -79,14 +79,15 @@ end
 ---为短于 below 的编码追加一个空格；返回新数组。
 ---@param codes string[]?
 ---@param below integer
+---@param groups? table<string, string[]>
 ---@return string[]?
-local function space_codes(codes, below)
+local function space_codes(codes, below, groups)
 	if not codes then
 		return nil
 	end
 	local ret = {}
 	for _, code in ipairs(codes) do
-		ret[#ret + 1] = #code < below and code .. " " or code
+		ret[#ret + 1] = not (groups and groups[code]) and #code < below and code .. " " or code
 	end
 	return ret
 end
@@ -94,44 +95,53 @@ end
 ---短码补空格；未指定阈值时返回原表，否则创建独立码表并保留懒加载。
 ---@param data FlashAnyTable
 ---@param below? integer
+---@param groups? table<string, string[]>
 ---@return FlashAnyTable
-function M.append_space(data, below)
+---@return table<string, string[]>?
+function M.append_space(data, below, groups)
 	if below == nil then
-		return data
+		return data, groups
 	end
 	-- data may be a shared default cache; keep transformed arrays separate.
 	assert(type(below) == "number" and below > 0 and below % 1 == 0, "append_space_below must be a positive integer")
+	local padded_groups
+	if groups then
+		padded_groups = {}
+		for name, spellings in pairs(groups) do
+			padded_groups[name] = space_codes(spellings, below)
+		end
+	end
 	local ret = {}
 	if metadata[data] then
 		metadata[ret] = vim.deepcopy(metadata[data])
 	end
 	for char, codes in pairs(data) do
-		ret[char] = space_codes(codes, below)
+		ret[char] = space_codes(codes, below, groups)
 	end
 	local read = readers[data]
 	if not loaders[data] then
 		if offsets[data] then
 			offsets[ret] = vim.deepcopy(offsets[data])
 		end
-		return ret
+		return ret, padded_groups
 	end
 	M.lazy(ret, function(char, offset, prefix_lookup)
 		if not prefix_lookup then
-			return space_codes(data[char], below)
+			return space_codes(data[char], below, groups)
 		end
 		local codes, after = M.lookup(data, char, offset)
-		return space_codes(codes, below), after
+		return space_codes(codes, below, groups), after
 	end)
 	if read then
 		readers[ret] = function()
 			local values = read()
 			for key, codes in pairs(values) do
-				values[key] = space_codes(codes, below)
+				values[key] = space_codes(codes, below, groups)
 			end
 			return values
 		end
 	end
-	return ret
+	return ret, padded_groups
 end
 
 ---把单编码字符串转为数组，并复制 map 和数组，避免修改调用方或 require 缓存。
@@ -197,37 +207,63 @@ function M.normalize(map)
 	return ret
 end
 
----拆分 TSV 值列中用逗号分隔的 ASCII 编码；这里不处理 CSV 引号语法。
----@param value string
----@return string[]
-local function csv(value)
-	local ret = {}
-	for item in value:gmatch("[^,]+") do
-		ret[#ret + 1] = item
+---Read a dictionary through the build parser and retain single-grapheme entries.
+---@param path string
+---@param opts? FlashAnySourceConfig
+---@return FlashAnyTable
+---@return table<string, table<string, {weight: number, order: number}>>? ranks
+function M.from_file(path, opts)
+	opts = opts or {}
+	local convert
+	if opts.converter then
+		assert(type(opts.converter) == "string", "converter must be a Lua file path")
+		convert = dofile(vim.fn.expand(opts.converter))
+		assert(type(convert) == "function", "converter file must return a function")
 	end
-	return ret
+	local rows, ranks = require("flash-any.build").read(path, opts)
+	local skipped = 0
+	for char, codes in pairs(rows) do
+		if grapheme.len(char) ~= 1 then
+			rows[char], skipped = nil, skipped + 1
+		elseif convert then
+			local converted = convert(codes)
+			assert(
+				converted == nil or (type(converted) == "table" and vim.islist(converted)),
+				"converter must return a code array or nil"
+			)
+			rows[char] = converted and #converted > 0 and converted or nil
+		end
+	end
+	if skipped > 0 then
+		vim.notify(("flash-any: skipped %d multi-grapheme dictionary entries"):format(skipped), vim.log.levels.INFO)
+	end
+	return M.normalize(rows), ranks
 end
 
 ---@class FlashAnyTableOptions
 ---@field convert? fun(codes: string[]?): string[]?
----@field extra? FlashAnyTableMap Added after conversion; overrides common entries.
+---@field extra? FlashAnyTableMap Added after conversion; overrides existing entries.
 
----从 runtimepath 加载常用字 Lua 表和可选的完整 TSV；每次创建私有缓存。
+---加载命名码表：完整 TSV，或 Lua 表及其可选 TSV 伴随文件。
 ---@param name string 码表文件名，不含扩展名
 ---@param opts? FlashAnyTableOptions
 ---@return FlashAnyTable
 function M.load(name, opts)
 	local convert = opts and opts.convert
-	local common = M.normalize(require("flash-any.tables." .. name))
+	local lua_files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false)
+	local files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)
+	assert(lua_files[1] or files[1], "code table not found: " .. name)
+	local data = lua_files[1] and M.normalize(require("flash-any.tables." .. name))
+		or M.from_file(assert(files[1]), { format = "tsv" })
 	if convert then
-		for char, codes in pairs(common) do
-			common[char] = convert(codes)
+		for char, codes in pairs(data) do
+			data[char] = convert(codes) or (not lua_files[1] and {} or nil)
 		end
 	end
 	if opts and opts.extra then
 		for char, codes in pairs(M.normalize(opts.extra)) do
-			common[char] = codes
-			local scope = metadata[common].scope
+			data[char] = codes
+			local scope = metadata[data].scope
 			if scope then
 				local first
 				grapheme.each(char, function(_, after)
@@ -239,22 +275,23 @@ function M.load(name, opts)
 			end
 		end
 	end
-	local files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)
-	if not files[1] then
-		return common
+	if not files[1] or not lua_files[1] then
+		return data
 	end
-	local decode = csv
+	local decode = function(value)
+		return { value }
+	end
 	if convert then
 		decode = function(value)
-			return convert(csv(value)) or {}
+			return convert({ value }) or {}
 		end
 	end
 	local path = files[1]
-	M.lazy(common, require("flash-any.tsv").loader(path, { decode = decode }))
-	readers[common] = function()
+	M.lazy(data, require("flash-any.tsv").loader(path, { decode = decode }))
+	readers[data] = function()
 		return require("flash-any.tsv").read(path, decode)
 	end
-	return common
+	return data
 end
 
 ---加载用户指定的 Lua 码表，复制后按需挂接 TSV；不复用内置方案缓存。
@@ -266,10 +303,16 @@ function M.from_files(lua_path, tsv_path)
 	if not tsv_path then
 		return common
 	end
-	local lookup = require("flash-any.tsv").loader(tsv_path, { decode = csv })
+	local lookup = require("flash-any.tsv").loader(tsv_path, {
+		decode = function(value)
+			return { value }
+		end,
+	})
 	M.lazy(common, lookup)
 	readers[common] = function()
-		return require("flash-any.tsv").read(tsv_path, csv)
+		return require("flash-any.tsv").read(tsv_path, function(value)
+			return { value }
+		end)
 	end
 	return common
 end

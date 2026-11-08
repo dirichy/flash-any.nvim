@@ -1,3 +1,4 @@
+dofile("scripts/source_path.lua")
 -- ROOT PACKAGE lua|binary pinyin|all cold|warm|new_jump ROWS
 vim.opt.runtimepath:prepend(assert(arg[1]))
 local path, backend, case, phase, rows =

@@ -62,11 +62,13 @@ opts.source, opts.format = write("words.txt", "中国 country\nきゃ kya\n"), "
 n, all, multi = build.table(opts)
 assert(n == 2 and all == 2 and multi == 2)
 
-local input =
-	write("multi.tsv", "😀\tsmile,grin\r\n国\tgo\r\n中\t cd,ab,ab,, \r\n中\tef\r\n中国\tword\r\n空\t,, \r\n")
+local input = write(
+	"multi.tsv",
+	"😀\tsmile\r\n😀\tgrin\r\n国\tgo\r\n中\t cd\r\n中\tab\r\n中\tab\r\n中\tef\r\n中国\tword\r\n空\t \r\n"
+)
 local expected_map =
 	{ ["中"] = { "ab", "cd", "ef" }, ["中国"] = { "word" }, ["国"] = { "go" }, ["😀"] = { "grin", "smile" } }
-local expected_tsv = "中\tab,cd,ef\n中国\tword\n国\tgo\n😀\tgrin,smile\n"
+local expected_tsv = "中\tab\n中\tcd\n中\tef\n中国\tword\n国\tgo\n😀\tgrin\n😀\tsmile\n"
 for _, format in ipairs({ "tsv", "tab", "auto" }) do
 	opts.source, opts.format = input, format
 	n, all, multi = build.table(opts)
@@ -90,7 +92,7 @@ print("ok - multi-code TSV merges duplicate rows/codes and preserves words on ro
 
 local words = write(
 	"words.tsv",
-	"きゃ\tkya,kya\n中国\tcountry,word\n中国\tword\né\teacute\n👩‍💻\tdeveloper\n中\tzhong\n😀\tgrin\n"
+	"きゃ\tkya\nきゃ\tkya\n中国\tcountry\n中国\tword\n中国\tword\né\teacute\n👩‍💻\tdeveloper\n中\tzhong\n😀\tgrin\n"
 )
 opts.source, opts.format = words, "tsv"
 opts.common = write("no-common.lua", "return {}\n")
@@ -160,12 +162,14 @@ for _, code in ipairs({ "中", "ab,中" }) do
 end
 opts.format = "csv"
 opts.source = write("invalid.csv", '"中","a,b"\n')
-assert(not pcall(build.table, opts))
+assert(pcall(build.table, opts))
+assert(lua_codes(opts.lua)["中"][1] == "a,b")
 opts.source = write("invalid-key.csv", '"a\tb","code"\n')
 assert(not pcall(build.table, opts))
 opts.format = "rime"
 opts.source = write("invalid.dict.yaml", "---\ncolumns:\n  - code\n  - text\n...\na,b\t中\n")
-assert(not pcall(build.table, opts))
+assert(pcall(build.table, opts))
+assert(lua_codes(opts.lua)["中"][1] == "a,b")
 
 local notices = {}
 local notify = vim.notify
@@ -179,15 +183,16 @@ local command_lua, command_tsv = root .. "/command.lua", root .. "/command.tsv"
 vim.cmd("FlashAnyBuildTable " .. table.concat({ command_source, command_lua, command_tsv, "-", "csv", "utf-8" }, " "))
 assert(vim.deep_equal(lua_codes(command_lua), { ["中"] = { "ab" } }))
 assert(read(command_tsv) == "中\tab\n" and #notices == 1 and notices[1].level == vim.log.levels.INFO)
-local command_multi = write("command.tsv", "中\tcd,ab,ab\r\n")
+local command_multi = write("command.tsv", "中\tcd\r\n中\tab\r\n中\tab\r\n")
 vim.cmd("FlashAnyBuildTable " .. table.concat({ command_multi, command_lua, command_tsv, "-", "tsv", "utf-8" }, " "))
 assert(vim.deep_equal(lua_codes(command_lua), { ["中"] = { "ab", "cd" } }))
-assert(read(command_tsv) == "中\tab,cd\n" and #notices == 2 and notices[2].level == vim.log.levels.INFO)
+assert(read(command_tsv) == "中\tab\n中\tcd\n" and #notices == 2 and notices[2].level == vim.log.levels.INFO)
 vim.cmd("FlashAnyBuildTable " .. table.concat({ words, command_lua, command_tsv, word_common, "tsv", "utf-8" }, " "))
 assert(#notices == 3 and notices[3].level == vim.log.levels.WARN)
 assert(notices[3].message:find("2 multi-grapheme entries", 1, true))
 assert(vim.deep_equal(lua_codes(command_lua), { ["中国"] = { "country", "word" } }))
 assert(read(command_tsv):find("きゃ\tkya\n", 1, true))
+opts.format = "invalid"
 build.command(opts)
 assert(#notices == 4 and notices[4].level == vim.log.levels.ERROR)
 local previous_cwd = vim.fn.getcwd()

@@ -12,7 +12,7 @@ local function words(entries)
 			local known = false
 			for _, entry in ipairs(entries) do
 				local word, code = entry[1], entry[2]
-				local chars = require("flash-any.grapheme").len(word)
+				local chars = require("reference.grapheme").len(word)
 				if text:get(chars) == word then
 					known = true
 					if #stream:get() < #code and code:sub(1, #stream:get()) == stream:get() then

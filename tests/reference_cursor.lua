@@ -1,7 +1,7 @@
 package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 -- nvim --clean -l tests/cursor.lua [host-root]
 vim.opt.runtimepath:prepend(vim.uv.cwd())
-local grapheme = require("flash-any.grapheme")
+local grapheme = require("reference.grapheme")
 local original_each, runs, decoded = grapheme.each, 0, 0
 rawset(grapheme, "each", function(value, emit, emit_codepoint)
 	runs = runs + 1

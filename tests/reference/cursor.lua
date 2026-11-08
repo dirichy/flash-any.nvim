@@ -1,7 +1,7 @@
 -- Frozen Lua reference for differential tests; never loaded by the plugin.
 local M = {}
 M.__index = M
-local each = require("flash-any.grapheme").each
+local each = require("reference.grapheme").each
 
 ---A cached Unicode string with a movable cursor. Sources only read.
 ---@class ReferenceCursor

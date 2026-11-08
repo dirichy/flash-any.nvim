@@ -6,3 +6,5 @@ __pycache__/
 /lua/flash-any/native.so
 /build/
 /compile_commands.json
+
+.nvimlog

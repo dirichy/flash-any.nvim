@@ -9,7 +9,11 @@ local function split(line, separator)
 	if pos then
 		-- read("*l") removes LF but keeps the CR in CRLF files.
 		local last = line:byte(-1) == 13 and -2 or -1
-		return line:sub(1, pos - 1), line:sub(pos + #separator, last)
+		local value = line:sub(pos + #separator, last)
+		if separator == "\t" then
+			value = value:match("^[^\t]*")
+		end
+		return line:sub(1, pos - 1), value
 	end
 end
 
@@ -92,23 +96,20 @@ function M.loader(path, opts)
 	end
 end
 
----Read a complete table during binary compilation; runtime lookups stay lazy.
+---Materialize canonical sorted TSV through the shared build parser.
 ---@param path string
 ---@param decode fun(value: string): string[]
 ---@return table<string, string[]>
 function M.read(path, decode)
-	local ret = {}
-	for line in io.lines(vim.fn.expand(path)) do
-		local key, value = split(line, "\t")
-		if key and value then
-			local codes = decode(value)
-			if #codes > 0 then
-				ret[key] = ret[key] or {}
-				vim.list_extend(ret[key], codes)
-			end
+	local rows = require("flash-any.build").read(path, { format = "tsv" })
+	for key, values in pairs(rows) do
+		local codes = {}
+		for _, value in ipairs(values) do
+			vim.list_extend(codes, decode(value))
 		end
+		rows[key] = codes
 	end
-	return ret
+	return rows
 end
 
 return M

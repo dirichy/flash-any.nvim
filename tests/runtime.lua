@@ -3,6 +3,17 @@ if arg[1] == "build" then
 	require("flash-any.build").binary({ sources = { { data = { ["甲"] = "x", ["乙"] = "y" } } }, output = arg[2] })
 	return
 end
+if arg[1] == "file-build" or arg[1] == "file-cached" then
+	package.loaded.flash = {}
+	require("flash-any").setup({ sources = { { file = arg[2], format = "tsv" } } })
+	if arg[1] == "file-cached" then
+		assert(package.loaded["flash-any.build"], "external dependencies should be checked")
+		for _, module in ipairs({ "grapheme", "grapheme_data", "table", "source", "scope" }) do
+			assert(package.loaded["flash-any." .. module] == nil, "cached file loaded " .. module)
+		end
+	end
+	return
+end
 local path = vim.fn.tempname() .. ".bin"
 local built = vim.system({ vim.v.progpath, "--clean", "-l", "tests/runtime.lua", "build", path }):wait()
 assert(built.code == 0, built.stderr)
@@ -26,5 +37,15 @@ for _, module in ipairs({ "cursor", "match", "source", "table", "grapheme", "gra
 end
 assert(package.loaded["reference.match"] == nil)
 assert(not pcall(plugin.setup, { binary = path, matcher = function() end }))
+local file = path .. ".tsv"
+vim.fn.writefile({ "甲\tx", "乙\ty" }, file)
+for _, phase in ipairs({ "file-build", "file-cached" }) do
+	local process = vim.system({ vim.v.progpath, "--clean", "-l", "tests/runtime.lua", phase, file }, {
+		env = { XDG_CACHE_HOME = path .. ".cache" },
+	}):wait()
+	assert(process.code == 0, process.stderr)
+end
+vim.fn.delete(path .. ".cache", "rf")
+vim.uv.fs_unlink(file)
 vim.uv.fs_unlink(path)
 print("runtime uses C without loading Lua scanners or build-time modules")

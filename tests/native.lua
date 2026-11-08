@@ -5,7 +5,7 @@ local build = require("flash-any.build")
 local native = require("flash-any.native")
 local match = require("reference.match")
 local registry = require("reference.source")
-local grapheme = require("flash-any.grapheme")
+local grapheme = require("reference.grapheme")
 local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 local serial, comparisons = 0, 0
@@ -47,7 +47,11 @@ local function compare(lines, queries, specs)
 	local range = { from = { 1, 0 }, to = { #lines, 0 } }
 	for _, value in ipairs(queries) do
 		query = value
-		equal(native.get(0, state, range, compiled), match.get(0, state, range, sources), "scan " .. value)
+		equal(
+			native.get(0, state, range, compiled),
+			match.get(0, state, range, sources),
+			"scan " .. value .. " " .. vim.inspect(specs)
+		)
 		equal(native.get(0, state, range, compiled), match.get(0, state, range, sources), "cached " .. value)
 		for _, motion in ipairs({ "f", "F", "t", "T" }) do
 			equal(
@@ -132,24 +136,44 @@ compare({ ("甲"):rep(50) }, { "a", ("a"):rep(5), ("a"):rep(20), ("a"):rep(30), 
 		},
 	},
 })
--- Full TSV entries, conversion, punctuation, fuzzy variants and padding are built once.
-compare(
-	{ "中国，a。生僻字𠮷", "重行长" },
-	{ "z", "zg", "zg,a.", "zhong", "chong", "x", "zhongg" },
-	{ "pinyin" }
-)
-compare(
-	{ "中国，a。声生" },
-	{ "v", "vs", "vsgo", "vsgo,a.", "ug", "s" },
-	{ { name = "pinyin", scheme = "flypy", fuzzy = true, append_space_below = 3 } }
-)
+-- Full-data source comparisons run only when optional packages are installed.
+if #vim.api.nvim_get_runtime_file("lua/flash-any/sources/pinyin.lua", false) > 0 then
+	-- Full TSV entries, conversion, punctuation, fuzzy variants and padding are built once.
+	compare(
+		{ "中国，a。生僻字𠮷", "重行长" },
+		{ "z", "zg", "zg,a.", "zhong", "chong", "x", "zhongg" },
+		{ "pinyin" }
+	)
+	compare(
+		{ "中国，a。声生" },
+		{ "v", "vs", "vsgo", "vsgo,a.", "ug", "s" },
+		{ { name = "pinyin", scheme = "flypy", fuzzy = true, append_space_below = 3 } }
+	)
 
--- Recognition, scope and fallback disappear at build time, including empty lists.
-compare(
-	{ "中国，a。𠮷😀󰊢", "重行长" },
-	{ "z", "zhong", "zg", "x", "g", "grin", "fa", "a" },
-	{ "pinyin", "tiger", "wubi86", "nerdfont", "unicode" }
-)
+	for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
+		for _, padding in ipairs({ 0, 4, 6 }) do
+			compare(
+				{ "中国，a。声生张安", "重行长㐀" },
+				{ "z", "zh", "zg", "zong", "zhongguo", "zhongg", "zang", "zan", "an", "an ", "zang ", "zg,a.", "qiu" },
+				{
+					{
+						name = "pinyin",
+						matcher = mode,
+						fuzzy = true,
+						append_space_below = padding > 0 and padding or nil,
+					},
+				}
+			)
+		end
+	end
+
+	-- Recognition, scope and fallback disappear at build time, including empty lists.
+	compare(
+		{ "中国，a。𠮷😀󰊢", "重行长" },
+		{ "z", "zhong", "zg", "x", "g", "grin", "fa", "a" },
+		{ "pinyin", { name = "tiger", selection = false }, "wubi86", "nerdfont", "unicode" }
+	)
+end
 compare({ "甲乙丙a á👩‍💻\255" }, { "a", "b", "ab", "x", "xy", "\0", "\0a", "a\0" }, {
 	{ data = { ["甲"] = {}, a = "ab", ["á"] = "xy" } },
 	{ data = { ["甲"] = "a", ["乙"] = "b", a = "x" }, fallback = true },

@@ -15,7 +15,7 @@ local plugin = require("flash-any")
 local State = require("flash.state")
 local loop = State.loop
 State.loop = function() end
-fixture.setup({ sources = { { name = "pinyin", scheme = "flypy" } } })
+fixture.setup({ sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } } })
 local state = plugin.jump()
 assert(state.opts.matcher and state.opts.labeler)
 for _, pattern in ipairs({ "v", "vs", "vsg", "vsgo", "a", "ab", "q", "qq" }) do

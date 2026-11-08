@@ -1,0 +1,152 @@
+name: Code-table demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      table-repository:
+        description: "Public repository containing the dictionary; empty uses the caller repository"
+        type: string
+        default: ""
+      table-ref:
+        description: "Code-table branch, tag or commit; empty uses its default branch"
+        type: string
+        default: ""
+      file:
+        description: "Dictionary path relative to the code-table repository"
+        type: string
+        default: "demos/templates/table.dict.yaml"
+      converter:
+        description: "Optional Lua converter path relative to the code-table repository"
+        type: string
+        default: ""
+      matcher:
+        description: "Built-in mode: full_code, initial or prefix"
+        type: string
+        default: "full_code"
+      text:
+        description: "Optional demo target; empty selects a grapheme from the table"
+        type: string
+        default: ""
+      query:
+        description: "Optional demo query; empty uses its converted code"
+        type: string
+        default: ""
+      format:
+        description: "auto, rime, tsv, csv, space, fcitx or ibus"
+        type: string
+        default: "auto"
+      columns:
+        description: 'Optional JSON column labels, for example ["code","text","weight"]'
+        type: string
+        default: ""
+      flash-any-ref:
+        description: "flash-any revision; pin to the same commit as the reusable workflow"
+        type: string
+        default: "main"
+  workflow_call:
+    inputs:
+      table-repository:
+        description: "Public repository containing the dictionary; empty uses the caller repository"
+        type: string
+        default: ""
+      table-ref:
+        description: "Code-table branch, tag or commit; empty uses its default branch"
+        type: string
+        default: ""
+      file:
+        description: "Dictionary path relative to the code-table repository"
+        type: string
+        default: "demos/templates/table.dict.yaml"
+      converter:
+        description: "Optional Lua converter path relative to the code-table repository"
+        type: string
+        default: ""
+      matcher:
+        description: "Built-in mode: full_code, initial or prefix"
+        type: string
+        default: "full_code"
+      text:
+        description: "Optional demo target; empty selects a grapheme from the table"
+        type: string
+        default: ""
+      query:
+        description: "Optional demo query; empty uses its converted code"
+        type: string
+        default: ""
+      format:
+        description: "auto, rime, tsv, csv, space, fcitx or ibus"
+        type: string
+        default: "auto"
+      columns:
+        description: 'Optional JSON column labels, for example ["code","text","weight"]'
+        type: string
+        default: ""
+      flash-any-ref:
+        description: "flash-any revision; pin to the same commit as the reusable workflow"
+        type: string
+        default: "main"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: table-demo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.demo-deps/config
+      XDG_DATA_HOME: ${{ github.workspace }}/.demo-deps/data
+      XDG_STATE_HOME: ${{ github.workspace }}/.demo-deps/state
+      XDG_CACHE_HOME: ${{ github.workspace }}/.demo-deps/cache
+      TOKYONIGHT_PATH: ${{ github.workspace }}/.demo-deps/tokyonight.nvim
+      FLASH_NVIM_PATH: ${{ github.workspace }}/.demo-deps/flash.nvim
+      NVIM_LOG_FILE: ${{ github.workspace }}/.demo-deps/nvim.log
+    steps:
+      - name: Checkout recording tools
+        uses: actions/checkout@v4
+        with:
+          repository: dirichy/flash-any.nvim
+          ref: ${{ inputs.flash-any-ref }}
+          persist-credentials: false
+      - name: Checkout code table
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.table-repository || github.repository }}
+          ref: ${{ inputs.table-ref }}
+          path: .demo-deps/table
+          persist-credentials: false
+      - uses: ./.github/actions/setup-demo
+      - name: Record external dictionary
+        env:
+          TABLE_FILE_INPUT: ${{ inputs.file }}
+          TABLE_FORMAT: ${{ inputs.format }}
+          TABLE_COLUMNS: ${{ inputs.columns }}
+          TABLE_CONVERTER_INPUT: ${{ inputs.converter }}
+          TABLE_MATCHER: ${{ inputs.matcher }}
+          TABLE_TEXT: ${{ inputs.text }}
+          TABLE_QUERY: ${{ inputs.query }}
+          TABLE_TITLE: ${{ inputs.table-repository || github.repository }}
+        run: |
+          export TABLE_FILE="$GITHUB_WORKSPACE/.demo-deps/table/$TABLE_FILE_INPUT"
+          if test -n "$TABLE_CONVERTER_INPUT"; then
+            export TABLE_CONVERTER="$GITHUB_WORKSPACE/.demo-deps/table/$TABLE_CONVERTER_INPUT"
+          fi
+          sh demos/record.sh table
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: table-demo
+          path: |
+            demos/output/table*.gif
+            demos/output/table*.mp4
+            demos/output/table*.png
+            demos/output/table*.json
+            demos/output/table*.log
+            demos/output/table*.tape
+            demos/output/README.local.md
+          if-no-files-found: warn
+          retention-days: 7

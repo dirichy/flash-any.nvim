@@ -1,6 +1,6 @@
 -- Frozen Lua reference for differential tests; never loaded by the plugin.
 local M = {}
-local grapheme = require("flash-any.grapheme")
+local grapheme = require("reference.grapheme")
 
 ---@alias ReferenceScopeFn fun(text: ReferenceCursor): boolean
 ---@alias ReferenceScopeBound integer|string
@@ -80,7 +80,12 @@ local chinese = {
 	{ 0x4E00, 0x9FFF },
 	{ 0x20000, 0x323AF },
 }
-for char in pairs(require("flash-any.tables.punctuation")) do
+-- Character coverage is independent of input-method key mappings.
+for _, char in
+	ipairs(
+		vim.fn.split("，。、；：？！“”‘’（）【】《》〈〉「」『』〔〕…—·￥", "\\zs")
+	)
+do
 	chinese[char] = true
 end
 

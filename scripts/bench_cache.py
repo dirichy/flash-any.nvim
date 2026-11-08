@@ -27,8 +27,8 @@ source = (ROOT / 'src/native.c').read_text()
 assert 'make_text(L' in source, 'Text-index comparison requires an indexed snapshot; pass --root')
 assert source.count('if (same) {') == 1
 (out / 'rescan.c').write_text(source.replace('if (same) {', 'if (0 && same) {'))
-cflags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', 'luajit'], text=True))
-libs = shlex.split(subprocess.check_output(['pkg-config', '--libs', 'luajit'], text=True))
+cflags = ['-I', str(SCRIPTS.parent / 'vendor/luajit')]
+libs = []
 subprocess.run(shlex.split(os.environ.get('CC', 'cc')) + [
     '-O3', '-std=c99', '-fPIC', '-shared', '-Wall', '-Wextra', '-Werror', *cflags,
     '-I', str(ROOT / 'src'), '-I', str(SCRIPTS.parent / 'build'), str(out / 'rescan.c'),

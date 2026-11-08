@@ -1,3 +1,4 @@
+dofile("scripts/source_path.lua")
 package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 -- Run independently: nvim --clean -l scripts/bench_native.lua lua|binary PACKAGE cold|warm
 vim.opt.runtimepath:prepend(arg[4] or vim.uv.cwd())

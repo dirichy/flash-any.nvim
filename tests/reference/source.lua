@@ -23,7 +23,8 @@ function M.load(name, opts)
 	if not opts and cache[name] then
 		return cache[name]
 	end
-	local factory = name == "literal" and require("reference.literal") or require("flash-any.sources." .. name)
+	local factory = (name == "literal" or name == "pinyin") and require("reference." .. name)
+		or require("flash-any.sources." .. name)
 	assert(type(factory) == "function", "source module must return a factory: " .. name)
 	---@type ReferenceSourceDefinition
 	local source = factory(opts or {})

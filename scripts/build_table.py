@@ -63,7 +63,8 @@ def main() -> None:
         out.write("}\n")
     with args.tsv.open("w", encoding="utf-8") as out:
         for char in sorted(rows, key=lambda c: c.encode("utf-8")):
-            out.write(char + "\t" + ",".join(sorted(rows[char])) + "\n")
+            for code in sorted(rows[char]):
+                out.write(char + "\t" + code + "\n")
     print(f"common={len(selected)} full={len(rows)}")
 
 if __name__ == "__main__":

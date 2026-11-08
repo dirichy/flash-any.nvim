@@ -98,6 +98,9 @@ assert(#run("あ", "a", { { name = "japan", scope = {} } }) == 0)
 ---@type any Deliberately invalid public input.
 local invalid = { name = "japan", matcher = function() end }
 assert(not pcall(registry.resolve, { invalid }))
+assert(#run("あ", "x ", { { name = "japan", groups = { a = { "x" } }, append_space_below = 2 } }) == 1)
+assert(#run("あ", "A", { { name = "japan", groups = { a = { "A" } } } }) == 1)
+assert(source.groups == nil, "configured groups must not alter the default source")
 print("ok - an installed source is usable by name with matcher/data/scope overrides")
 
 write("algorithm", { 'return function(opts) return { data = { ["あ"] = { opts.key or "x" } }, fallback = true } end' })

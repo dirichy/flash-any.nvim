@@ -1,6 +1,6 @@
 -- Frozen Lua reference for differential tests; never loaded by the plugin.
 local M = {}
-local grapheme = require("flash-any.grapheme")
+local grapheme = require("reference.grapheme")
 local Cursor = require("reference.cursor")
 
 -- Nonempty UTF-8 text -> ASCII encodings. Prefix metadata belongs to the map.
@@ -199,15 +199,9 @@ function M.normalize(map)
 	return ret
 end
 
----拆分 TSV 值列中用逗号分隔的 ASCII 编码；这里不处理 CSV 引号语法。
----@param value string
----@return string[]
+-- One encoding per TSV row; commas are literal code bytes.
 local function csv(value)
-	local ret = {}
-	for item in value:gmatch("[^,]+") do
-		ret[#ret + 1] = item
-	end
-	return ret
+	return { value }
 end
 
 ---@class ReferenceTableOptions
@@ -220,7 +214,8 @@ end
 ---@return ReferenceTable
 function M.load(name, opts)
 	local convert = opts and opts.convert
-	local common = M.normalize(require("flash-any.tables." .. name))
+	local lua_files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false)
+	local common = M.normalize(lua_files[1] and require("flash-any.tables." .. name) or {})
 	if convert then
 		for char, codes in pairs(common) do
 			common[char] = convert(codes)

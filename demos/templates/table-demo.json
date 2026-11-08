@@ -1,0 +1,7 @@
+{
+  "file": "table.dict.yaml",
+  "matcher": "full_code",
+  "title": "My code table",
+  "text": "文",
+  "query": "w,en"
+}
