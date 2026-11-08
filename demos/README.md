@@ -70,31 +70,21 @@ TABLE_FILE=/path/to/another-project/table.tsv sh demos/record.sh table
 ```
 
 所有文件格式均复用 build.read；多编码用重复行，逗号不再作为列表分隔符。
-内置 JSON 模板直接读取带权重和词组的 Rime 文件，并实际输入 `w,en` 匹配“文”。
+内置 Lua 模板读取带权重和词组的 Rime 文件，并使用熟悉的“中”和“中文 with flash”演示。
 
-脚本默认选取码表中首个有编码的非 ASCII 单字素并演示其转换后编码；
-没有非 ASCII 条目时使用首个 ASCII 字素。
-可选环境变量 `TABLE_FORMAT`（默认 auto）、`TABLE_COLUMNS`（JSON 列标签数组）、
-`TABLE_ENCODING`（默认 UTF-8）、`TABLE_MATCHER`（默认 full_code）、`TABLE_CONVERTER`（Lua 文件路径）、
-`TABLE_TITLE`、`TABLE_TEXT` 和 `TABLE_QUERY`，例如：
-
-```sh
-TABLE_FILE=/path/table.tsv TABLE_MATCHER=prefix \
-TABLE_TEXT=文 TABLE_QUERY=we TABLE_TITLE='My table' \
-sh demos/record.sh table
-```
-
-也可以复制 [JSON 模板](templates/table-demo.json)，只改码表路径和可选示例：
+只提供码表时，脚本用固定种子随机选取字体覆盖的单码点条目。
+可选环境变量包括 `TABLE_FORMAT`（默认 auto）、`TABLE_COLUMNS`（JSON 列标签数组）、
+`TABLE_ENCODING`（默认 UTF-8）、`TABLE_MATCHER`（默认 full_code）、
+`TABLE_CONVERTER`（Lua 文件路径）和 `TABLE_TITLE`。
+若要选熟悉的目标、命名和样本文件，复制 [Lua 模板](templates/table-demo.lua)：
 
 ```sh
-sh demos/record.sh table demos/templates/table-demo.json
+sh demos/record.sh table demos/templates/table-demo.lua
 ```
 
-CSV 标题行可在 JSON 中设置 `header: true`。
-JSON 中 file/converter 的相对路径以 JSON 所在目录为基准。环境变量可覆盖 JSON。
-不指定 query 时，使用 text 在转换后码表里的第一个编码；initial 模式只演示首字母。
-query 需要可打印 ASCII，text 可以是单字素或可唯一匹配的连续文本；多字素 text
-必须显式提供 query。生成的样例只包含这段目标文字，原码表文件不会被写入。
+CSV 标题行可在 Lua 中设置 `header = true`。所有相对路径以 Lua 配置所在目录为基准；
+环境变量可覆盖对应的码表选项。目标编码自动推导，原码表文件不会被写入。
+具体演示字段见下方“自动码表场景”。
 
 本地文件为 `table.gif`、`table.mp4`、`table.png`、`table-verification.json`、
 `table-media.json`、`table-config.json` 和 `table.tape`，均在 `demos/output/`。
@@ -107,9 +97,9 @@ query 需要可打印 ASCII，text 可以是单字素或可唯一匹配的连续
 
 1. **码表仓库零改动**：在有 Actions 运行权限的 flash-any 仓库或 fork 中，手动运行
    [Code-table demo](../.github/workflows/table-demo.yml)，填写 `table-repository`、
-   `table-ref`、`file` 和可选 format/columns/converter/matcher/示例。路径相对码表仓库。
+   `table-ref`、`file` 和可选 format/columns/converter/matcher/config。路径相对码表仓库。
 2. **在码表仓库运行**：复制 [调用模板](templates/table-demo.yml) 为
-   `.github/workflows/demo.yml`，只需修改码表路径和 matcher。
+   `.github/workflows/demo.yml`，修改码表路径、matcher 和可选的 config。
 
 ```sh
 gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
@@ -122,20 +112,22 @@ gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
 功能发布到相应远程 ref 后才能调用，本地修改不会改变 GitHub 上的工作流。
 工作流只需 contents:read，只上传 `table-demo` artifact，不修改码表仓库或创建
 Release；失败时也保留本轮报告和日志。下载 artifact 后可使用
-[中文](templates/README.zh-CN.md) / [English](templates/README.md) README 模板。
+[中文](templates/README.zh-CN.md) / [English](templates/README.md) README 模板；
+将[维护模板](templates/maintenance.md)放到码表仓库的 `docs/maintenance.md`。
 
-Point `TABLE_FILE` at an unchanged repository, or supply the optional JSON template.
-The recorder chooses a converted single-grapheme example automatically; override
-TABLE_TEXT / TABLE_QUERY to demonstrate a particular input. Dictionary and converter paths
-in JSON are relative to that JSON file. The same live candidate, label, cursor and
+Point `TABLE_FILE` at an unchanged repository, or supply the optional Lua template.
+The recorder chooses a converted single-grapheme example automatically; set
+the optional Lua fields described below to demonstrate familiar text. Dictionary,
+converter and sample paths in Lua are relative to that Lua file. The same live candidate, label, cursor and
 fixture assertions used by the built-in demo apply to third-party recordings.
 
 The reusable workflow accepts repository/ref, dictionary path, format, columns, optional converter, matcher ID
-and example inputs. Run it in a repository where you have Actions permissions,
+and an optional Lua configuration path. Run it in a repository where you have Actions permissions,
 or copy the tiny caller workflow into the table project. Pin both the workflow ref
 and flash-any-ref to the same published commit. It uploads the table-demo artifact
 with no release or repository writes. Unpushed workflow changes cannot be called
-from GitHub. The README templates show installation and how to use the downloaded media.
+from GitHub. The README templates focus on installation and use. Copy the maintenance template
+to docs/maintenance.md for table updates and recording instructions.
 
 ## 画质与验证 / Quality and verification
 
@@ -149,7 +141,7 @@ GIF 从 MP4 两遍转换，保留 1920×1080、20fps，变化区域调色板与�
 输入速度为 120ms/键，语义分段后停留 0.8 秒，跳转后停留 1.8 秒。
 
 同一次 TUI 回放记录中间查询候选、实际标签和最终落点，确认样例未修改且没有 Neovim 错误。
-预期行列在启动时根据样例中的唯一目标文本定位，使用字节列，不依赖固定缩进或行号。
+预期行列由原始样例中的目标位置确定，使用字节列；码表演示从真实匹配中选择落点。
 每轮清空旧验证文件，异常写入本轮 JSON；验证成功才转换 GIF、检查 codec/尺寸/实际帧率并提取封面。
 生成后仍须目视检查关键帧的字体、emoji、裁切和标签。
 
@@ -160,8 +152,8 @@ recorded clips without release URLs. Live TUI assertions check intermediate matc
 all three final queries and cursor positions, and the unchanged fixture. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
-Expected byte positions come from unique target text in the original fixture,
-so indentation and comment placement do not invalidate the assertions.
+Expected byte positions come from the original fixture; table recordings select
+a target from real matcher results.
 
 ## CI 与发布 / CI and publishing
 
@@ -192,3 +184,63 @@ Default pinyin/char recordings require separately installed sources. Set
 FLASH_ANY_SOURCE_PATH to their parent directory. External file recordings need no
 source plugins. Set repository variable FLASH_ANY_SOURCE_OWNER after publishing the
 separate source repositories to enable default demo CI. Core CI runs independently.
+
+
+## 自动码表场景 / Automatic table scenes
+
+可复制 [Lua 模板](templates/table-demo.lua) 和 [样本模板](templates/table-sample.lua)，
+填写熟悉的文本，再运行 `sh demos/record.sh table /path/demo.lua`。例如虎码可以用：
+
+```lua
+return {
+  file = "table.tsv",
+  text_name = "Chinese",
+  text = "虎",
+  mixed_text = "虎码 with flash",
+  comment = "Flash can match Chinese: type a code, then choose a label.",
+  mixed_comment = "Mix Chinese codes with ASCII in the same search.",
+  -- sample = "sample.lua",
+}
+```
+
+`text_name` 是旁白里的文本名称，默认 `any text`；`text` 是第一段的单字素目标；
+`mixed_text` 是第二段的码表文字与 ASCII 混输目标，默认 `text .. " with flash"`。
+编码从转换后的码表推导，不再重复填写 query。`sample` 可省略，脚本会围绕目标生成可读样本。
+所有路径相对 Lua 配置文件；GitHub 调用模板用 `config: demo.lua` 指定它，路径相对码表仓库。
+工作流显式填写的 file/format/columns/converter/matcher 会覆盖 Lua 配置中对应项。
+
+`comment` 和 `mixed_comment` 是两段可自由修改的旁白，支持多行字符串，录制时显示为注释。
+省略时根据 `text_name` 生成。自备样本按原文复制，前面加旁白；让样本保持简短、一屏可见，
+并包含混输目标。脚本在独立的小区域补两个单字目标，让第一次有多个真实标签。
+第二次尽量使用独特的混输短语，但允许多个标签；脚本读取真实标签完成跳转，不强制唯一。
+未提供 `text` 时，才从码表用固定种子随机抽样；不依据权重或 Unicode 区段筛选。
+
+字体来自 common/style.tape 的 FontFamily。fonts.lua 用 Fontconfig 找 fallback，
+再用 fc-query 读取实际字体文件及 face 的字符集，缺字时随机条目被跳过，显式样本则报错。
+自动抽样只选单码点；字符集覆盖不等同于验证复杂字素的 shaping，成片仍需目视检查。
+固定种子在同一码表和字体集合下可复现；seed、条目和覆盖字体会写入本轮 JSON。
+参考：[Fontconfig 字符集与字体匹配说明](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-devel/)。
+
+Copy the [Lua](templates/table-demo.lua) and [sample](templates/table-sample.lua) templates.
+Set `text_name` (default `any text`), `text` (one grapheme) and `mixed_text`
+(default: `text .. " with flash"`). Codes are inferred from the converted table.
+Optionally supply `sample`; otherwise a readable fixture is generated around your targets.
+Run `sh demos/record.sh table /path/demo.lua`, or set `config: demo.lua` in the
+caller workflow. Paths in Lua are relative to that file; the workflow's config path
+is relative to the table repository. Explicit workflow file/format/columns/converter/matcher
+inputs override Lua values.
+
+The two scenes match a single grapheme among multiple labels, then combine codes and
+ASCII in the same search. Editable `comment` and `mixed_comment` strings provide the
+narration; multiline strings are supported, with defaults based on `text_name`.
+Keep custom samples short enough to fit on screen and include the mixed phrase.
+The recorder adds two copies of the single-grapheme target in a separate small area.
+Prefer a distinct mixed phrase, but multiple labels are allowed. Actual labels,
+candidate counts, cursors and the unchanged fixture are verified in the live TUI.
+
+Only omitted targets use seeded random sampling. Font coverage is confirmed with
+fc-query against actual font files/faces in the configured fallback chain, including
+custom sample text. Missing explicit glyphs fail; random ones are skipped. Automatic
+samples use single scalars because cmap coverage does not prove ligature/ZWJ shaping.
+The seed, samples and covering fonts are captured in verification JSON; reproducibility
+depends on both the table and installed fonts. Inspect the rendered frames as well.

@@ -16,5 +16,4 @@ jobs:
       # columns: '["code","text","weight"]'
       matcher: full_code
       # converter: converter.lua
-      # text: 文
-      # query: wen
+      # config: demo.lua # Optional targets, comments and sample file.

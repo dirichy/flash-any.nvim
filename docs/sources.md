@@ -177,14 +177,23 @@ this namespace, require manual rebuilding. Explicit binary paths rebuild only wh
 ## 录制与 README / Recording and README
 
 见 [录制说明](../demos/README.md#第三方码表--third-party-tables)、
-[JSON 示例](../demos/templates/table-demo.json)、
+[Lua 示例](../demos/templates/table-demo.lua)、
 [工作流模板](../demos/templates/table-demo.yml)、
 [中文 README 模板](../demos/templates/README.zh-CN.md) 和
 [English README template](../demos/templates/README.md)。
 
-Local recording works against an unchanged dictionary repository. Optional JSON
-selects format, column order, converter and example. The reusable workflow checks out
-public repositories and uploads verified media as an artifact without a release.
+可用 `config` Lua 文件 填写 `text_name`、单字素 `text`、`mixed_text` 和可选 `sample` 文件。
+第一段补少量单字作为多个标签候选，第二段展示混输（允许多个标签）；
+`comment` 和 `mixed_comment` 可编辑注释旁白；编码从码表推导，
+缺省目标才随机抽样。详见上述模板与录制说明。
+
+Local recording works against an unchanged dictionary repository. An optional Lua file
+selects format, column order and converter. Targets and codes are sampled automatically
+from font-covered table entries when no target is supplied. An optional `config` Lua 文件
+sets `text_name`, single-grapheme `text`, `mixed_text` and a `sample` file. Two narrated
+scenes demonstrate multiple labels for one grapheme and mixed input (multiple labels
+are allowed). Narration is editable through `comment` and `mixed_comment`. The reusable workflow
+supports private callers and uploads verified media as an artifact without a release.
 
 ## 工厂 / Factory
 

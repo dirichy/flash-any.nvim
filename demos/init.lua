@@ -18,6 +18,8 @@ vim.opt.showcmd = false
 vim.opt.ruler = false
 vim.opt.shortmess:append("I")
 vim.cmd.colorscheme("tokyonight-night")
+vim.cmd("filetype on")
+vim.cmd("syntax enable")
 
 local config
 if vim.env.FLASH_ANY_DEMO_CONFIG then
@@ -42,17 +44,30 @@ else
 end
 vim.opt.winbar = "  flash-any.nvim   /   " .. config.title:gsub("%%", "%%%%")
 local plugin = require("flash-any")
-plugin.setup({ sources = config.sources, label = { style = "inline" } })
-local demo = { seen = {}, jumps = {} }
+plugin.setup({
+	sources = config.sources,
+	binary = config.binary,
+	labels = config.labels,
+	label = { style = "inline", uppercase = config.labels == nil },
+})
+local demo = { seen = {}, jumps = {}, active = 0 }
 local stages = config.stages
 -- Resolve expected byte positions from the original fixture, before any interaction.
 local lines = vim.fn.readfile(config.fixture)
 for _, stage in ipairs(stages) do
-	for row, line in ipairs(lines) do
-		local col = line:find(stage.text, 1, true)
-		if col then
-			assert(not stage.target and not line:find(stage.text, col + 1, true), "duplicate target: " .. stage.text)
-			stage.target = { row, col - 1 }
+	if stage.target then
+		local row, col = unpack(stage.target)
+		assert(lines[row] and lines[row]:sub(col + 1, col + #stage.text) == stage.text, "invalid planned target")
+	else
+		for row, line in ipairs(lines) do
+			local col = line:find(stage.text, 1, true)
+			if col then
+				assert(
+					not stage.target and not line:find(stage.text, col + 1, true),
+					"duplicate target: " .. stage.text
+				)
+				stage.target = { row, col - 1 }
+			end
 		end
 	end
 	assert(stage.target, "missing target: " .. stage.text)
@@ -60,12 +75,17 @@ end
 vim.opt.statusline = "  " .. config.title:gsub("%%", "%%%%") .. "%=%l:%c  "
 
 vim.keymap.set("n", "s", function()
-	local stage = assert(stages[#demo.jumps + 1], "unexpected extra search")
+	local index = #demo.jumps + 1
+	local stage = assert(stages[index], "unexpected extra search")
+	demo.active = index
+	demo.seen[index] = {}
 	vim.opt.statusline = "  "
 		.. stage.title:gsub("%%", "%%%%")
 		.. "   |   s > "
 		.. stage.pattern:gsub("%%", "%%%%")
-		.. " > a%=%l:%c  "
+		.. " > "
+		.. (stage.label or "a")
+		.. "%=%l:%c  "
 	local state = plugin.jump()
 	demo.jumps[#demo.jumps + 1] = {
 		pattern = state.pattern(),
@@ -80,10 +100,10 @@ timer:start(
 	40,
 	vim.schedule_wrap(function()
 		local state = require("flash.repeat")._states.jump
-		if state and state.visible then
+		if state and state.visible and demo.active > 0 then
 			local pattern = state.pattern()
 			if pattern ~= "" then
-				demo.seen[pattern] = vim.tbl_map(function(match)
+				demo.seen[demo.active][pattern] = vim.tbl_map(function(match)
 					return { pos = { unpack(match.pos) }, label = match.label }
 				end, state.results)
 			end
@@ -98,7 +118,7 @@ function demo.verify()
 		assert(#demo.jumps == #stages, "all demo jumps must finish")
 		for i, stage in ipairs(stages) do
 			for _, pattern in ipairs(stage.checkpoints) do
-				assert(demo.seen[pattern] and #demo.seen[pattern] > 0, "missing live candidates: " .. pattern)
+				assert(demo.seen[i][pattern] and #demo.seen[i][pattern] > 0, "missing live candidates: " .. pattern)
 			end
 			assert(demo.jumps[i].pattern == stage.pattern, "unexpected jump pattern")
 			assert(
@@ -109,10 +129,19 @@ function demo.verify()
 					.. ", got "
 					.. vim.inspect(demo.jumps[i].cursor)
 			)
-			local matches = demo.seen[stage.pattern]
-			assert(#matches == 1, "final pattern must select exactly one target")
-			assert(matches[1].label == "a", "the displayed a label must select the target")
-			assert(vim.deep_equal(matches[1].pos, stage.target), "unexpected match position")
+			local matches = demo.seen[i][stage.pattern]
+			assert(#matches == (stage.matches or 1), "unexpected final candidate count")
+			local selected
+			for _, match in ipairs(matches) do
+				if vim.deep_equal(match.pos, stage.target) then
+					assert(not selected, "duplicate target candidates")
+					selected = match
+				end
+			end
+			assert(selected and selected.label == (stage.label or "a"), "the displayed label must select the target")
+			if stage.narrow then
+				assert(#demo.seen[i][stage.checkpoints[1]] > #matches, "the query must narrow the candidates")
+			end
 		end
 		assert(not vim.bo.modified, "demo must leave the fixture unchanged")
 		assert(vim.v.errmsg == "", vim.v.errmsg)
@@ -124,6 +153,9 @@ function demo.verify()
 			seen = demo.seen,
 			jumps = demo.jumps,
 			expected = stages,
+			seed = config.seed,
+			samples = config.samples,
+			font = config.font,
 		}),
 	}, root .. "/demos/output/" .. config.verification)
 	if not ok then

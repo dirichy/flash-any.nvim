@@ -285,3 +285,8 @@ FLASH_ANY_SOURCE_PATH="$PWD/.dev/source-packages" nvim --clean -l tests/run.lua
 The default suite needs no source tables. The opt-in integration suite checks all
 five real packages. Demo CI needs published source repositories and repository variable
 FLASH_ANY_SOURCE_OWNER; core CI runs independently while that variable is unset.
+
+
+Demo generator tests also need fontconfig (fc-match/fc-query) and CJK/emoji fonts;
+these are developer/recording dependencies, not plugin install dependencies.
+录制生成器测试需要 fontconfig 与 CJK/emoji 字体；不增加插件安装依赖。

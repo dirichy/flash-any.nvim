@@ -1,13 +1,16 @@
 # My code table
 
-<!-- Replace the title, OWNER/TABLE and TSV path. No Lua source module is needed. -->
+<!-- Replace OWNER/TABLE, the table path, and the usage examples with your source's values.
+     Copy maintenance.md to docs/maintenance.md for contributor instructions. -->
 
-Single-grapheme encodings for search and jump in Neovim with
-[flash-any.nvim](https://github.com/dirichy/flash-any.nvim).
+Search and jump using this code table with
+[flash-any.nvim](https://github.com/dirichy/flash-any.nvim/tree/main).
+
+![Search and jump](docs/table.gif)
 
 ## Install
 
-Requires Neovim 0.11+, plus make and a C toolchain for the initial native build.
+Requires Neovim 0.11+, make and a C compiler. Add this to your lazy.nvim configuration:
 
 ```lua
 {
@@ -30,39 +33,20 @@ Requires Neovim 0.11+, plus make and a C toolchain for the initial native build.
 }
 ```
 
-Press `s`, type the code, then select a label. ASCII literal matching is automatic.
-Optionally set `converter = "/path/converter.lua"` on the source. The file returns
-a code-list conversion function that runs only during compilation, never matching.
+## Use
 
-## Format
+1. Press `s` and enter a character's code.
+2. Choose a displayed label to jump there.
+3. Keep typing to match a longer phrase, mixing codes and ordinary ASCII text.
 
-UTF-8 TSV: grapheme, Tab, then one code. Repeat rows for multiple codes.
-Commas in codes are literal; sorting is unnecessary. Rime/CSV/Fcitx/IBus are also supported.
-Each key must be one complete grapheme. Converted codes must be nonempty ASCII.
+For example, with `中 → zhong` and `文 → wen`, type `zhong` to find “中”,
+or `zhongwen with flash` to find “中文 with flash”. ASCII text also works on its own.
 
-```text
-中<TAB>zhong
-中<TAB>chong
-文<TAB>wen
-```
+## More
 
-## Demo
-
-<!-- Download table.gif from the table-demo artifact into docs/table.gif first. -->
-![Code-table search and jump](docs/table.gif)
-
-Record against the unchanged project using flash-any's recording tools:
-
-```sh
-# Run in the flash-any.nvim checkout; see its demos/README.md for recording tools.
-TABLE_FILE=/path/to/this-project/table.tsv sh demos/record.sh table
-```
-
-Alternatively copy flash-any's `demos/templates/table-demo.yml` to
-`.github/workflows/demo.yml`, adjust the TSV path / matcher and run it manually.
-The workflow uploads GIF, MP4, cover and live playback reports as an artifact.
-It does not publish a release.
+- [flash-any configuration](https://github.com/dirichy/flash-any.nvim/blob/main/README.md)
+- [Updating the table and recording demos](docs/maintenance.md)
 
 ## License
 
-<!-- State the actual project and upstream table licenses and provenance. -->
+<!-- State this project's license and link the upstream data notices. -->

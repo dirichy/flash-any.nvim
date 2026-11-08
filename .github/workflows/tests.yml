@@ -20,6 +20,8 @@ jobs:
         with:
           neovim: true
           version: v0.11.0
+      - name: Install demo-test fonts
+        run: sudo apt-get update && sudo apt-get install -y fontconfig fonts-noto-cjk fonts-noto-color-emoji
       - name: Build and test without optional sources
         run: |
           make

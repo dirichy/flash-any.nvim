@@ -7,17 +7,18 @@ case "$scene" in
   demo) verification=verification.json ;;
   char) verification=char-verification.json ;;
   table) verification=table-verification.json ;;
-  *) printf 'Usage: %s [demo|char|table [config.json]]\n' "$0" >&2; exit 1 ;;
+  *) printf 'Usage: %s [demo|char|table [config.lua]]\n' "$0" >&2; exit 1 ;;
 esac
 
 mkdir -p demos/output
-for tool in nvim make vhs ttyd ffmpeg ffprobe python3 fc-match; do
+for tool in nvim make vhs ttyd ffmpeg ffprobe python3 fc-match fc-query; do
   command -v "$tool" >/dev/null || { printf 'Install %s before recording.\n' "$tool" >&2; exit 1; }
 done
-font=$(fc-match -f '%{family}' 'JetBrainsMono Nerd Font Mono')
+font_family=$(python3 -c 'from pathlib import Path; print(next(line.split(chr(34))[1] for line in Path("demos/common/style.tape").read_text().splitlines() if line.startswith("Set FontFamily ")))')
+font=$(fc-match -f '%{family}' "$font_family")
 case "$font" in
-  *'JetBrainsMono Nerd Font Mono'*) ;;
-  *) printf '%s\n' 'Install JetBrainsMono Nerd Font Mono before recording.' >&2; exit 1 ;;
+  *"$font_family"*) ;;
+  *) printf 'Install %s before recording.\n' "$font_family" >&2; exit 1 ;;
 esac
 # Keep the same defaults locally and in CI; custom installations can override paths.
 export FLASH_NVIM_PATH="${FLASH_NVIM_PATH:-$PWD/.dev/flash.nvim}"
