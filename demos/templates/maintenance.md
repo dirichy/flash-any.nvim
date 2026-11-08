@@ -26,11 +26,14 @@ short sample file. Codes come from the table automatically.
 工作流用 `config: demo.lua` 指向配置。可用 `sample` 指定简短样本文件，编码自动从码表推导。
 
 Pin the workflow reference and flash-any-ref to the same tested core commit.
-Push to main to record automatically, or run the workflow manually. Inspect the uploaded GIF/MP4 and verification report,
-then copy the chosen GIF to docs/table.gif. The reusable workflow uploads artifacts;
-it does not publish a release or change this repository.
-将工作流引用和 flash-any-ref 固定到同一已测试核心提交。推送 main 自动录制，也可手动运行。检查画面与验证报告，
-将选用的 GIF 放到 docs/table.gif；可复用工作流只上传 artifact，不自动发布或修改仓库。
+Push to main to record automatically, or run the workflow manually. After verification,
+the caller workflow commits the GIF to docs/table.gif so the README updates automatically.
+Only the publishing job needs contents:write. GIF-only commits do not start another
+recording; outdated runs skip publication when main has changed. MP4 and playback
+reports remain available in the artifact; no release is created.
+推送 main 自动录制，也可手动运行。验证成功后，调用工作流自动提交 docs/table.gif，
+更新 README 演示。仅发布任务需要 contents:write；只更新 GIF 不会再次触发录制。
+main 已变化时跳过旧录制的发布。MP4 和验证报告保留在 artifact 中，不创建 Release。
 
 For local commands, dependencies, font coverage and playback checks, see the
 [recording guide](https://github.com/dirichy/flash-any.nvim/blob/main/demos/README.md).

@@ -185,15 +185,18 @@ this namespace, require manual rebuilding. Explicit binary paths rebuild only wh
 可用 `config` Lua 文件 填写 `text_name`、单字素 `text`、`mixed_text` 和可选 `sample` 文件。
 第一段补少量单字作为多个标签候选，第二段展示混输（允许多个标签）；
 `comment` 和 `mixed_comment` 可编辑注释旁白；编码从码表推导，
-缺省目标才随机抽样。详见上述模板与录制说明。
+缺省目标才随机抽样。调用模板会自动提交已验证的 `docs/table.gif` 更新 README；
+MP4 与报告留在 artifact 中，不创建 Release。详见上述模板与录制说明。
 
 Local recording works against an unchanged dictionary repository. An optional Lua file
 selects format, column order and converter. Targets and codes are sampled automatically
-from font-covered table entries when no target is supplied. An optional `config` Lua 文件
+from font-covered table entries when no target is supplied. An optional `config` Lua file
 sets `text_name`, single-grapheme `text`, `mixed_text` and a `sample` file. Two narrated
 scenes demonstrate multiple labels for one grapheme and mixed input (multiple labels
 are allowed). Narration is editable through `comment` and `mixed_comment`. The reusable workflow
-supports private callers and uploads verified media as an artifact without a release.
+supports private callers and uploads verified media as an artifact. The caller template
+automatically commits the verified GIF to docs/table.gif to refresh the README.
+It creates no release.
 
 ## 工厂 / Factory
 

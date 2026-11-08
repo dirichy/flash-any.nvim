@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore: [docs/table.gif]
 permissions:
   contents: read
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   record:
     # Pin both refs to the same released commit for reproducible recordings.
@@ -19,3 +23,39 @@ jobs:
       matcher: full_code
       # converter: converter.lua
       # config: demo.lua # Optional targets, comments and sample file.
+
+  publish:
+    needs: record
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          name: table-demo
+          path: ${{ runner.temp }}/table-demo
+      - name: Update README demo
+        env:
+          DEMO_SHA: ${{ github.sha }}
+          DEMO_ARTIFACT: ${{ runner.temp }}/table-demo
+        run: |
+          # A newer source commit needs its own recording; never publish an older run over it.
+          if test "$(git rev-parse HEAD)" != "$DEMO_SHA"; then
+            echo 'Skipping an outdated recording; main has changed.'
+            exit 0
+          fi
+          python3 -c 'import json, os; from pathlib import Path; r = json.loads((Path(os.environ["DEMO_ARTIFACT"]) / "table-verification.json").read_text()); assert r["verified"], r.get("error")'
+          mkdir -p docs
+          cp "$DEMO_ARTIFACT/table.gif" docs/table.gif
+          if git diff --quiet -- docs/table.gif && test -n "$(git ls-files docs/table.gif)"; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/table.gif
+          git commit -m 'docs: update demo recording'
+          git push origin HEAD:main
