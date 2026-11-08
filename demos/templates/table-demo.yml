@@ -2,6 +2,8 @@
 name: Code-table demo
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: read
 jobs:

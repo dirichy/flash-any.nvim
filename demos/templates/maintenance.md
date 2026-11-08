@@ -26,10 +26,10 @@ short sample file. Codes come from the table automatically.
 工作流用 `config: demo.lua` 指向配置。可用 `sample` 指定简短样本文件，编码自动从码表推导。
 
 Pin the workflow reference and flash-any-ref to the same tested core commit.
-Run the workflow manually, inspect the uploaded GIF/MP4 and verification report,
+Push to main to record automatically, or run the workflow manually. Inspect the uploaded GIF/MP4 and verification report,
 then copy the chosen GIF to docs/table.gif. The reusable workflow uploads artifacts;
 it does not publish a release or change this repository.
-将工作流引用和 flash-any-ref 固定到同一已测试核心提交。手动录制后检查画面与验证报告，
+将工作流引用和 flash-any-ref 固定到同一已测试核心提交。推送 main 自动录制，也可手动运行。检查画面与验证报告，
 将选用的 GIF 放到 docs/table.gif；可复用工作流只上传 artifact，不自动发布或修改仓库。
 
 For local commands, dependencies, font coverage and playback checks, see the

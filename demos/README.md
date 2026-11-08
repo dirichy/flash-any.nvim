@@ -99,7 +99,7 @@ CSV 标题行可在 Lua 中设置 `header = true`。所有相对路径以 Lua �
    [Code-table demo](../.github/workflows/table-demo.yml)，填写 `table-repository`、
    `table-ref`、`file` 和可选 format/columns/converter/matcher/config。路径相对码表仓库。
 2. **在码表仓库运行**：复制 [调用模板](templates/table-demo.yml) 为
-   `.github/workflows/demo.yml`，修改码表路径、matcher 和可选的 config。
+   `.github/workflows/demo.yml`，修改码表路径、matcher 和可选的 config；推送 main 自动录制，也可手动运行。
 
 ```sh
 gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
@@ -123,7 +123,8 @@ fixture assertions used by the built-in demo apply to third-party recordings.
 
 The reusable workflow accepts repository/ref, dictionary path, format, columns, optional converter, matcher ID
 and an optional Lua configuration path. Run it in a repository where you have Actions permissions,
-or copy the tiny caller workflow into the table project. Pin both the workflow ref
+or copy the tiny caller workflow into the table project to record on main pushes
+or manual dispatches. Pin both the workflow ref
 and flash-any-ref to the same published commit. It uploads the table-demo artifact
 with no release or repository writes. Unpushed workflow changes cannot be called
 from GitHub. The README templates focus on installation and use. Copy the maintenance template
