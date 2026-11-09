@@ -22,6 +22,7 @@ source 插件提供：
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
+- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— nerdfont 图标
 
 安装 source 插件后，在 setup 前加载；source 插件只提供 Lua 和数据，无需执行 make。
 

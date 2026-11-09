@@ -25,6 +25,7 @@ codes are available as separate source plugins:
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double-pinyin schemes
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) — Chinese Tiger shape codes
+- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— nerdfont 
 
 Load a source plugin before setup. Source plugins contain Lua/data and need no make.
 
