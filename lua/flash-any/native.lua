@@ -10,7 +10,7 @@ local M = {}
 ---@class FlashAnyNativeEngine
 ---@field new_state fun(self: FlashAnyNativeEngine): FlashAnyNativeEngine
 ---@field has fun(self: FlashAnyNativeEngine, win: integer, buf: integer, tick: integer, from: integer, to: integer): boolean
----@field scan fun(self: FlashAnyNativeEngine, win: integer, buf: integer, tick: integer, from: integer, to: integer, lines: string[]?, pattern: string, labels: string[]?, motion?: string): FlashAnyDisplayMatch[]
+---@field scan fun(self: FlashAnyNativeEngine, win: integer, buf: integer, tick: integer, from: integer, to: integer, lines: string[]?, pattern: string, labels: string[]?, motion?: string, ignorecase?: boolean): FlashAnyDisplayMatch[]
 
 ---@class FlashAnyNativeModule
 ---@field grapheme FlashAnyGrapheme
@@ -131,6 +131,13 @@ local function session_for(state, book)
 	return session.engine
 end
 
+-- Smartcase follows uppercase query letters; each C rule decides whether to fold case.
+---@param pattern string
+---@return boolean
+local function ignorecase(pattern)
+	return vim.go.ignorecase and not (vim.go.smartcase and pattern:find("[A-Z]"))
+end
+
 ---@param win integer
 ---@param state table
 ---@param range table
@@ -150,7 +157,18 @@ function M.get(win, state, range, engine)
 	local tick = vim.api.nvim_buf_get_changedtick(buf)
 	local lines = not engine:has(win, buf, tick, from, to) and vim.api.nvim_buf_get_lines(buf, from - 1, to, false)
 		or nil
-	return engine:scan(win, buf, tick, from, to, lines, pattern, state.labels and state:labels() or nil)
+	return engine:scan(
+		win,
+		buf,
+		tick,
+		from,
+		to,
+		lines,
+		pattern,
+		state.labels and state:labels() or nil,
+		nil,
+		ignorecase(pattern)
+	)
 end
 
 ---@param win integer
@@ -168,10 +186,11 @@ function M.char(win, state, range, engine, motion)
 	local buf = vim.api.nvim_win_get_buf(win)
 	local first, last = math.max(1, range.from[1]), math.min(range.to[1], vim.api.nvim_buf_line_count(buf))
 	local tick, ret = vim.api.nvim_buf_get_changedtick(buf), {}
+	local insensitive = ignorecase(pattern)
 	for row = first, last do
 		local lines = not engine:has(win, buf, tick, row, row) and vim.api.nvim_buf_get_lines(buf, row - 1, row, false)
 			or nil
-		vim.list_extend(ret, engine:scan(win, buf, tick, row, row, lines, pattern, nil, motion or "f"))
+		vim.list_extend(ret, engine:scan(win, buf, tick, row, row, lines, pattern, nil, motion or "f", insensitive))
 	end
 	return ret
 end

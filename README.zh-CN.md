@@ -16,7 +16,8 @@
 （GCC 或 Clang）。不需要 Python、CMake、pkg-config 或单独的 LuaJIT 开发包，
 公共 Lua/C 头文件已随插件提供。Linux 已验证；macOS 构建路径已适配，尚未实机验证。
 
-核心仅内置 ASCII literal 匹配，`sources = {}` 即可使用。拼音、虎码、五笔、图标和
+核心内置 Unicode literal 和可选的 `latin` source。`sources = {}` 只启用字面匹配，
+`sources = { "latin" }` 可匹配拉丁字母变体，无需另装插件。拼音、虎码、五笔、图标和
 Unicode 名称码表均为独立可选插件，只安装需要的 source，并在 setup 前加载。
 迁移中的五个 source 包尚未公开发布；本地安装可把依赖写成
 `{ dir = "/path/to/flash-any-pinyin.nvim" }`，然后配置 `sources = { "pinyin" }`。
@@ -55,9 +56,30 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 ## 用法
 
-按 `s`，输入编码，再按标签跳转。可连续混用 ASCII、全拼、简拼和其他已构建编码。
+按 `s`，输入原文或编码，再按标签跳转。可连续混用原文、全拼、简拼和其他已构建编码。
 例如全拼/简拼 `zhongguo` / `zg` 匹配“中国”；配置 Unicode 表后 `grin` 匹配 😀。
-简拼取首字母，例如“输”是 `s`，不是 `sh`。ASCII 字面匹配自动启用。
+简拼取首字母，例如“输”是 `s`，不是 `sh`。Unicode 字面匹配自动启用。
+无需配置码表，输入 `中` 就能匹配“中”，输入 `👩‍💻` 就能匹配该完整 emoji。
+输入也可以是字素前缀：`e` 可预览 `é`，`👩` 可预览 `👩‍💻`，高亮和跳转范围
+始终覆盖整个字素。前缀不会跳过未输入的后缀，例如 `ex` 不会字面匹配 `éx`。
+原文和编码可混输，例如 `中guo` 匹配“中国”。
+
+常见重音字母和 emoji 输入建议使用 ASCII 标签。literal 预览返回空的 next，
+自定义 Unicode 标签可能与未输入的后缀冲突。开启 Flash 的 `jump.autojump` 时，
+唯一的前缀候选也会立即跳转。
+
+ASCII 字面文本遵循 Neovim 的 `ignorecase`、`smartcase` 设置，`f/F/t/T` 也一样。
+开启 `ignorecase` 后忽略字母大小写；同时开启 `smartcase` 时，查询含大写字母则
+区分大小写。修改选项在下次匹配时生效，无需重新构建码表。
+码表默认精确比较编码；需要随选项忽略大小写的字母转换（例如 extra latin）可使用
+`matcher = "letter"`。它按完整编码消费输入，并用字素首个 Unicode 码点查表、
+消费整个字素，例如 `e` 条目可匹配 `é`，无需枚举组合后缀。其他码表 matcher 仍只
+查询完整字素。
+
+配置 `sources = { "latin" }` 后，`e` 可匹配 `é`、`é`，`o` 匹配 `ø`，`ae` 匹配
+`æ`，`ss` 匹配 `ß`。大写字母保留大写编码（`É` → `E`、`Æ` → `AE`），遵循上述
+`ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消费。
+收录范围和数据来源见 [Latin 说明](docs/latin.md)。
 
 操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
 返回原窗口；`dr` 用于删除。操作、光标恢复和绘制仍由 Flash 管理。
@@ -85,11 +107,12 @@ F/t/T、计数、`;`/`,`、操作符和标签由 Flash 负责。删除 `modes.ch
 
 ## 配置码表
 
-在 setup 中选择 source：
+在 setup 中选择 source；`latin` 已内置，其他示例 source 需另装对应插件：
 
 ```lua
 require("flash-any").setup({
   sources = {
+    "latin",
     "pinyin",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
@@ -124,7 +147,7 @@ lua/flash-any 下安装的 Lua/TSV 文件每个进程检查一次，插件更新
 
 `append_space_below = 4` 给短于4字节的编码追加空格，空格是编码的一部分。
 
-每项的 `matcher` 只能是 `full_code`、`initial`、`prefix` 三种内置模式。
+每项的 `matcher` 可选 `full_code`、`initial`、`prefix`、`letter` 四种内置模式。
 普通源均参与；`fallback = true` 的源只为之前尚未认识的字素提供编码。
 空编码数组也算已认识，会屏蔽后面的 fallback。
 

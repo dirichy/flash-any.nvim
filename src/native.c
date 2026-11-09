@@ -8,7 +8,7 @@
 #include "text.h"
 /* Header: magic[8], Unicode version, file bytes, entry count, hash slots,
  * scalar pages, pool bytes, code-group bytes, reserved. All numeric fields are little-endian u32. */
-#define BINARY_MAGIC "FANYBIN\x08"
+#define BINARY_MAGIC "FANYBIN\x0A"
 #define BINARY_HEADER 40u
 #define BINARY_ENTRY 16u
 #define UNICODE_VERSION 17u
@@ -23,9 +23,15 @@
 /* 0x80..0x9F identify matchers. 0xA0..0xBF are reserved for future pattern operators.
  * Optional-suffix metadata: suffix byte count and ASCII suffix, before the base code.
  * Both the base and base+suffix consumption branches remain valid. */
-enum { MATCH_LITERAL, MATCH_FULL, MATCH_INITIAL, MATCH_PREFIX, MATCH_SUFFIX };
+enum { MATCH_LITERAL, MATCH_FULL, MATCH_INITIAL, MATCH_PREFIX, MATCH_SUFFIX, MATCH_LETTER };
 
-enum { EMIT_CONSUMED, EMIT_NEXT };
+/* PREVIEW is the empty-next form, not a consumed-input result. */
+enum { EMIT_CONSUMED, EMIT_NEXT, EMIT_PREVIEW };
+
+static int group_mode(unsigned mode) {
+  return (mode >= GROUP_FLAG + MATCH_FULL && mode <= GROUP_FLAG + MATCH_PREFIX) ||
+         mode == GROUP_FLAG + MATCH_LETTER;
+}
 
 typedef struct {
   const char *data;
@@ -45,6 +51,7 @@ typedef struct {
 typedef struct {
   Dictionary table;
   const CodeGroups *groups;
+  int letters; /* A scalar lookup can contribute letter rules to compound graphemes. */
 } Engine;
 
 typedef struct {
@@ -53,6 +60,7 @@ typedef struct {
   uint32_t before, after; /* Adjacent grapheme starts for t/T; NONE at line edges. */
   uint32_t valid;
   uint64_t next[2]; /* 128 ASCII next-input bits: these keys cannot become labels. */
+  uint32_t literal_start, literal_size; /* Next non-ASCII/compound glyph, in the saved row. */
 } Match;
 
 /* Match[capacity] follows this header; only the first count entries are live. */
@@ -71,7 +79,7 @@ typedef struct {
 } Requests;
 
 typedef struct {
-  Slice codes;
+  Slice codes, letter_codes, glyph;
   const CodeGroups *groups;
   const char *input;
   uint32_t input_size, input_offset; /* Byte length and current input position. */
@@ -82,7 +90,7 @@ typedef struct {
   Match current; /* Independent of result storage, which may move when it grows. */
   Match *completed; /* Existing result receiving next-input bits, not a new match. */
   Requests *requests;
-  int character, found;
+  int ascii, character, ignorecase, found;
 } MatchContext;
 
 static int compare(Slice a, Slice b) {
@@ -267,6 +275,7 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
   int groups_owner = groups ? lua_gettop(L) : 0;
   Engine *instance = (Engine *)lua_newuserdata(L, sizeof(Engine));
   instance->groups = groups;
+  instance->letters = 0;
   Dictionary *dictionary = &instance->table;
   dictionary->nentry = entry_count;
   dictionary->capacity = capacity;
@@ -286,15 +295,17 @@ static int load_data(lua_State *L, const unsigned char *data, size_t size, int o
     const unsigned char *p = (const unsigned char *)entry.codes.data, *limit = p + entry.codes.size;
     while (p < limit) {
       unsigned mode = *p++;
-      if (mode >= MATCHER_TAG + GROUP_FLAG + MATCH_FULL &&
-          mode <= MATCHER_TAG + GROUP_FLAG + MATCH_PREFIX) {
+      if (mode == MATCHER_TAG + MATCH_LETTER || mode == MATCHER_TAG + GROUP_FLAG + MATCH_LETTER) {
+        instance->letters = 1;
+      }
+      if (mode >= MATCHER_TAG && group_mode(mode - MATCHER_TAG)) {
         if (limit - p < 2 || !groups || short_word(p) >= groups->count) {
           return luaL_error(L, "invalid binary group reference");
         }
         p += 2;
         continue;
       }
-      if (mode < MATCHER_TAG || mode > MATCHER_TAG + MATCH_SUFFIX) {
+      if (mode < MATCHER_TAG || mode > MATCHER_TAG + MATCH_LETTER) {
         return luaL_error(L, "invalid binary matcher ID");
       }
       if (mode == MATCHER_TAG + MATCH_SUFFIX) {
@@ -454,7 +465,7 @@ static int write_binary(lua_State *L) {
       lua_rawgeti(L, -1, 1);
       int mode = luaL_checkint(L, -1);
       lua_pop(L, 1);
-      if (mode >= (int)GROUP_FLAG + MATCH_FULL && mode <= (int)GROUP_FLAG + MATCH_PREFIX) {
+      if (mode >= 0 && group_mode((unsigned)mode)) {
         lua_rawgeti(L, -1, 2);
         lua_Number value = luaL_checknumber(L, -1);
         if (!(value >= 0 && value < group_count) || value != (unsigned)value) {
@@ -466,7 +477,7 @@ static int write_binary(lua_State *L) {
         add_short(&buffer, id);
         continue;
       }
-      if (mode < MATCH_LITERAL || mode > MATCH_SUFFIX) {
+      if (mode < MATCH_LITERAL || mode > MATCH_LETTER) {
         return luaL_error(L, "invalid binary matcher mode");
       }
       lua_rawgeti(L, -1, 2);
@@ -737,23 +748,31 @@ static void request(Requests *requests, uint32_t glyph, uint32_t offset, uint32_
   }
 }
 
-static void emit(MatchContext *context, int is_next, uint32_t value) {
+static unsigned lower_ascii(unsigned key) {
+  return key >= 'A' && key <= 'Z' ? key + ('a' - 'A') : key;
+}
+
+static int same_key(int ignorecase, unsigned left, unsigned right) {
+  return left == right || (ignorecase && lower_ascii(left) == lower_ascii(right));
+}
+
+static void emit(MatchContext *context, int event, uint32_t value) {
   if (context->character) {
     context->found = 1;
     return;
   }
   /* A completed input still examines the next glyph to reserve label keys. */
   if (context->completed) {
-    if (is_next) {
+    if (event == EMIT_NEXT) {
       context->completed->next[value >> 6] |= (uint64_t)1 << (value & 63);
     }
     return;
   }
   uint32_t end_glyph = context->glyph_index;
   uint32_t after = context->glyph_after;
-  /* EMIT_NEXT passes a possible next input byte; EMIT_CONSUMED passes a length. */
-  int complete = !is_next && value == context->input_size - context->input_offset;
-  if (is_next || complete) {
+  /* NEXT carries an input byte; CONSUMED a length; PREVIEW emits no continuation. */
+  int complete = event == EMIT_CONSUMED && value == context->input_size - context->input_offset;
+  if (event != EMIT_CONSUMED || complete) {
     Match *m = &context->current;
     if (!m->valid) {
       m->valid = 1;
@@ -762,7 +781,7 @@ static void emit(MatchContext *context, int is_next, uint32_t value) {
     } else if (context->match_start < m->start) {
       m->start = context->match_start;
     }
-    if (is_next) {
+    if (event == EMIT_NEXT) {
       m->next[value >> 6] |= (uint64_t)1 << (value & 63);
     }
     /* Defer next-glyph label exclusions until that glyph is decoded. */
@@ -774,28 +793,32 @@ static void emit(MatchContext *context, int is_next, uint32_t value) {
   }
 }
 
-/* Literal consumes only a whole one-byte input grapheme.
- * ASCII controls break before combining marks; CR+LF is the exception.
- */
-static int one_byte_input(MatchContext *context) {
-  uint32_t at = context->input_offset;
-  unsigned char ch = (unsigned char)context->input[at];
-  if (ch >= 128) {
-    return 0;
+/* Case-insensitive rules reserve both spellings; exact codes reserve only their own. */
+static void emit_key(MatchContext *context, unsigned key, int ignorecase) {
+  emit(context, EMIT_NEXT, key);
+  unsigned lower = lower_ascii(key);
+  if (ignorecase && lower >= 'a' && lower <= 'z') {
+    emit(context, EMIT_NEXT, key ^ ('a' - 'A'));
   }
-  if (at + 1 == context->input_size) {
-    return 1;
+}
+
+/* A shorter query previews the whole glyph without consuming its remaining suffix. */
+static void match_literal(MatchContext *context) {
+  Slice glyph = context->glyph;
+  uint32_t size = context->input_size - context->input_offset;
+  if (!size) {
+    if (context->completed) {
+      context->completed->literal_start = context->glyph_after - glyph.size;
+      context->completed->literal_size = glyph.size;
+    }
+    return;
   }
-  if (ch == 13 && context->input[at + 1] == 10) {
-    return 0;
+  uint32_t common = size < glyph.size ? size : glyph.size;
+  if (context->input[context->input_offset] != glyph.data[0] ||
+      memcmp(context->input + context->input_offset, glyph.data, common)) {
+    return;
   }
-  if (ch < 32 || ch == 127) {
-    return 1;
-  }
-  ++at;
-  int32_t next = decode((const unsigned char *)context->input, context->input_size, &at);
-  unsigned g = property(next) & GCB_MASK;
-  return g != GCB_EXTEND && g != GCB_ZWJ && g != GCB_SPACING_MARK;
+  emit(context, size < glyph.size ? EMIT_PREVIEW : EMIT_CONSUMED, glyph.size);
 }
 
 /* All spellings share these semantics, whether inline or read through a group ID. */
@@ -808,14 +831,16 @@ static uint32_t match_spelling(MatchContext *context, unsigned mode, const unsig
                                uint32_t length, SpellingMatches *matches) {
   uint32_t size = context->input_size - context->input_offset, common = 0;
   while (common < size && common < length &&
-         code[common] == (unsigned char)context->input[context->input_offset + common]) {
+         same_key(context->ignorecase && mode == MATCH_LETTER, code[common],
+                  (unsigned char)context->input[context->input_offset + common])) {
     ++common;
   }
   if (length > size && common == size) {
-    emit(context, EMIT_NEXT, code[size]);
+    emit_key(context, code[size], context->ignorecase && mode == MATCH_LETTER);
   }
   if (common == length &&
-      (mode == MATCH_FULL || mode == MATCH_SUFFIX || (mode == MATCH_INITIAL && length > 1))) {
+      (mode == MATCH_FULL || mode == MATCH_SUFFIX || mode == MATCH_LETTER ||
+       (mode == MATCH_INITIAL && length > 1))) {
     emit(context, EMIT_CONSUMED, length);
   }
   if (mode == MATCH_INITIAL && common) {
@@ -833,10 +858,11 @@ static void match_group(MatchContext *context, unsigned mode, unsigned id,
   uint32_t size = context->input_size - context->input_offset;
   if (group->first < 128) {
     if (!size) {
-      emit(context, EMIT_NEXT, group->first);
+      emit_key(context, group->first, context->ignorecase && mode == MATCH_LETTER);
       return;
     }
-    if ((unsigned char)context->input[context->input_offset] != group->first) {
+    if (!same_key(context->ignorecase && mode == MATCH_LETTER,
+                  (unsigned char)context->input[context->input_offset], group->first)) {
       return;
     }
   }
@@ -848,18 +874,20 @@ static void match_group(MatchContext *context, unsigned mode, unsigned id,
   }
 }
 
-static void match_codes(MatchContext *context) {
-  if (!context->codes.size) {
+static void match_code_list(MatchContext *context, Slice codes, int letter_only) {
+  if (!codes.size) {
     return;
   }
-  const unsigned char *p = (const unsigned char *)context->codes.data,
-                      *end = p + context->codes.size;
+  const unsigned char *p = (const unsigned char *)codes.data,
+                      *end = p + codes.size;
   uint32_t size = context->input_size - context->input_offset;
   SpellingMatches matches = {0};
   while (p < end) {
     unsigned mode = *p++ - MATCHER_TAG;
     if (mode & GROUP_FLAG) {
-      match_group(context, mode & ~GROUP_FLAG, short_word(p), &matches);
+      if (!letter_only || (mode & ~GROUP_FLAG) == MATCH_LETTER) {
+        match_group(context, mode & ~GROUP_FLAG, short_word(p), &matches);
+      }
       p += 2;
       continue;
     }
@@ -875,11 +903,13 @@ static void match_codes(MatchContext *context) {
       ++p;
     }
     uint32_t length = (uint32_t)(p - code);
+    if (letter_only && mode != MATCH_LETTER) {
+      continue;
+    }
     if (mode == MATCH_LITERAL) {
       if (!size) {
-        emit(context, EMIT_NEXT, code[0]);
-      } else if ((unsigned char)context->input[context->input_offset] == code[0] &&
-                 one_byte_input(context)) {
+        emit_key(context, code[0], context->ignorecase);
+      } else if (same_key(context->ignorecase, (unsigned char)context->input[context->input_offset], code[0])) {
         emit(context, EMIT_CONSUMED, 1);
       }
       continue;
@@ -905,6 +935,18 @@ static void match_codes(MatchContext *context) {
   }
   for (uint32_t bytes = 1; bytes <= matches.prefix; ++bytes) {
     emit(context, EMIT_CONSUMED, bytes);
+  }
+}
+
+static void match_codes(MatchContext *context) {
+  /* ASCII literal rules already live in the dictionary; other glyphs compare their text. */
+  if (!context->ascii) {
+    match_literal(context);
+  }
+  match_code_list(context, context->codes, 0);
+  if (context->letter_codes.size) {
+    /* A scalar hit never grants literal or ordinary code rules permission to skip a suffix. */
+    match_code_list(context, context->letter_codes, 1);
   }
 }
 
@@ -987,7 +1029,7 @@ static Result *scan_grapheme(lua_State *L, int result_index, Result *result, Mat
 
 static Result *scan_line(lua_State *L, int result_index, Result *result, Engine *instance,
                          Slice text, const char *input, uint32_t size, uint32_t row,
-                         Requests *requests, int character) {
+                         Requests *requests, int character, int ignorecase) {
   if (!character) {
     memset(requests->starts, 255, (size_t)REQUEST_SLOTS * requests->width * sizeof(uint32_t));
     memset(requests->counts, 0, (size_t)REQUEST_SLOTS * sizeof(uint32_t));
@@ -1000,6 +1042,7 @@ static Result *scan_line(lua_State *L, int result_index, Result *result, Engine 
   context.text_size = text.size;
   context.requests = requests;
   context.character = character;
+  context.ignorecase = ignorecase;
   GraphemeState state = {.previous = -1};
   uint32_t at = 0, start = 0, before = NONE, last = 0;
   uint32_t count = 0, hash = UINT32_C(2166136261);
@@ -1013,9 +1056,18 @@ static Result *scan_line(lua_State *L, int result_index, Result *result, Engine 
     int boundary = col == text.size || grapheme_break(&state, scalar);
     if (boundary && count) {
       Slice key = {text.data + start, col - start};
+      context.glyph = key;
+      context.ascii = count == 1 && first >= 0 && first < 128;
       uint32_t entry = count == 1 && first >= 0 ? scalar_lookup(&instance->table, (uint32_t)first)
                                                 : text_lookup(&instance->table, key, hash);
       context.codes = entry == NONE ? (Slice){NULL, 0} : entry_at(&instance->table, entry).codes;
+      context.letter_codes = (Slice){NULL, 0};
+      if (instance->letters && count > 1 && first >= 0) {
+        uint32_t head = scalar_lookup(&instance->table, (uint32_t)first);
+        if (head != NONE) {
+          context.letter_codes = entry_at(&instance->table, head).codes;
+        }
+      }
       /* Flash end positions include the final scalar, not its trailing bytes. */
       context.glyph_after = col;
       context.glyph_end = last;
@@ -1064,13 +1116,40 @@ static void position_field(lua_State *L, const char *key, uint32_t row, uint32_t
   lua_setfield(L, -2, key);
 }
 
-static int results(lua_State *L, Result *r, int character, char motion) {
+/* A completed literal can continue with any prefix of the following whole glyph. */
+static void literal_keys(lua_State *L, const Match *match, int lines, int output) {
+  if (!match->literal_size) {
+    return;
+  }
+  lua_rawgeti(L, lines, (int)match->row);
+  const unsigned char *suffix = (const unsigned char *)lua_tostring(L, -1) + match->literal_start;
+  uint32_t at = 0;
+  while (at < match->literal_size) {
+    decode(suffix, match->literal_size, &at);
+    lua_pushlstring(L, (const char *)suffix, at);
+    lua_pushboolean(L, 1);
+    lua_rawset(L, output);
+  }
+  lua_pop(L, 1);
+}
+
+static int results(lua_State *L, Result *r, int character, char motion, int lines) {
   Match *matches = (Match *)(r + 1);
   uint64_t blocked[2] = {0, 0};
+  int has_literals = 0;
   if (!character) {
     for (uint32_t i = 0; i < r->count; ++i) {
       blocked[0] |= matches[i].next[0];
       blocked[1] |= matches[i].next[1];
+      has_literals |= matches[i].literal_size != 0;
+    }
+  }
+  int blocked_literals = 0;
+  if (has_literals) {
+    lua_newtable(L);
+    blocked_literals = lua_gettop(L);
+    for (uint32_t i = 0; i < r->count; ++i) {
+      literal_keys(L, matches + i, lines, blocked_literals);
     }
   }
   uint32_t label = 1;
@@ -1102,6 +1181,9 @@ static int results(lua_State *L, Result *r, int character, char motion) {
         }
       }
     }
+    if (!character) {
+      literal_keys(L, m, lines, lua_gettop(L));
+    }
     lua_setfield(L, -2, "next");
     if (!character) {
       while (label <= label_count) {
@@ -1111,9 +1193,16 @@ static int results(lua_State *L, Result *r, int character, char motion) {
         if (!key) {
           return luaL_error(L, "labels must be strings");
         }
-        if (n != 1 || (unsigned char)key[0] >= 128 ||
-            !(blocked[(unsigned char)key[0] >> 6] &
-              ((uint64_t)1 << ((unsigned char)key[0] & 63)))) {
+        int reserved = n == 1 && (unsigned char)key[0] < 128 &&
+                       (blocked[(unsigned char)key[0] >> 6] &
+                        ((uint64_t)1 << ((unsigned char)key[0] & 63)));
+        if (!reserved && blocked_literals) {
+          lua_pushvalue(L, -1);
+          lua_rawget(L, blocked_literals);
+          reserved = lua_toboolean(L, -1);
+          lua_pop(L, 1);
+        }
+        if (!reserved) {
           lua_setfield(L, -2, "label");
           break;
         }
@@ -1125,7 +1214,7 @@ static int results(lua_State *L, Result *r, int character, char motion) {
   return 1;
 }
 
-/* Lua: state:scan(win, buf, tick, from, to, lines?, pattern, labels?, motion?). */
+/* Lua: state:scan(win, buf, tick, from, to, lines?, pattern, labels?, motion?, ignorecase?). */
 static int scan(lua_State *L) {
   Engine *instance = engine(L);
   int from = (int)luaL_checkinteger(L, 5), to = (int)luaL_checkinteger(L, 6);
@@ -1140,6 +1229,7 @@ static int scan(lua_State *L) {
   }
   const char *mode = lua_isnoneornil(L, 10) ? NULL : luaL_checkstring(L, 10);
   int character = mode != NULL;
+  int ignorecase = lua_toboolean(L, 11);
   int window_index = window(L, 1);
   lua_getfield(L, window_index, "lines");
   int lines = lua_gettop(L);
@@ -1176,10 +1266,13 @@ static int scan(lua_State *L) {
     lua_getfield(L, cache, "to");
     same = same && lua_tointeger(L, -1) == to;
     lua_pop(L, 1);
+    lua_getfield(L, cache, "ignorecase");
+    same = same && lua_toboolean(L, -1) == ignorecase;
+    lua_pop(L, 1);
     /* Labels and f/F/t/T positions are reapplied when materializing results. */
     if (same) {
       lua_getfield(L, cache, "result");
-      return results(L, (Result *)lua_touserdata(L, -1), character, mode ? mode[0] : 0);
+      return results(L, (Result *)lua_touserdata(L, -1), character, mode ? mode[0] : 0, lines);
     }
   }
   Result *result = (Result *)lua_newuserdata(L, sizeof(Result));
@@ -1212,17 +1305,19 @@ static int scan(lua_State *L) {
       }
       Slice text = {value, (uint32_t)text_size};
       result = scan_line(L, result_index, result, instance, text, input, (uint32_t)length, row,
-                         &requests, character);
+                         &requests, character, ignorecase);
       lua_settop(L, base);
     }
   }
   qsort(result + 1, result->count, sizeof(Match), sort_matches);
-  lua_createtable(L, 0, 4);
+  lua_createtable(L, 0, 5);
   cache = lua_gettop(L);
   lua_pushvalue(L, 8);
   lua_setfield(L, cache, "pattern");
   integer_field(L, "from", from);
   integer_field(L, "to", to);
+  lua_pushboolean(L, ignorecase);
+  lua_setfield(L, cache, "ignorecase");
   lua_pushvalue(L, result_index);
   lua_setfield(L, cache, "result");
   if (character) {
@@ -1234,7 +1329,7 @@ static int scan(lua_State *L) {
     lua_pushvalue(L, cache);
     lua_setfield(L, window_index, "search");
   }
-  return results(L, result, character, mode ? mode[0] : 0);
+  return results(L, result, character, mode ? mode[0] : 0, lines);
 }
 
 /* Build-time enumeration uses the same decoder/boundary state as scan_line.
@@ -1318,13 +1413,14 @@ int luaopen_flash_any_native(lua_State *L) {
   lua_setfield(L, -2, "grapheme");
   lua_pushfstring(L, "%s/%d", BINARY_MAGIC, UNICODE_VERSION);
   lua_setfield(L, -2, "version");
-  lua_createtable(L, 0, 6);
+  lua_createtable(L, 0, 7);
   integer_field(L, "group", GROUP_FLAG);
   integer_field(L, "literal", MATCH_LITERAL);
   integer_field(L, "full_code", MATCH_FULL);
   integer_field(L, "initial", MATCH_INITIAL);
   integer_field(L, "prefix", MATCH_PREFIX);
   integer_field(L, "suffix", MATCH_SUFFIX);
+  integer_field(L, "letter", MATCH_LETTER);
   lua_setfield(L, -2, "modes");
   return 1;
 }

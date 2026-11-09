@@ -88,6 +88,25 @@ or preset-vocabulary inference. Ambiguous auto-detection can be overridden with 
 | `full_code` | 完整编码 / Complete code |
 | `initial` | 首字母或完整编码 / First byte or complete code |
 | `prefix` | 编码的任意非空前缀 / Any nonempty code prefix |
+| `letter` | 首码点查表，完整编码，遵循大小写选项 / Head codepoint, complete code, case options |
+
+`letter` 按完整编码消费输入，遵循 Neovim 的 `ignorecase` / `smartcase`，并允许
+用字素首码点的条目匹配整个字素，适合 extra latin 等字母转换。例如：
+
+```lua
+{ data = { e = "e", E = "E", ["é"] = "e", ["æ"] = "ae" }, matcher = "letter" }
+```
+
+此时 `é` 可按 `e` 匹配，`æ̈` 可按 `ae` 匹配。完整字素自己的条目仍参与匹配，
+首码点查询只接受 `letter` 规则。码点到编码的映射由码表提供，不自动做 Unicode
+大小写转换或规范化；大小写选项只控制 ASCII 编码比较。其他码表模式始终精确比较。
+
+`letter` consumes complete codes, follows Neovim’s `ignorecase` / `smartcase`, and
+allows a head-codepoint entry to consume an entire grapheme. The example matches
+`é` with `e` and `æ̈` with `ae`. Exact whole-grapheme entries still participate;
+head lookups accept only `letter` rules. Tables supply codepoint mappings; there is
+no automatic Unicode case conversion or normalization. Case options affect ASCII
+code comparison only. Other code-table modes always compare codes exactly.
 
 默认 full_code。标识使用字符串，不暴露 C 内部数字，不接受 Lua matcher。
 
@@ -208,9 +227,9 @@ links use stable release URLs; generated media is never committed.
 
 ## 工厂 / Factory
 
-核心只内置 literal，其他 source 分别安装；在 setup 前加载对应插件。
+核心内置完整 Unicode 字素的 literal 和可选的 latin；其他 source 分别安装，在 setup 前加载对应插件。
 
-The core ships literal matching only. Install optional source plugins before setup.
+The core ships whole-grapheme Unicode literal and optional latin matching. Install other source plugins before setup.
 
 在 runtimepath 中提供 `lua/flash-any/sources/japan.lua`：
 
@@ -245,16 +264,28 @@ require("flash-any").setup({
 - 每个 key 须为一个完整 Unicode17 字素；`á`、`👩‍💻` 合法，`中国` 是两个字素，
   当前会报错。非法 UTF8 字节分别作为独立单元处理。不做 Unicode 归一化。
 - 编码为非空 ASCII 字符串或数组。空数组表示已认识但没有匹配，可屏蔽 fallback。
-- `matcher` 只能是 `full_code`、`initial`、`prefix`。前者接受完整编码，initial
+- `matcher` 只能是 `full_code`、`initial`、`prefix`、`letter`。前者接受完整编码，initial
   同时接受首字母和完整编码，prefix 接受任意非空前缀。
 - 普通源都贡献编码；fallback 仅在此前源未认识时贡献。码表内容决定覆盖范围。
 - 相同 matcher 模式和编码自动去重，不保留 source 归属。
 
 Each key is exactly one complete Unicode17 grapheme. Codes are nonempty ASCII strings
-or arrays; an empty array recognizes without matching. The three built-in modes are
-full code, initial/full code, and arbitrary nonempty code prefix. Dictionary contents
+or arrays; an empty array recognizes without matching. Modes cover full codes,
+initial/full codes, arbitrary nonempty code prefixes, and letter head-codepoint
+matching with case options. Dictionary contents
 define coverage. Ordinary sources contribute independently; fallbacks contribute only
 for previously unknown graphemes. Duplicate mode/code pairs merge without source IDs.
+
+每轮输入独立匹配，不以之前的候选集限制本轮搜索。literal 接受字素原文及其
+前缀；未输完的字素仅预览，返回空 next，不推进到下一字素。完整字素后的 next
+包含下一字素可输入的前缀。Unicode 标签可能与预览中未输入的后缀冲突。
+编码前缀是否有效由所选 matcher 决定，而不是所有匹配规则的共同约定。
+
+Queries match independently of previous candidate sets. Literal accepts grapheme
+text and its prefixes. An unfinished glyph previews with empty next keys, without
+advancing to the following glyph. Completed glyphs expose the next glyph's literal
+prefixes. Unicode labels may conflict with untyped preview suffixes. Code-prefix
+acceptance belongs to the chosen matcher, not a shared requirement for all rules.
 
 ## 覆盖与文件 / Overrides and files
 

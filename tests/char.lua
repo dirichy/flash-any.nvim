@@ -27,6 +27,24 @@ local function keys(input, pos)
 	assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), pos), vim.inspect(vim.api.nvim_win_get_cursor(0)))
 end
 
+vim.go.ignorecase = true
+reset({ "aV中v" })
+keys("fv", { 1, 1 })
+keys(";", { 1, 2 })
+keys(";", { 1, 5 })
+vim.go.smartcase = true
+reset({ "aV中v" })
+keys("fV", { 1, 1 })
+keys(";", { 1, 1 })
+vim.go.ignorecase, vim.go.smartcase = false, false
+
+reset({ "a中国中" })
+keys("f中", { 1, 1 })
+keys(";", { 1, 7 })
+keys("F中", { 1, 1 })
+reset({ "a国中" })
+keys("t中", { 1, 1 })
+
 reset({ "a中珠v end" })
 keys("fv", { 1, 1 })
 keys("f", { 1, 4 })

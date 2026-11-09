@@ -5,13 +5,16 @@
 当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见本文
 “单趟解码匹配替换文本索引”。`tests/reference/`仍供差分测试使用，不是运行时后端。
 用户侧构建现已改用Neovim Lua和随附头文件，只需C编译器；下文的旧Python构建及
-GNU make4.3要求属于历史实现。Python仍可用于独立性能实验。
+GNU make4.3要求属于历史实现。Python仍可用于独立性能实验。早期章节的增量匹配
+状态也仅描述旧实现；当前 C 版在输入变化时重新扫描缓存原始行，不依赖前缀闭合约定。
 
 Historical results and commands describe their original implementation. Obsolete
 Cursor/Lua experiment scripts have been removed. See [current tools](../scripts/README.md)
 for supported entry points and the section on sequential decoding/matching for the current scanner.
 Native builds now use Neovim Lua, bundled headers and a C compiler; older Python
-build commands and GNU make4.3 requirements below are historical.
+build commands and GNU make4.3 requirements below are historical. Older incremental
+matching states are historical too: the current C scanner rescans saved lines when
+the query changes and does not require prefix-closed candidate sets.
 
 ## 历史 Matcher 压力测试
 

@@ -97,7 +97,7 @@ sources 在 setup 中配置，构建时解析： >lua
       { data = { ["👩‍💻"] = { "dev", "coder" } }, matcher = "prefix" },
     }
 <
-核心仅内置 ASCII literal；sources={} 可独立使用。
+核心内置 Unicode literal 和可选的 latin；sources={} 可独立使用。
 pinyin、tiger、wubi86、nerdfont、unicode 均需分别安装对应 source 插件。pinyin 省略 scheme 为全拼及首字母，
 scheme 可选 flypy、pyjj、natural、abc、mspy、st；双拼默认完整编码。fuzzy 可为 true
 或 initials/finals 等价分组。append_space_below 给短于阈值的编码加一个空格。
@@ -108,15 +108,27 @@ Many initial/final combinations increase build and matching work, especially dou
 pinyin dictionary size; enable only needed groups.
 
 用户可提供 data，或 lua 与可选完整 tsv 文件。Lua 工厂放在
-lua/flash-any/sources/name.lua，返回 {data/codetable, matcher, scope, fallback}。
-工厂与转换函数只在构建时运行，不支持自定义 matcher/scope 函数或按需 loader。
+lua/flash-any/sources/name.lua，返回 {data/codetable, matcher, fallback}。
+工厂与转换函数只在构建时运行，不支持自定义 matcher 函数或按需 loader。
 
-scope：                                                     *flash-any-scope*
+普通源都参与码表合并，fallback 仅为之前未认识的字素提供编码；空编码数组也算认识。
+原文字面匹配不改变码表之间的 fallback 合并规则，不支持 scope 过滤。
 
-预定义 all/ascii/chinese/unicode/private_use 或字符/区间表。字符覆盖优先，false
-排除字符。数值端点为 Unicode 码点，字符串端点为完整单字素，按 UTF8 字节序比较。
-scope 在 build 时过滤。普通源都参与，fallback 仅为之前未认识的字素提供编码；
-空编码数组也算认识。ASCII 字面匹配自动提供。
+Unicode literal:
+输入原文可直接匹配自己，包括汉字、组合字符和 emoji，无需额外码表。
+输入可以是字素前缀：e 可预览 é，👩 可预览 👩‍💻，范围仍覆盖整个字素。
+前缀不跳过未输入的后缀；ex 不会字面匹配 éx。
+原文可与编码连续混输，如 中guo 匹配“中国”。ASCII 遵循 ignorecase/smartcase，
+其他字素按原文字节比较，不进行 Unicode 规范化。预览返回空 next，Unicode 标签
+可能与未输入的后缀冲突；常见组合字符输入建议用默认 ASCII 标签。
+Literal prefixes preview whole graphemes without skipping the remaining suffix.
+Unicode text can mix with table codes. Case settings affect ASCII literals only.
+Preview next keys are empty; Unicode labels can conflict with untyped suffixes.
+
+latin:
+sources={"latin"} 启用内置拉丁字母变体表；e 匹配 é/é，ae 匹配 æ，ss 匹配 ß。
+使用 letter matcher：按首码点查表，消费整个字素，遵循 ignorecase/smartcase。
+`letter` consumes full codes, matches head-codepoint entries and follows case settings.
 
 ===============================================================================
 4. 内置匹配规则                                            *flash-any-matchers*
@@ -124,8 +136,9 @@ scope 在 build 时过滤。普通源都参与，fallback 仅为之前未认识�
 full_code   消费完整编码，输入尚未完成时提供可继续的键。
 initial     同时接受首字母和完整编码。
 prefix      接受编码的任意非空前缀。
+letter      消费完整编码；可按首码点匹配整个字素，遵循大小写设置。
 
-matcher 仅选择以上字符串，不接受函数。码表编码必须是非空 ASCII 字符串或数组。
+matcher 仅接受以上字符串，不接受函数。码表编码必须是非空 ASCII 字符串或数组。
 构建阶段的字素计数和切分也调用 C；Lua 不再维护独立的字素分割算法。
 相同模式/编码自动去重。Lua Cursor、逐字素 emit 回调和旧 Lua 扫描器不再是 API。
 
@@ -161,7 +174,7 @@ build.binary 生成 FANYBIN v8。码点分页数组、多码点字素 hash 和�
 支持 Rime、TSV、CSV、空白分隔、Fcitx、IBus。format 默认 auto，columns 可指定列序。
 TSV 每行一对字素和编码，多编码重复写行；逗号原样保留，无需排序。
 file 接入自动过滤多字素词组并报告数量；Lua/data 键仍须为单个完整字素。
-matcher 标识为 full_code、initial 或 prefix；不支持自定义 matcher。
+matcher 标识为 full_code、initial、prefix 或 letter；不支持自定义 matcher。
 可选 converter = "/path/converter.lua"；文件返回 function(codes)，在构建时
 接收一个字素的全部编码，返回新数组，nil/空数组略过该字素。扫描不执行 converter。
 自动缓存按元数据跟踪依赖；不为计算内容哈希读取整个码表。显式 binary 仅在缺失时构建。

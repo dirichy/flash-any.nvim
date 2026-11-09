@@ -95,7 +95,7 @@ local function read(path)
 	return bytes
 end
 local bytes = read(root .. "/large.bin")
-for _, mode in ipairs({ 8, 12, 13, 31 }) do
+for _, mode in ipairs({ 8, 12, 14, 31 }) do
 	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { mode, 0 } } }, forms))
 	assert(read(root .. "/large.bin") == bytes)
 end

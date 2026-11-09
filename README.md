@@ -18,7 +18,9 @@ builds and updates. No Python, CMake, pkg-config or separate LuaJIT development 
 is needed. Public Lua/C headers are bundled. Linux is tested; the macOS build path
 is prepared but has not yet been verified on a Mac.
 
-The core includes ASCII literal matching only; `sources = {}` works on its own.
+The core includes Unicode literal matching and an optional `latin` source;
+`sources = {}` enables literal matching alone. Use `sources = { "latin" }` to search
+Latin letter variants without installing another plugin.
 Pinyin, Tiger, Wubi, icon names and Unicode names are separate optional plugins.
 Install only the sources you need and load them before setup. These five source
 packages have not yet been publicly released during this migration.
@@ -60,10 +62,33 @@ Custom Lua matchers remain unsupported.
 
 ## Usage
 
-Press `s`, type codes, then select a label. Mix ASCII, full pinyin, initials and
+Press `s`, type text or codes, then select a label. Mix literal text, full pinyin, initials and
 other compiled encodings. For example `zhongguo` / `zg` matches 中国; with the
 Unicode source, `grin` matches 😀. Initials use the first letter (`s`, not `sh`).
-ASCII literal matching is automatic.
+Literal matching is automatic for every complete grapheme: type `中` to match 中,
+or `👩‍💻` to match that emoji, without a source table. Prefixes also match: `e`
+previews `é`, and `👩` previews `👩‍💻`; the highlight and jump range cover the whole
+grapheme. A prefix does not skip the untyped suffix: `ex` does not literally match
+`éx`. Literal input can mix with codes, such as `中guo` for 中国.
+
+Use ASCII labels for common combining-letter and emoji input. Literal previews
+return no next keys, so custom Unicode labels can conflict with an untyped suffix.
+With Flash's `jump.autojump` enabled, a unique prefix candidate can jump immediately.
+
+ASCII literal text follows Neovim’s `ignorecase` and `smartcase` settings, including
+`f/F/t/T`. With `ignorecase` enabled, letter case is ignored; with `smartcase` also
+enabled, an uppercase letter in the query makes that query case-sensitive. Changes
+take effect on the next match without rebuilding the dictionary. Code tables match
+exactly by default; use `matcher = "letter"` for letter conversions that should
+follow these settings, such as extra Latin letters. `letter` also looks up the
+first Unicode codepoint of a grapheme and consumes the entire grapheme, so an `e`
+entry can match `é` without enumerating combining suffixes. Other code-table matchers continue
+to look up complete graphemes only.
+
+With `sources = { "latin" }`, type `e` for `é` or `é`, `o` for `ø`, `ae` for `æ`,
+and `ss` for `ß`. Capital letters have capital codes (`É` → `E`, `Æ` → `AE`);
+`ignorecase` / `smartcase` apply as described above. Combining suffixes are consumed
+with the letter. See [Latin coverage and data](docs/latin.md) for limits and provenance.
 
 In operator-pending mode, `yr`, a search and label, then `iw` yanks a remote word
 and restores the original position. Use `dr` to delete. Flash owns operators,
@@ -93,11 +118,13 @@ only a Flash bridge, not a custom code matcher.
 
 ## Sources
 
-After installing their separate plugins, select sources in setup:
+Select sources in setup; `latin` is bundled, while the other sources below require
+their separate plugins:
 
 ```lua
 require("flash-any").setup({
   sources = {
+    "latin",
     "pinyin",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
@@ -137,7 +164,7 @@ spelling and source defaults are documented by the corresponding source package.
 `append_space_below = 4` appends one space to codes shorter
 than four bytes; that space is part of the code.
 
-`matcher` selects only `full_code`, `initial` or `prefix`. Ordinary sources all
+`matcher` selects `full_code`, `initial`, `prefix` or `letter`. Ordinary sources all
 participate. A fallback contributes only when no earlier source recognized that
 grapheme; a recognized empty code list also blocks later fallbacks.
 

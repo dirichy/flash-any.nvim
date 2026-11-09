@@ -4,7 +4,7 @@ local tables = require("flash-any.table")
 ---@class FlashAnySourceDefinition
 ---@field codetable? string Table name under flash-any.tables; mutually exclusive with data.
 ---@field data? FlashAnyTable Prepared data; may have a lazy __index.
----@field matcher? "full_code"|"initial"|"prefix"
+---@field matcher? "full_code"|"initial"|"prefix"|"letter"
 ---@field fallback? boolean
 ---@field prepared? boolean Factory owns data overrides and padding.
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
@@ -41,7 +41,8 @@ function M.load(name, opts)
 		source.matcher == nil
 			or source.matcher == "full_code"
 			or source.matcher == "initial"
-			or source.matcher == "prefix",
+			or source.matcher == "prefix"
+			or source.matcher == "letter",
 		"Lua matcher functions are not supported"
 	)
 	if opts and opts.groups ~= nil then
@@ -75,7 +76,7 @@ end
 ---@class FlashAnySourceConfig
 ---@field [string] any Source-defined build options are validated by its factory.
 ---@field name? string
----@field matcher? "full_code"|"initial"|"prefix"
+---@field matcher? "full_code"|"initial"|"prefix"|"letter"
 ---@field fallback? boolean
 ---@field data? FlashAnyTableInput
 ---@field lua? string
@@ -99,8 +100,8 @@ local function source_mode(matcher)
 		matcher = "full_code"
 	end
 	assert(
-		matcher == "full_code" or matcher == "initial" or matcher == "prefix",
-		"matcher must be full_code, initial or prefix; Lua matcher functions are not supported"
+		matcher == "full_code" or matcher == "initial" or matcher == "prefix" or matcher == "letter",
+		"matcher must be full_code, initial, prefix or letter; Lua matcher functions are not supported"
 	)
 	return matcher
 end

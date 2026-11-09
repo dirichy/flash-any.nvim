@@ -98,7 +98,7 @@ local large = native.load(root .. "/large.bin")
 assert(#large:scan(0, 0, 1, 1, 1, { "甲" }, "a;", nil) == 1)
 assert(#large:scan(0, 0, 1, 1, 1, nil, "\0a", nil) == 1)
 bytes = read(root .. "/large.bin")
-for _, mode in ipairs({ 8, 12, 13, 31 }) do
+for _, mode in ipairs({ 8, 12, 14, 31 }) do
 	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { mode, 0 } } }, forms))
 	assert(read(root .. "/large.bin") == bytes)
 end

@@ -42,7 +42,7 @@ function M.check()
 	if #sources > 0 then
 		vim.health.ok("Available sources: " .. table.concat(sources, ", "))
 	else
-		vim.health.ok("ASCII literal matching is available; optional sources are installed separately")
+		vim.health.ok("Unicode literal matching is available; optional sources are installed separately")
 	end
 
 	if vim.tbl_contains(vim.fn.getcompletion("flash-any", "help"), "flash-any") then

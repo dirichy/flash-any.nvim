@@ -95,9 +95,10 @@ namespace, require explicit rebuilding.
 
 按source顺序处理fallback，再合并`(matcher模式, 编码)`。空编码集合
 也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为128个键，普通源
-仍可为ASCII附加编码。运行时不保留source身份或fallback状态。
+仍可为ASCII附加编码。非 ASCII 或多码点字素不依赖码表，直接比较原文；
+fallback 的码表合并规则不因原文字面匹配而改变。运行时不保留source身份或fallback状态。
 
-格式`FANYBIN\x08`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
+格式`FANYBIN\x0A`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
 条目数、哈希容量、页数、pool字节数、编码组区字节数和一个保留0。随后为16-byte条目（key及编码
 列表的offset/length）、复杂字素哈希槽、4352个u32页目录及每个实际页的256槽，
 随后是共享byte pool及编码组区。槽存条目序号+1，0为空。相同带标记编码列表共享pool片段。
@@ -135,14 +136,33 @@ states pin their snapshot; per-state line/result caches expire with their buffer
 每字素查一次字典，列表复用给该位置的所有输入状态。按字素/输入byte offset
 合并请求，保留最早起点，固定两槽工作区推进；C处理完整/首字母/前缀消费、
 候选合并及next-key标签避让。每字素只用一个临时候选，命中后追加到按需增长的
-结果数组；不为所有字素预分配结果槽。相同输入复用结果，改变输入重新解码缓存
-的原始行，尚未保留增量匹配前沿。跨独立跳转只复用码表。f/F/t/T在前向扫描时
+结果数组；不为所有字素预分配结果槽。相同输入复用结果；输入改变时重新解码并
+匹配缓存的原始行，不从上一轮候选筛选，也不保留跨输入的匹配进度。两槽请求仅
+在本轮扫描内推进。跨独立跳转只复用码表。f/F/t/T在前向扫描时
 记录相邻字素位置；Lua适配器按需逐行请求屏幕外目标，避免提前扫描整个buffer。
 
 The scanner decodes and matches in one forward traversal, retaining only grapheme
 boundary state and the current glyph. It does not build per-line text indexes. Raw
-lines and identical-query results are cached; changing input decodes the saved lines
-again. Results grow only when a glyph matches. Lua handles editor/Flash integration.
+lines and identical-query results are cached. Each changed query decodes and matches
+the saved lines afresh, without filtering the previous candidate set or retaining
+cross-query matching progress. The two request slots advance only within that scan.
+Results grow only when a glyph matches. Lua handles editor/Flash integration.
+
+各轮输入独立按当前规则判定，不以之前的候选集约束下一轮输入，也不要求所有
+matcher 遵循统一的输入前缀约定。
+
+Each query is evaluated independently under its matching rules. Previous candidates
+do not constrain the next query, and matchers have no shared input-prefix contract.
+
+Lua 适配器每次匹配读取 `ignorecase`/`smartcase`，将有效策略传给 C；C 对 ASCII
+字面输入及 `letter` matcher 逐字节折叠大小写，其余码表规则精确比较。
+码表仍保留原始编码。结果缓存键包含有效策略，
+选项切换复用原始行并重新匹配；仅大小写忽略规则的 next-key 同时保留两种大小写，避免标签抢占输入。
+
+The Lua adapter reads `ignorecase`/`smartcase` on each match and passes the effective
+policy to C. Only literal and `letter` rules fold ASCII case; other rules stay exact.
+The result cache includes that policy; changing it rescans saved lines. Next-key sets
+reserve both cases only for insensitive rules so labels cannot consume valid input.
 
 ## 测试与 LSP / Tests and LSP
 
@@ -295,3 +315,70 @@ FLASH_ANY_SOURCE_OWNER; core CI runs independently while that variable is unset.
 Demo generator tests also need fontconfig (fc-match/fc-query) and CJK/emoji fonts;
 these are developer/recording dependencies, not plugin install dependencies.
 录制生成器测试需要 fontconfig 与 CJK/emoji 字体；不增加插件安装依赖。
+
+## 字母规则 / Letter rules
+
+格式 v10 的 `letter` matcher（内部 ID 5，共享拼写 ID 13）合并首码点匹配和
+大小写策略。完整字素照常查表；含多码点时，额外查一次首码点，仅执行其中的
+`letter` 规则，消费整个字素。两路共用原有候选、消费请求和标签避让，不增加
+独立扫描或缓存。码表不含 `letter` 时跳过额外查询，是否包含由 C 加载时记录。
+
+输入按完整编码消费，大小写策略由 Lua 读取 Neovim 选项后交给 C；literal 同样
+遵循该策略。其他规则保持精确比较。自动缓存会重建，显式旧 binary 需重新导出；
+make 后重启 Neovim。
+
+Version 10's `letter` matcher (internal ID 5, shared spelling ID 13) combines head
+codepoint matching and case policy. Whole graphemes retain their dictionary lookup;
+compound graphemes also look up their first codepoint, using only its `letter` rules.
+Both paths consume the entire glyph and share candidate/request/label handling.
+C records whether the loaded dictionary contains letter rules and skips the extra
+lookup otherwise. There is no separate scan or cache.
+
+Input consumes full codes and follows the effective Neovim case policy, as literal
+does. Other rules remain exact. Automatic caches rebuild; regenerate explicit older
+binaries and restart Neovim after make.
+
+## Unicode 字面匹配 / Unicode literal matching
+
+匹配结果仍只有两种语义：消费输入 byte 数，或返回 next 键集合（可以为空）。
+C 内部的 PREVIEW 是“空 next”的表示，不是第三种匹配结果。
+
+literal 比较输入与完整文本字素的 byte 前缀。输入较短且是字素前缀时，通过
+PREVIEW 事件生成整字素候选，next 为空，不消费剩余字素、不推进到下一文本字素。
+不额外校验输入的 UTF-8 完整性。输入覆盖完整字素时按原文字节数消费。
+ASCII 延用字典内快路径，其他字素直接比较，不扩大字典、不预建输入索引。
+文本仍单次前向扫描。ASCII 字面匹配遵循大小写选项，其他字素不做大小写折叠或规范化。
+
+next 是标签避让信息，与输入消费事件分开。完整匹配的下一字素可作为后续原文
+输入：ASCII key 使用位集；其他字素保留行内 offset/length，从现有行快照恢复，
+物化所有码点前缀。预览不预留剩余后缀，因此 Unicode 标签可能抢占后续输入；
+常见重音和 emoji 后缀不是 ASCII，默认 ASCII 标签可正常输入这些序列。
+完成消费的 letter/码表分支仍可独立贡献 next，与 literal 预览的空 next 合并。
+
+冻结 Lua 扫描器通过测试内 literal 适配器对照 ASCII 输入和码表分支；Unicode
+输入在 `tests/literal.lua` 单独覆盖，真实 Flash 输入循环验证逐码点输入组合字符。
+二进制数据格式和缓存所有权不变。
+
+Matching retains two result semantics: consume an input byte count, or return a
+possibly empty next-key set. The internal PREVIEW event represents empty next keys,
+not a third kind of matching result.
+
+Literal compares byte prefixes of input and the complete text grapheme. A shorter
+query that prefixes a glyph emits PREVIEW: a whole-glyph candidate with empty next
+keys, without consuming the remaining suffix or advancing to the next text glyph.
+Input receives no additional UTF-8 validation. Full glyphs consume their byte length.
+ASCII retains its dictionary fast path; other glyphs compare text directly without
+extra entries or query indexes. Text remains a single forward scan. Case options
+apply to ASCII literals; other glyphs have no case folding or normalization.
+
+Next keys reserve labels independently of consumption events. After a completed
+match, ASCII keys use a bitset and other glyphs retain row-relative offset/length
+slices into the saved lines. Materialization exposes all codepoint prefixes. Preview
+suffixes are not reserved, so Unicode labels may steal subsequent input; default
+ASCII labels work for common combining marks and emoji suffixes. Consumed letter or
+code-table branches contribute next keys independently of the empty literal preview.
+
+A test-local literal adapter lets the frozen scanner check ASCII queries and table
+branching. `tests/literal.lua` covers Unicode queries, and real Flash input-loop
+tests cover codepoint-by-codepoint entry. Binary layout and cache ownership remain
+unchanged.
