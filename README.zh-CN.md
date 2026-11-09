@@ -2,8 +2,8 @@
 
 [English](README.md)
 
-> **正在迁移，暂不稳定。** `main` 分支是新版 C 实现，API 和配置仍可能变化，
-> 不兼容旧接口。旧版用户请使用 `master`；试用迁移版本需显式选择 `main`。
+> **正在迁移，暂不稳定。** `main` 分支使用 C 匹配核心和新版配置 API。
+> 旧版请查看 [master 分支 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.zh-CN.old.md)。
 
 用拼音、双拼、形码、图标名或自定义编码进行 Flash 跳转。
 基于 [flash.nvim](https://github.com/folke/flash.nvim)，运行时匹配核心全部使用 C。
@@ -17,11 +17,13 @@
 公共 Lua/C 头文件已随插件提供。Linux 已验证；macOS 构建路径已适配，尚未实机验证。
 
 核心内置 Unicode literal 和可选的 `latin` source。`sources = {}` 只启用字面匹配，
-`sources = { "latin" }` 可匹配拉丁字母变体，无需另装插件。拼音、虎码、五笔、图标和
-Unicode 名称码表均为独立可选插件，只安装需要的 source，并在 setup 前加载。
-迁移中的五个 source 包尚未公开发布；本地安装可把依赖写成
-`{ dir = "/path/to/flash-any-pinyin.nvim" }`，然后配置 `sources = { "pinyin" }`。
-source 插件只提供 Lua 和数据，无需执行 make。
+`sources = { "latin" }` 可匹配拉丁字母变体，无需另装插件。中文拼音和虎码由独立
+source 插件提供：
+
+- [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
+- [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
+
+安装 source 插件后，在 setup 前加载；source 插件只提供 Lua 和数据，无需执行 make。
 
 在 lazy.nvim 中配置即可，无需手动执行构建命令：
 
@@ -52,7 +54,7 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 在
 码表二进制不存在时立即构建，后续启动直接复用码表。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
 `jump(opts)` / `remote(opts)` 使用独立完整配置，包含 `sources` 或 `binary`，
-不会继承 setup 字段。不支持自定义 Lua matcher。
+不会继承 setup 字段。
 
 ## 用法
 
@@ -107,7 +109,7 @@ F/t/T、计数、`;`/`,`、操作符和标签由 Flash 负责。删除 `modes.ch
 
 ## 配置码表
 
-在 setup 中选择 source；`latin` 已内置，其他示例 source 需另装对应插件：
+在 setup 中选择 source；`latin` 已内置，拼音和虎码来自上面列出的 source 插件：
 
 ```lua
 require("flash-any").setup({
@@ -116,13 +118,11 @@ require("flash-any").setup({
     "pinyin",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
-    "nerdfont",
-    "unicode",
   },
 })
 ```
 
-源列表的顺序、fallback、双拼、模糊音和补空格均在构建时处理。自动产物
+源列表的顺序、fallback、双拼和模糊音均在构建时处理。自动产物
 保存在 `stdpath("cache")/flash-any/`，按 sources 配置及 C 格式/Unicode 版本区分，
 修改 sources 配置会使用对应的新缓存。外部词典、Rime 导入、Lua/TSV 伴随文件及
 converter 按绝对路径、大小和修改时间（含纳秒）跟踪，不为计算内容哈希读取完整码表。
@@ -136,32 +136,15 @@ lua/flash-any 下安装的 Lua/TSV 文件每个进程检查一次，插件更新
 
 | source | 内容 / 默认规则 |
 | --- | --- |
+| `latin` | 拉丁字母变体，`letter` |
 | `pinyin` | 全拼，接受完整编码及首字母；配置 scheme 后默认完整编码 |
 | `tiger` | 虎码，按权重分配可选选键，默认首选空格、次选分号 |
-| `wubi86` | 五笔86，完整编码 |
-| `nerdfont` | 图标名称前缀，显示图标需要 Nerd Font |
-| `unicode` | Unicode 名称前缀，默认 fallback |
 
-上表各 source 对应独立的 `flash-any-NAME.nvim` 插件。双拼、模糊音和默认选键
-属于相应 source 的配置，说明随 source 发布。
-
-`append_space_below = 4` 给短于4字节的编码追加空格，空格是编码的一部分。
+双拼、模糊音和默认选键属于相应 source 的配置，说明随 source 发布。
 
 每项的 `matcher` 可选 `full_code`、`initial`、`prefix`、`letter` 四种内置模式。
 普通源均参与；`fallback = true` 的源只为之前尚未认识的字素提供编码。
 空编码数组也算已认识，会屏蔽后面的 fallback。
-
-### 加权码表选键
-
-任意加权文件都可以使用可选后缀，无需虎码 source：
-
-```lua
-{ file = "/path/to/table.dict.yaml", selection = { keys = { " ", ";" } } }
-```
-
-按权重、原始顺序分配选键。裸码始终有效，后续文字可消费剩余按键。
-要求 full_code，暂不能与 converter、append_space_below 或共享编码组同时使用。
-[共享编码组、选键与 source 工厂](docs/sources.md)。
 
 ### 自定义码表
 
@@ -187,8 +170,7 @@ sources = {
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
 `data` 接受单编码字符串或编码数组；编码必须为非空 ASCII 字符串。
-不支持运行时 Lua matcher 或自定义按需 loader；可通过 Lua 工厂及构建时
-转换生成码表。首次编写扩展可按[分步 source 教程](docs/writing-sources.zh-CN.md)
+可通过 Lua 工厂及构建时转换生成码表。首次编写扩展可按[分步 source 教程](docs/writing-sources.zh-CN.md)
 完成本地安装、验证和演示发布；完整选项见[码表开发说明](docs/sources.md)。
 
 **每个键必须恰好是一个 Unicode 17 完整字素**，例如 `á` 或 `👩‍💻`；当前不接收

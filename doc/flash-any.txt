@@ -5,6 +5,15 @@ main 分支正在迁移，暂不稳定；API 和配置可能变化，不兼容�
 Migration in progress: main is unstable and does not preserve the legacy API.
 Use master for the legacy version, or explicitly select main to try the C migration.
 
+The core provides Unicode literal matching and the optional Latin source. Chinese
+pinyin and Tiger codes are provided by
+https://github.com/dirichy/flash-any-pinyin.nvim and
+https://github.com/dirichy/flash-any-tiger.nvim; load a source plugin before setup.
+
+核心提供 Unicode 字面匹配和可选的 latin source。中文拼音和虎码分别由
+https://github.com/dirichy/flash-any-pinyin.nvim 与
+https://github.com/dirichy/flash-any-tiger.nvim 提供，安装后在 setup 前加载。
+
 ===============================================================================
 目录                                           *flash-any* *flash-any-contents*
 
@@ -22,7 +31,7 @@ Use master for the legacy version, or explicitly select main to try the C migrat
 make 直接调用 C 编译器，不需要 Python、CMake、pkg-config 或单独的 LuaJIT 开发包。
 
 按 s，输入编码，再按标签跳转。zhongguo 或 zg 匹配“中国”，可和 ASCII 连续混输。
-配置 unicode 表后 grin 匹配 😀。每个码表键恰好一个 Unicode17 完整字素，例如
+配置相应 source 后可使用对应编码。每个码表键恰好一个 Unicode17 完整字素，例如
 👩‍💻 或 á；不支持“中国”这种多字素码表键。不做 Unicode 归一化。
 
 The matching core is C-only. Each dictionary key is one complete grapheme; input
@@ -92,13 +101,12 @@ sources 在 setup 中配置，构建时解析： >lua
     sources = {
       { name = "pinyin", scheme = "flypy", fuzzy = true },
       -- { name = "tiger" },
-      "nerdfont",
-      "unicode",
       { data = { ["👩‍💻"] = { "dev", "coder" } }, matcher = "prefix" },
     }
 <
 核心内置 Unicode literal 和可选的 latin；sources={} 可独立使用。
-pinyin、tiger、wubi86、nerdfont、unicode 均需分别安装对应 source 插件。pinyin 省略 scheme 为全拼及首字母，
+pinyin、tiger 分别对应中文拼音和虎码 source 插件，插件自带相应码表和配置。
+pinyin 省略 scheme 为全拼及首字母，
 scheme 可选 flypy、pyjj、natural、abc、mspy、st；双拼默认完整编码。fuzzy 可为 true
 或 initials/finals 等价分组。append_space_below 给短于阈值的编码加一个空格。
 全拼按音节共享模糊拼写，双拼仍在构建时逐字展开。声母/韵母变体组合相乘；
@@ -202,10 +210,10 @@ vim:tw=78:ts=8:ft=help:norl:
 
 OPTIONAL SOURCES / 独立 SOURCE
 
-五个 source 现已独立，迁移期尚未公开发布。安装本地 source 插件时，在
-setup 前将其根目录加入 runtimepath，或作为插件管理器的本地依赖。
-External sources are separate Lua/data plugins and need no make. Load each selected
-source before setup. Source packages are not yet publicly released during migration.
+latin 已内置；pinyin 和 tiger 分别来自中文拼音和中文虎码 source 插件。安装后在
+setup 前加载，source 插件只提供 Lua 和数据，无需执行 make。
+`dirichy/flash-any-pinyin.nvim` provides Chinese pinyin and double-pinyin schemes;
+`dirichy/flash-any-tiger.nvim` provides Chinese Tiger codes.
 
 groups={name={"code1","code2"}} 提供通用共享拼写，data 中同名编码引用该组。
 组名属于 source，实际内容相同时跨 source 共享，三种 matcher 都适用。

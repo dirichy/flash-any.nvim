@@ -2,9 +2,9 @@
 
 [简体中文](README.zh-CN.md)
 
-> **Migration in progress — unstable.** The `main` branch is the new C implementation.
-> APIs and configuration may change without compatibility with the old interface.
-> Use `master` for the legacy version; select `main` explicitly to try this migration.
+> **Migration in progress — unstable.** `main` uses the C matching core and a new
+> configuration API. See the [legacy master README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md)
+> for the previous version.
 
 Jump with pinyin, double pinyin, shape codes, icon names and custom encodings.
 Built on [flash.nvim](https://github.com/folke/flash.nvim), with a C-only matching core.
@@ -18,14 +18,15 @@ builds and updates. No Python, CMake, pkg-config or separate LuaJIT development 
 is needed. Public Lua/C headers are bundled. Linux is tested; the macOS build path
 is prepared but has not yet been verified on a Mac.
 
-The core includes Unicode literal matching and an optional `latin` source;
+The core includes Unicode literal matching and the optional `latin` source;
 `sources = {}` enables literal matching alone. Use `sources = { "latin" }` to search
-Latin letter variants without installing another plugin.
-Pinyin, Tiger, Wubi, icon names and Unicode names are separate optional plugins.
-Install only the sources you need and load them before setup. These five source
-packages have not yet been publicly released during this migration.
-For a local package, add `{ dir = "/path/to/flash-any-pinyin.nvim" }` as a dependency
-and set `sources = { "pinyin" }`. Source packages contain Lua/data and need no make.
+Latin letter variants without installing another plugin. Chinese pinyin and Tiger
+codes are available as separate source plugins:
+
+- [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double-pinyin schemes
+- [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) — Chinese Tiger shape codes
+
+Load a source plugin before setup. Source plugins contain Lua/data and need no make.
 
 Configure lazy.nvim; no manual build commands are needed:
 
@@ -58,7 +59,6 @@ The plugin loads the prebuilt C module; missing or unloadable modules report an
 error asking you to run `make`. Setup immediately compiles a missing dictionary. Later startups reuse the binary. Other Flash options such as `labels`,
 `search` and `jump` pass through. `jump(opts)` / `remote(opts)` use standalone complete
 options containing `sources` or `binary`, without inheriting setup fields.
-Custom Lua matchers remain unsupported.
 
 ## Usage
 
@@ -118,8 +118,8 @@ only a Flash bridge, not a custom code matcher.
 
 ## Sources
 
-Select sources in setup; `latin` is bundled, while the other sources below require
-their separate plugins:
+Select sources in setup; `latin` is bundled, while pinyin and Tiger come from the
+source plugins listed above:
 
 ```lua
 require("flash-any").setup({
@@ -128,13 +128,11 @@ require("flash-any").setup({
     "pinyin",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
-    "nerdfont",
-    "unicode",
   },
 })
 ```
 
-Source order, fallback, schemes, fuzzy spelling and padding resolve when
+Source order, fallback, schemes and fuzzy spelling resolve when
 building. Automatic packages live under `stdpath("cache")/flash-any/`, keyed by source
 configuration and the C package/Unicode version. Changing source configuration selects
 its own package. External dictionary, Rime import, Lua/TSV companion and converter
@@ -152,34 +150,16 @@ remains available for explicit exports and development tools.
 
 | Source | Contents / default mode |
 | --- | --- |
+| `latin` | Latin letter variants, `letter` |
 | `pinyin` | Full pinyin and initials; schemes default to full codes |
-| `tiger` | Tiger codes, full_code |
-| `wubi86` | Wubi86, full_code |
-| `nerdfont` | Icon-name prefixes; requires a Nerd Font for display |
-| `unicode` | Unicode-name prefixes, fallback by default |
+| `tiger` | Tiger codes, `full_code` |
 
-Each source above lives in a separate `flash-any-NAME.nvim` plugin. Scheme, fuzzy
-spelling and source defaults are documented by the corresponding source package.
-
-`append_space_below = 4` appends one space to codes shorter
-than four bytes; that space is part of the code.
+Scheme, fuzzy spelling and source defaults are documented by the corresponding
+source package.
 
 `matcher` selects `full_code`, `initial`, `prefix` or `letter`. Ordinary sources all
 participate. A fallback contributes only when no earlier source recognized that
 grapheme; a recognized empty code list also blocks later fallbacks.
-
-### Ranked selection keys
-
-Any weighted file can assign optional suffixes without a Tiger source:
-
-```lua
-{ file = "/path/to/table.dict.yaml", selection = { keys = { " ", ";" } } }
-```
-
-Candidates are ranked by weight, then original order. Bare codes remain valid;
-following text can consume leftover keys. Requires full_code and currently cannot
-combine with converter, append_space_below or shared groups.
-See [file selection and source factories](docs/sources.md).
 
 ### Custom tables
 
@@ -207,9 +187,7 @@ See [integration and converters](docs/sources.md) and
 [recording / README templates](demos/README.md#第三方码表--third-party-tables).
 
 `data` accepts a code string or array per key; codes must be nonempty ASCII.
-Runtime Lua matchers and custom loaders are unsupported. Lua factories and build-time
-converters can generate
-tables. Follow the [step-by-step source guide](docs/writing-sources.md) for local
+Lua factories and build-time converters can generate tables. Follow the [step-by-step source guide](docs/writing-sources.md) for local
 installation, verification and demo publication; see the [reference](docs/sources.md)
 for complete options.
 
