@@ -13,33 +13,47 @@
 ## 安装与配置
 
 需要 Neovim **0.11+**、flash.nvim，以及首次构建和升级时使用的 make 和 C 工具链
-（GCC 或 Clang）。不需要 Python、CMake、pkg-config 或单独的 LuaJIT 开发包，
-公共 Lua/C 头文件已随插件提供。Linux 已验证；macOS 构建路径已适配，尚未实机验证。
+（GCC 或 Clang）。
+公共 Lua/C 头文件已随插件提供。Linux 与 macOS 已验证；windows 暂不支持。
 
-核心内置 Unicode literal 和可选的 `latin` source。`sources = {}` 只启用字面匹配，
-`sources = { "latin" }` 可匹配拉丁字母变体，无需另装插件。中文拼音和虎码由独立
-source 插件提供：
+核心内置 Unicode literal (即原 flash.nvim 的字面匹配功能) 和可选的 `latin` source。`sources = {}` 只启用字面匹配，
+`sources = { "latin" }` 可匹配拉丁字母变体。其他支持的码表由外部插件提供：
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— nerdfont 图标
 
-安装 source 插件后，在 setup 前加载；source 插件只提供 Lua 和数据，无需执行 make。
-
-在 lazy.nvim 中配置即可，无需手动执行构建命令：
+中文用户的 lazy.nvim 配置：
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
-  dependencies = { "folke/flash.nvim" },
+  dependencies = { "folke/flash.nvim","dirichy/flash-any-pinyin.nvim" }, -- 虎码用户把 pinyin 改为 tiger
   build = "make",
-  opts = { sources = {} },
+  opts = { sources = {
+       "latin", -- 可选拉丁字母变体扩展 
+       "pinyin", -- 中文全拼，具体配置请看对应 source 主页。虎码用户把 pinyin 改为 tiger，配置项同样看 source 插件主页。
+    } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
   },
+  -- 下面这段用来开启 f mode 
+  -- config=function(_,opts) 
+  --   require("flash").setup({ 
+  --   modes = { 
+  --       char = { 
+  --       matcher = function(win, state, range) 
+  --           return require("flash-any").char(win, state, range) 
+  --       end, 
+  --       -- multi_line = false, 
+  --       }, 
+  --   }, 
+  --   }) 
+  --   require("flash-any").setup(opts)  
+  -- end 
 }
 ```
 
@@ -61,31 +75,20 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 按 `s`，输入原文或编码，再按标签跳转。可连续混用原文、全拼、简拼和其他已构建编码。
 例如全拼/简拼 `zhongguo` / `zg` 匹配“中国”；配置 Unicode 表后 `grin` 匹配 😀。
-简拼取首字母，例如“输”是 `s`，不是 `sh`。Unicode 字面匹配自动启用。
-无需配置码表，输入 `中` 就能匹配“中”，输入 `👩‍💻` 就能匹配该完整 emoji。
-输入也可以是字素前缀：`e` 可预览 `é`，`👩` 可预览 `👩‍💻`，高亮和跳转范围
-始终覆盖整个字素。前缀不会跳过未输入的后缀，例如 `ex` 不会字面匹配 `éx`。
-原文和编码可混输，例如 `中guo` 匹配“中国”。
+简拼取首字母，例如“输”是 `s`，不是 `sh`。如果发现对应位置没有出现标签，就接着输入。
 
-常见重音字母和 emoji 输入建议使用 ASCII 标签。literal 预览返回空的 next，
-自定义 Unicode 标签可能与未输入的后缀冲突。开启 Flash 的 `jump.autojump` 时，
-唯一的前缀候选也会立即跳转。
+操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
+返回原窗口；`dr` 用于删除。
 
-ASCII 字面文本遵循 Neovim 的 `ignorecase`、`smartcase` 设置，`f/F/t/T` 也一样。
+
+ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartcase` 设置，`f/F/t/T` 也一样。
 开启 `ignorecase` 后忽略字母大小写；同时开启 `smartcase` 时，查询含大写字母则
-区分大小写。修改选项在下次匹配时生效，无需重新构建码表。
-码表默认精确比较编码；需要随选项忽略大小写的字母转换（例如 extra latin）可使用
-`matcher = "letter"`。它按完整编码消费输入，并用字素首个 Unicode 码点查表、
-消费整个字素，例如 `e` 条目可匹配 `é`，无需枚举组合后缀。其他码表 matcher 仍只
-查询完整字素。
+区分大小写。修改选项在下次匹配时生效。
 
 配置 `sources = { "latin" }` 后，`e` 可匹配 `é`、`é`，`o` 匹配 `ø`，`ae` 匹配
 `æ`，`ss` 匹配 `ß`。大写字母保留大写编码（`É` → `E`、`Æ` → `AE`），遵循上述
 `ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消费。
 收录范围和数据来源见 [Latin 说明](docs/latin.md)。
-
-操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
-返回原窗口；`dr` 用于删除。操作、光标恢复和绘制仍由 Flash 管理。
 
 ### 字符模式 f/F/t/T
 
@@ -122,13 +125,6 @@ require("flash-any").setup({
   },
 })
 ```
-
-源列表的顺序、fallback、双拼和模糊音均在构建时处理。自动产物
-保存在 `stdpath("cache")/flash-any/`，按 sources 配置及 C 格式/Unicode 版本区分，
-修改 sources 配置会使用对应的新缓存。外部词典、Rime 导入、Lua/TSV 伴随文件及
-converter 按绝对路径、大小和修改时间（含纳秒）跟踪，不为计算内容哈希读取完整码表。
-lua/flash-any 下安装的 Lua/TSV 文件每个进程检查一次，插件更新后需重启 Neovim。
-同时保留大小和修改时间的内容变化需要手动重建；用户 Lua 自行加载的命名空间外依赖不自动跟踪。
 
 可选 `binary = "/path/flash-any.bin"` 指定固定产物路径，文件缺失时使用 sources
 构建；仅提供 binary 则加载现有文件。构建失败保留旧输出，已有搜索继续使用原
