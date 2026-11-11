@@ -21,6 +21,10 @@ vim.fn.writefile({
 	"丑\txy,z\t10",
 	"赤\tgch\t100",
 	"羔\tgch\t80",
+	"，\t,",
+	"。\t.\t",
+	"无\tuv",
+	"零\tuv\t0",
 }, file)
 local build, native = require("flash-any.build"), require("flash-any.native")
 local serial = 0
@@ -91,6 +95,43 @@ local resolved = require("flash-any.source").resolve({ { file = file, selection 
 assert(vim.deep_equal(resolved.data["甲"], { "ab" }), "base code must be stored only once")
 assert(resolved.selectors["甲"].ab == " " and resolved.selectors["乙"].ab == ";")
 assert(resolved.selectors["丙"] == nil)
+-- Missing/empty weights keep bare codes without taking any selector rank.
+local unweighted = require("flash-any.source").resolve({ { file = file, selection = { keys = { " ", ";" } } } })[2]
+assert(not unweighted.selectors["，"] and not unweighted.selectors["。"])
+assert(not unweighted.selectors["无"] and unweighted.selectors["零"].uv == " ")
+local rows, ranks = build.read(file, { weights = true })
+assert(ranks)
+assert(rows["，"] and not ranks[","] and not ranks["."])
+assert(not ranks.uv["无"] and ranks.uv["零"].weight == 0)
+-- Weighted input has no legacy fourth order column.
+local legacy = root .. "/four-columns.tsv"
+vim.fn.writefile({ "甲\tab\t100\t1" }, legacy)
+assert(not pcall(build.read, legacy, { weights = true }))
+assert(not pcall(build.read, legacy, { columns = { "text", "code", "weight", "order" } }))
+-- A source factory only declares its weighted file and default keys.
+package.preload["flash-any.sources.weighted_fixture"] = function()
+	return function()
+		return { file = file, selection = { keys = { " ", ";" } } }
+	end
+end
+local function named(opts)
+	local spec = vim.tbl_extend("force", { name = "weighted_fixture" }, opts or {})
+	local output = root .. "/named.bin"
+	build.binary({ sources = { spec }, output = output })
+	return native.load(output)
+end
+assert(found(named(), "甲", "ab ") and found(named(), "乙", "ab;"))
+assert(found(named({ selection = {} }), "乙", "ab;"))
+assert(not found(named({ selection = false }), "乙", "ab;"))
+assert(found(named({ selection = { keys = { "=", ":" } } }), "乙", "ab:"))
+local override = root .. "/override.tsv"
+vim.fn.writefile({ "乙\tab\t100", "甲\tab\t80" }, override)
+assert(found(named({ file = override }), "乙", "ab "))
+assert(found(named({ data = { ["甲"] = "x" }, selection = false }), "甲", "x"))
+assert(not pcall(named, { data = { ["甲"] = "x" } }), "inline overrides cannot silently invent ranks")
+assert(not pcall(named, { matcher = "initial" }))
+-- Default descriptors remain reusable after overrides and disabled selection.
+assert(found(named(), "乙", "ab;"))
 -- The C suffix matcher also handles partial multi-byte ASCII suffixes without expanding aliases.
 local valid = root .. "/metadata.bin"
 local parameters = ";!"

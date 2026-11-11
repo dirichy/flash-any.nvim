@@ -6,8 +6,8 @@ vim.fn.writefile({
 	"name: test",
 	"columns: [text, code, weight]",
 	"...",
-	"，\t,\t0",
-	"。\t.\t0",
+	"，\t,",
+	"。\t.",
 	"甲\tab\t100",
 	"乙\tab\t80",
 	"丙\tab\t50",
@@ -75,18 +75,13 @@ assert(found(four, "丙", "ab'") and found(four, "丁", "ab:") and not found(fou
 local disabled = engine({ selection = false })
 assert(found(disabled, "甲己", "abcd") and not found(disabled, "乙", "ab;"))
 assert(found(disabled, "甲;", "ab;"))
+-- Tiger declares defaults; generic core validation handles selector constraints.
+assert(found(engine({ selection = { keys = { " ", "aa" } } }), "乙", "abaa"))
 for _, opts in ipairs({
-	{ selection = { keys = { " ", "aa" } } },
 	{ selection = { keys = { " ", ";", ";" } } },
 	{ selection = { keys = false } },
 	{ append_space_below = 4 },
-	{ selection = false, append_space_below = 4 },
-	{ selection_keys = { " " } },
-	{ force = false },
-	{ punctuation = { "," } },
-	{ selection = { force = true } },
-	{ selection = { force = false } },
-	{ selection = { first_omit_before = { "," } } },
+	{ selection = { keys = { "中" } } },
 }) do
 	assert(not pcall(engine, opts))
 end
@@ -127,6 +122,8 @@ assert(found(builtin, "赤;", "gch;") and found(builtin, "赤羔", "gchgch;"))
 assert(found(builtin, "疒", "ab;") and not found(builtin, "交", "ab;"))
 assert(found(builtin, "交，", "ab,") and found(builtin, "疒，", "ab,"))
 assert(found(builtin, "交", "ab "))
+assert(found(builtin, "，", ",") and not found(builtin, "，", ", "))
+assert(found(builtin, "。", ".") and not found(builtin, "。", ". "))
 assert(found(builtin, "𤰃", "ty;") and not found(builtin, "⽤", "ty;"))
 local table_data = require("flash-any.table").load("tiger")
 for _, code in ipairs(table_data["疒"]) do

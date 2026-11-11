@@ -123,23 +123,50 @@ code comparison only. Other code-table modes always compare codes exactly.
 剩余输入无人消费时自然失败；后续字面文本可以消费相同按键。
 
 selection=false 关闭。要求 full_code，不能和 converter、append_space_below
-或同一编码的 groups 引用结合。文件按 columns 读取 weight/order，缺失时分别
-使用 0 和读取顺序；静态权重不写入二进制，也不会同步输入法动态词频。
-工厂自行读取权重时可调用 build.selectors(data, ranks, keys)，然后返回 selectors。
-虎码的默认键和输入限制由独立 source 负责，不是核心规则。
+或同一编码的 groups 引用结合。加权文件只支持 text、code、weight 三列（标点可省略 weight）；
+同权直接保留文件行序，不接受第四列或 order 列；静态权重不写入二进制，也不会同步输入法动态词频。
+工厂只需返回带权重的 file、format/columns 和默认 selection；读表、排序和后缀
+分配由核心统一完成，工厂不生成 rank/selectors。未提供权重的条目仅保留裸码，不参与排序、也不占选键；
+显式数值 0 仍参与排序。标点条目省略 weight 即可。
+
+```lua
+return function()
+  return {
+    file = assert(vim.api.nvim_get_runtime_file("lua/flash-any/tables/example.tsv", false)[1]),
+    format = "tsv",
+    columns = { "text", "code", "weight" },
+    selection = { keys = { " ", ";" } },
+  }
+end
+```
+
+用户可覆盖 file、selection.keys 或设 selection=false；selection={} 保留工厂默认键。
+改用 data/lua 时须关闭选键，因为这些数据没有文件权重。随插件分发的词典放在
+lua/flash-any 下，让现有文件元数据缓存机制覆盖更新。
 
 Any file source can assign optional ASCII suffix strings by weight and stable input
 order. Direct file configurations must supply keys; source factories own defaults.
+Weighted rows have exactly text/code/weight columns; unweighted rows may omit weight.
+Fourth columns and order columns are rejected. Ties follow file row order.
 All bare codes remain valid; unassigned
 candidates get no suffix. Suffixes can be 1..127 ASCII bytes and must be distinct.
 Requires full_code; converter, padding and group references on the same record are
-not supported together. Ranking is static and never serialized. Factories that read
-their own weights may call build.selectors(data, ranks, keys) and return selectors.
+not supported together. Ranking is static and never serialized. Factories declare
+file, format/columns and default selection, as above. The core reads weights, ranks
+candidates and assigns suffixes; factories do not construct ranks or selectors.
+Rows without a weight keep bare codes and take no selector rank; explicit zero
+weights still participate. Omit weights for punctuation. Users may override the
+file or keys, disable selection, or use selection={} to retain default keys. Data/Lua
+overrides require selection=false because they have no file weights. Ship files under
+lua/flash-any so the existing metadata cache tracks package updates.
 
 ## 内部编码组 / Internal spelling groups
 
 以下是 source 工厂提供给构建器的数据，不是安装使用者需要配置的选项。
 Source factories provide this data to the builder; it is not an installation setting.
+Factories may declare file/groups without loading character data. The core reads
+the file, preserving standard codes as group references. Full and double pinyin use
+this same path, with scheme conversion performed once per syllable.
 
 ```lua
 {
@@ -149,7 +176,8 @@ Source factories provide this data to the builder; it is not an installation set
 }
 ```
 
-同样可由 source 工厂返回 data/groups。data 中出现在 groups 的编码是组名，
+source 工厂可返回 file/groups，无需自行读表；也可提供 data/groups。码表中
+出现在 groups 的编码是组名，
 未出现的编码按普通 ASCII 字符串匹配；每组可以有零个或多个拼写。
 每个拼写先取最长公共前缀，再按 full_code、initial 或 prefix 产生匹配和 next，
 所有分支均保留。拼写必须是 1..255 字节 ASCII，组名也必须是非空 ASCII。

@@ -11,73 +11,116 @@ local names = vim.tbl_keys(parts.initial)
 table.sort(names)
 local comparisons = 0
 local labels = { "a", "z", ",", "\0" }
-for _, fuzzy in ipairs({ false, true }) do
-	local expanded = require("reference.table").materialize(original({ fuzzy = fuzzy }).data)
-	local production = require("flash-any.sources.pinyin")({ fuzzy = fuzzy })
-	local representatives = {}
-	for glyph, codes in pairs(tables.materialize(production.data)) do
+for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st" }) do
+	for _, fuzzy in ipairs({ false, true }) do
+		local expanded =
+			require("reference.table").materialize(original({ scheme = scheme or nil, fuzzy = fuzzy }).data)
+		local table_load, file_load = tables.load, tables.from_file
+		rawset(tables, "load", function()
+			error("factory must not load character data")
+		end)
+		rawset(tables, "from_file", function()
+			error("factory must not read its dictionary")
+		end)
+		local production = require("flash-any.sources.pinyin")({ scheme = scheme or nil, fuzzy = fuzzy })
+		rawset(tables, "load", table_load)
+		rawset(tables, "from_file", file_load)
+		assert(production.data == nil and production.file and production.groups)
+		assert(production.matcher == (scheme and "full_code" or "initial"))
+		local representatives = {}
+		for glyph, codes in pairs(tables.from_file(production.file, { format = "tsv" })) do
+			for _, code in ipairs(codes) do
+				representatives[code] = glyph
+			end
+		end
+		local forms = {}
+		for i, name in ipairs(names) do
+			forms[i] = production.groups[name]
+			assert(representatives[name], name)
+			local glyph = representatives[name]
+			-- A polyphonic glyph may have extra readings; every shared spelling must exist inline.
+			for _, spelling in ipairs(forms[i]) do
+				assert(vim.tbl_contains(expanded[glyph], spelling), name .. ": " .. spelling)
+			end
+		end
+		for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
+			local keys, shared, inline = {}, {}, {}
+			for byte = 0, 127 do
+				keys[#keys + 1] = string.char(byte)
+			end
+			for i in ipairs(names) do
+				keys[#keys + 1] = vim.fn.nr2char(0x4E00 + i)
+			end
+			table.sort(keys)
+			local glyphs = {}
+			for i, key in ipairs(keys) do
+				if #key == 1 then
+					shared[i], inline[i] = { { native.modes.literal, key } }, { { native.modes.literal, key } }
+				else
+					local id = vim.fn.char2nr(key) - 0x4E00
+					glyphs[id] = key
+					shared[i] = { { native.modes[mode] + native.modes.group, id - 1 } }
+					inline[i] = {}
+					for _, spelling in ipairs(forms[id]) do
+						inline[i][#inline[i] + 1] = { native.modes[mode], spelling }
+					end
+				end
+			end
+			native.write(root .. "/shared.bin", keys, shared, forms)
+			local inline_keys, inline_codes = {}, {}
+			for i, key in ipairs(keys) do
+				if #inline[i] > 0 then
+					inline_keys[#inline_keys + 1], inline_codes[#inline_codes + 1] = key, inline[i]
+				end
+			end
+			native.write(root .. "/inline.bin", inline_keys, inline_codes)
+			local a, b = native.load(root .. "/shared.bin"):new_state(), native.load(root .. "/inline.bin"):new_state()
+			collectgarbage("collect") -- Session owners must retain the shared profile and bytes.
+			for id, spellings in ipairs(forms) do
+				local glyph = glyphs[id]
+				local queries = { [","] = true, ["\255"] = true, ["\0"] = true }
+				for _, spelling in ipairs(spellings) do
+					for n = 1, #spelling do
+						queries[spelling:sub(1, n)] = true
+					end
+					queries[spelling .. "a"] = true
+				end
+				for query in pairs(queries) do
+					for _, motion in ipairs({ "search", "f", "F", "t", "T" }) do
+						local lines = { glyph .. "a" .. glyph .. "," .. glyphs[id % #names + 1] }
+						local char = motion ~= "search" and motion or nil
+						local found = a:scan(0, 0, id, 1, 1, lines, query, labels, char)
+						local expected = b:scan(0, 0, id, 1, 1, lines, query, labels, char)
+						assert(vim.deep_equal(found, expected), names[id] .. ": " .. mode .. " " .. vim.inspect(query))
+						comparisons = comparisons + 1
+					end
+				end
+			end
+		end
+	end
+end
+-- Every imported reading must refer to a generated syllable, with all schemes supported.
+local current_factory = require("flash-any.sources.pinyin")
+for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st" }) do
+	local spec = current_factory({ scheme = scheme or nil })
+	local data = tables.from_file(spec.file, { format = "tsv" })
+	local characters = 0
+	for glyph, codes in pairs(data) do
+		characters = characters + 1
 		for _, code in ipairs(codes) do
-			representatives[code] = glyph
-		end
-	end
-	local forms = {}
-	for i, name in ipairs(names) do
-		forms[i] = production.groups[name]
-		assert(representatives[name], name)
-		local glyph = representatives[name]
-		-- A polyphonic glyph may have extra readings; every shared spelling must exist inline.
-		for _, spelling in ipairs(forms[i]) do
-			assert(vim.tbl_contains(expanded[glyph], spelling), name .. ": " .. spelling)
-		end
-	end
-	for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
-		local keys, shared, inline = {}, {}, {}
-		for byte = 0, 127 do
-			keys[#keys + 1] = string.char(byte)
-		end
-		for i in ipairs(names) do
-			keys[#keys + 1] = vim.fn.nr2char(0x4E00 + i)
-		end
-		table.sort(keys)
-		local glyphs = {}
-		for i, key in ipairs(keys) do
-			if #key == 1 then
-				shared[i], inline[i] = { { native.modes.literal, key } }, { { native.modes.literal, key } }
-			else
-				local id = vim.fn.char2nr(key) - 0x4E00
-				glyphs[id] = key
-				shared[i] = { { native.modes[mode] + native.modes.group, id - 1 } }
-				inline[i] = {}
-				for _, spelling in ipairs(forms[id]) do
-					inline[i][#inline[i] + 1] = { native.modes[mode], spelling }
-				end
-			end
-		end
-		native.write(root .. "/shared.bin", keys, shared, forms)
-		native.write(root .. "/inline.bin", keys, inline)
-		local a, b = native.load(root .. "/shared.bin"):new_state(), native.load(root .. "/inline.bin"):new_state()
-		collectgarbage("collect") -- Session owners must retain the shared profile and bytes.
-		for id, spellings in ipairs(forms) do
-			local glyph = glyphs[id]
-			local queries = { [","] = true, ["\255"] = true, ["\0"] = true }
-			for _, spelling in ipairs(spellings) do
-				for n = 1, #spelling do
-					queries[spelling:sub(1, n)] = true
-				end
-				queries[spelling .. "a"] = true
-			end
-			for query in pairs(queries) do
-				for _, motion in ipairs({ "search", "f", "F", "t", "T" }) do
-					local lines = { glyph .. "a" .. glyph .. "," .. glyphs[id % #names + 1] }
-					local char = motion ~= "search" and motion or nil
-					local found = a:scan(0, 0, id, 1, 1, lines, query, labels, char)
-					local expected = b:scan(0, 0, id, 1, 1, lines, query, labels, char)
-					assert(vim.deep_equal(found, expected), names[id] .. ": " .. mode .. " " .. vim.inspect(query))
-					comparisons = comparisons + 1
-				end
+			if code:find("^[a-z]+$") then
+				assert(
+					parts.initial[code] ~= nil and spec.groups[code] and #spec.groups[code] > 0,
+					(scheme or "full") .. ": " .. glyph .. " " .. code
+				)
 			end
 		end
 	end
+	assert(characters == 40625)
+	local output = root .. "/production.bin"
+	require("flash-any.build").binary({ sources = { { name = "pinyin", scheme = scheme or nil } }, output = output })
+	local code = spec.groups.en[1]
+	assert(#native.load(output):scan(0, 0, 1, 1, 1, { "嗯" }, code, nil) == 1)
 end
 -- Exercise buffer chunk boundaries, arbitrary ASCII spellings and IDs above 255.
 local forms = {}
@@ -144,8 +187,8 @@ local normal = require("flash-any.sources.pinyin")({})
 local fuzzy = require("flash-any.sources.pinyin")({ fuzzy = true })
 require("flash-any.build").binary({
 	sources = {
-		{ name = "pinyin", matcher = "full_code", data = { ["中"] = normal.data["中"] }, groups = normal.groups },
-		{ name = "pinyin", matcher = "full_code", data = { ["忠"] = fuzzy.data["忠"] }, groups = fuzzy.groups },
+		{ name = "pinyin", matcher = "full_code", data = { ["中"] = { "zhong" } }, groups = normal.groups },
+		{ name = "pinyin", matcher = "full_code", data = { ["忠"] = { "zhong" } }, groups = fuzzy.groups },
 	},
 	output = root .. "/combined.bin",
 })

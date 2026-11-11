@@ -2,53 +2,65 @@
 
 [简体中文](README.zh-CN.md)
 
-> **Migration in progress — unstable.** `main` uses the C matching core and a new
-> configuration API. See the [legacy master README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md)
-> for the previous version.
+> **Migration in progress — currently unstable.** `main` uses the C matching core and a new configuration API.
+> For the previous version, see the [master branch README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md).
 
-Jump with pinyin, double pinyin, shape codes, icon names and custom encodings.
-Built on [flash.nvim](https://github.com/folke/flash.nvim), with a C-only matching core.
+Jump with pinyin, double pinyin, shape codes, icon names or custom encodings.
+Built on [flash.nvim](https://github.com/folke/flash.nvim), with runtime matching handled entirely in C.
 
-![Pinyin and mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![Full pinyin, initials and continuous mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 ## Installation and setup
 
-Requires Neovim **0.11+**, flash.nvim, make, and a C toolchain (GCC or Clang) for initial
-builds and updates. No Python, CMake, pkg-config or separate LuaJIT development package
-is needed. Public Lua/C headers are bundled. Linux is tested; the macOS build path
-is prepared but has not yet been verified on a Mac.
+Requires Neovim **0.11+**, flash.nvim, and make with a C toolchain (GCC or Clang)
+for the initial build and updates.
+Public Lua/C headers are bundled. Linux and macOS have been verified; Windows is not currently supported.
 
-The core includes Unicode literal matching and the optional `latin` source;
-`sources = {}` enables literal matching alone. Use `sources = { "latin" }` to search
-Latin letter variants without installing another plugin. Chinese pinyin and Tiger
-codes are available as separate source plugins:
+The core includes Unicode literal matching (the literal matching functionality of flash.nvim)
+and the optional `latin` source. `sources = {}` enables literal matching alone;
+`sources = { "latin" }` also matches Latin letter variants. Other tables are provided by external plugins:
 
-- [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double-pinyin schemes
+- [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double pinyin
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) — Chinese Tiger shape codes
-- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— nerdfont 
+- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font icons
 
-Load a source plugin before setup. Source plugins contain Lua/data and need no make.
-
-Configure lazy.nvim; no manual build commands are needed:
+A lazy.nvim configuration for Chinese users:
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
-  dependencies = { "folke/flash.nvim" },
+  dependencies = { "folke/flash.nvim","dirichy/flash-any-pinyin.nvim" }, -- Tiger users: replace pinyin with tiger
   build = "make",
-  opts = { sources = {} },
+  opts = { sources = {
+       "latin", -- Optional Latin letter variants
+       "pinyin", -- Full pinyin; see the source plugin's README for options. Tiger users: replace pinyin with tiger and refer to its README.
+    } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
   },
+  -- Enable character motions (f mode) with the following configuration
+  -- config=function(_,opts)
+  --   require("flash").setup({
+  --   modes = {
+  --       char = {
+  --       matcher = function(win, state, range)
+  --           return require("flash-any").char(win, state, range)
+  --       end,
+  --       -- multi_line = false,
+  --       },
+  --   },
+  --   })
+  --   require("flash-any").setup(opts)
+  -- end
 }
 ```
 
 With other managers, configure an install/update hook to run `make` in the plugin
-directory. For example, vim-plug uses `{'do': 'make'}` and packer.nvim uses
-`run = "make"`. Without a build hook, run `make` there after installation and updates,
+directory. vim-plug uses `{'do': 'make'}` and packer.nvim uses `run = "make"`.
+Without a build hook, run `make` in the plugin directory after installation and updates,
 then load the dependencies and call:
 
 ```lua
@@ -56,44 +68,32 @@ require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-The plugin loads the prebuilt C module; missing or unloadable modules report an
-error asking you to run `make`. Setup immediately compiles a missing dictionary. Later startups reuse the binary. Other Flash options such as `labels`,
-`search` and `jump` pass through. `jump(opts)` / `remote(opts)` use standalone complete
-options containing `sources` or `binary`, without inheriting setup fields.
+The plugin loads the prebuilt C module and asks you to run `make` if it is missing or
+cannot be loaded. Setup immediately builds the dictionary binary when it is missing;
+later startups reuse it. Other Flash jump options, such as `labels`, `search` and `jump`,
+can still be passed to setup. `jump(opts)` / `remote(opts)` use separate, complete
+configurations containing `sources` or `binary`; they do not inherit setup fields.
 
 ## Usage
 
-Press `s`, type text or codes, then select a label. Mix literal text, full pinyin, initials and
-other compiled encodings. For example `zhongguo` / `zg` matches 中国; with the
-Unicode source, `grin` matches 😀. Initials use the first letter (`s`, not `sh`).
-Literal matching is automatic for every complete grapheme: type `中` to match 中,
-or `👩‍💻` to match that emoji, without a source table. Prefixes also match: `e`
-previews `é`, and `👩` previews `👩‍💻`; the highlight and jump range cover the whole
-grapheme. A prefix does not skip the untyped suffix: `ex` does not literally match
-`éx`. Literal input can mix with codes, such as `中guo` for 中国.
+Press `s`, type literal text or codes, then select a label to jump. Continuously mix
+literal text, full pinyin, initials and other compiled encodings. For example,
+`zhongguo` / `zg` matches 中国; with the Unicode table configured, `grin` matches 😀.
+Initials use the first letter: 输 is `s`, not `sh`. If no label appears at the expected
+position, keep typing.
 
-Use ASCII labels for common combining-letter and emoji input. Literal previews
-return no next keys, so custom Unicode labels can conflict with an untyped suffix.
-With Flash's `jump.autojump` enabled, a unique prefix candidate can jump immediately.
+In operator-pending mode, press `yr`, search for the target and select a label, then
+type `iw` to copy a remote word and return to the original window. Use `dr` to delete.
 
-ASCII literal text follows Neovim’s `ignorecase` and `smartcase` settings, including
-`f/F/t/T`. With `ignorecase` enabled, letter case is ignored; with `smartcase` also
-enabled, an uppercase letter in the query makes that query case-sensitive. Changes
-take effect on the next match without rebuilding the dictionary. Code tables match
-exactly by default; use `matcher = "letter"` for letter conversions that should
-follow these settings, such as extra Latin letters. `letter` also looks up the
-first Unicode codepoint of a grapheme and consumes the entire grapheme, so an `e`
-entry can match `é` without enumerating combining suffixes. Other code-table matchers continue
-to look up complete graphemes only.
+ASCII literal text and the built-in latin table follow Neovim's `ignorecase` and
+`smartcase` settings, including in `f/F/t/T`. Enabling `ignorecase` ignores letter
+case; with `smartcase` also enabled, a query containing an uppercase letter becomes
+case-sensitive. Option changes take effect on the next match.
 
-With `sources = { "latin" }`, type `e` for `é` or `é`, `o` for `ø`, `ae` for `æ`,
-and `ss` for `ß`. Capital letters have capital codes (`É` → `E`, `Æ` → `AE`);
-`ignorecase` / `smartcase` apply as described above. Combining suffixes are consumed
-with the letter. See [Latin coverage and data](docs/latin.md) for limits and provenance.
-
-In operator-pending mode, `yr`, a search and label, then `iw` yanks a remote word
-and restores the original position. Use `dr` to delete. Flash owns operators,
-restoration and rendering.
+With `sources = { "latin" }`, `e` matches `é` and `é`, `o` matches `ø`, `ae` matches
+`æ`, and `ss` matches `ß`. Capital letters retain capital codes (`É` → `E`, `Æ` → `AE`),
+following the `ignorecase` / `smartcase` settings above. Combining suffixes after a
+letter are consumed with the entire grapheme. See [Latin coverage and data sources](docs/latin.md).
 
 ### Character motions f/F/t/T
 
@@ -112,15 +112,15 @@ require("flash").setup({
 })
 ```
 
-`fz` matches characters whose codes begin with z and literal z; with flypy, `fv`
-includes 中 and v. Flash owns counts, repeats, operators and labels. Remove
-`modes.char.matcher` to restore its original character matching. This callback is
-only a Flash bridge, not a custom code matcher.
+`fz` matches characters whose codes begin with `z` and literal `z`; with flypy double
+pinyin, `fv` matches 中 and `v`. Flash handles F/t/T, counts, `;`/`,` repeats, operators
+and labels. Remove `modes.char.matcher` to restore Flash's native character matching.
+This callback only bridges to Flash; it is not a custom code matcher.
 
-## Sources
+## Configure tables
 
-Select sources in setup; `latin` is bundled, while pinyin and Tiger come from the
-source plugins listed above:
+Select sources in setup. `latin` is built in; pinyin and Tiger come from the source
+plugins listed above:
 
 ```lua
 require("flash-any").setup({
@@ -133,41 +133,32 @@ require("flash-any").setup({
 })
 ```
 
-Source order, fallback, schemes and fuzzy spelling resolve when
-building. Automatic packages live under `stdpath("cache")/flash-any/`, keyed by source
-configuration and the C package/Unicode version. Changing source configuration selects
-its own package. External dictionary, Rime import, Lua/TSV companion and converter
-files are tracked by absolute path, size and modification time (including nanoseconds).
-Installed Lua/TSV files under lua/flash-any are tracked once per process; restart
-Neovim after package updates. Changes select a new cache without reading entire tables
-for content hashing. Edits preserving both size and modification time require manual
-rebuilding. Arbitrary dependencies loaded by user Lua outside this namespace are not tracked.
+Use `binary = "/path/flash-any.bin"` to specify a fixed output path. If the file is
+missing, it is built from sources; specifying only binary loads an existing file.
+Failed builds retain the old output, and existing searches continue using their
+snapshot. Initial compilation runs synchronously during setup.
+`require("flash-any.build").binary()` remains available for explicit exports and development tools.
 
-An optional `binary = "/path/flash-any.bin"` selects a fixed package: it is built from
-`sources` only when missing. `binary` alone loads an existing package. Failed builds
-retain the old output and already-running searches keep their snapshot. First-time
-compilation runs synchronously during setup. `require("flash-any.build").binary()`
-remains available for explicit exports and development tools.
-
-| Source | Contents / default mode |
+| Source | Contents / default behavior |
 | --- | --- |
 | `latin` | Latin letter variants, `letter` |
-| `pinyin` | Full pinyin and initials; schemes default to full codes |
-| `tiger` | Tiger codes, `full_code` |
+| `pinyin` | Full pinyin, accepting full codes and initials; defaults to full codes when a scheme is configured |
+| `tiger` | Tiger codes, with optional selection keys assigned by weight: space for the first candidate and semicolon for the second by default |
 
-Scheme, fuzzy spelling and source defaults are documented by the corresponding
-source package.
+Double pinyin, fuzzy spelling and default selection keys are configured by the
+corresponding source and documented with it.
 
-`matcher` selects `full_code`, `initial`, `prefix` or `letter`. Ordinary sources all
-participate. A fallback contributes only when no earlier source recognized that
-grapheme; a recognized empty code list also blocks later fallbacks.
+Each source's `matcher` can use one of four built-in modes: `full_code`, `initial`,
+`prefix` or `letter`. All ordinary sources participate in matching. A source with
+`fallback = true` only provides codes for graphemes not recognized by earlier sources.
+An empty code array also counts as recognized and blocks later fallbacks.
 
 ### Custom tables
 
-Use `data` for punctuation and a few custom symbols; use `file` for dictionaries. Automatic
-cache setup warns once per process when explicit `data` sources total more than
-200 text entries; multiple codes for one entry count once. This is advisory,
-not a size limit.
+Use `data` for punctuation and a few custom symbols; use `file` for dictionaries.
+Automatic cache checks warn once per process when explicit `data` sources total
+more than 200 text entries; multiple codes for one entry count once. This is a
+performance hint, not a usage limit.
 
 ```lua
 sources = {
@@ -175,51 +166,58 @@ sources = {
   {
     file = "/path/table.dict.yaml",
     matcher = "full_code",
-    -- Optional build-time conversion
+    -- Optional build-time code conversion
     -- converter = "/path/converter.lua",
   },
 }
 ```
 
-Third-party projects need only a dictionary file (Rime, TSV, CSV, space, Fcitx or IBus) and a
-built-in matcher ID. No sorting, Lua companion or source factory is required.
-An optional `converter` file returns a build-time code-list conversion function.
-See [integration and converters](docs/sources.md) and
-[recording / README templates](demos/README.md#第三方码表--third-party-tables).
+Third-party projects can directly provide Rime, TSV, CSV, whitespace-separated,
+Fcitx or IBus tables, without sorting, a Lua common-character table or a source
+module. Tab-separated tables use one code per row; repeat rows for multiple codes.
+An optional `converter` points to a Lua file returning a code conversion function
+that runs only at build time. See [integration and converters](docs/sources.md) ·
+[third-party recording and README templates](demos/README.md#第三方码表--third-party-tables).
 
-`data` accepts a code string or array per key; codes must be nonempty ASCII.
-Lua factories and build-time converters can generate tables. Follow the [step-by-step source guide](docs/writing-sources.md) for local
-installation, verification and demo publication; see the [reference](docs/sources.md)
-for complete options.
+`data` accepts a single code string or an array of codes; codes must be nonempty
+ASCII strings. Lua factories and build-time conversions can generate tables.
+For your first extension, follow the [step-by-step source guide](docs/writing-sources.md)
+for local installation, verification and demo publication. See the
+[table development reference](docs/sources.md) for complete options.
 
-**Each key must contain exactly one complete Unicode17 grapheme**, such as á or
-👩‍💻. Multi-grapheme keys such as 中国 are rejected; continuous input can still
-match 中国 one grapheme at a time. No normalization is applied. Positions follow
-Neovim byte conventions; highlighting includes a compound grapheme's last scalar.
+**Each key must contain exactly one complete Unicode 17 grapheme**, such as `á` or
+`👩‍💻`. Multi-grapheme keys such as 中国 are not currently accepted; continuous input
+can still match 中国 one grapheme at a time. No Unicode normalization is applied.
+Byte positions follow Neovim conventions; highlighting covers the last codepoint
+of a complex grapheme.
 
-### Convert dictionaries
+### Convert existing dictionaries
 
 ```vim
 :FlashAnyBuildTable source.dict common.lua [full.tsv|-] [common-from.lua|-] [format] [encoding]
 :checkhealth flash-any
 ```
 
-Only input and Lua output are required. Formats: auto/rime/tsv/tab/csv/space/fcitx/ibus;
-encoding defaults to utf-8. TSV uses one text/code pair per row; repeat rows for multiple codes. Commas are
-literal code characters; duplicates merge. Conversion preserves and reports multi-grapheme keys;
-file sources filter these automatically, while direct Lua/data inputs remain strict. Imported codes cannot
-contain tabs or newlines; direct Lua tables allow other ASCII bytes.
+Only the input and Lua output paths are required. format is
+auto/rime/tsv/tab/csv/space/fcitx/ibus, and encoding defaults to utf-8. TSV uses one
+text/code pair per row; repeat rows for multiple codes. Commas are preserved
+literally, and duplicate entries are merged. The converter preserves original
+phrase keys and reports their count; these must be filtered to single graphemes
+before generating a binary in the current format. Codes cannot contain tabs or
+newlines; supplementary direct Lua tables allow other ASCII bytes.
 
-## Development
+## Development and measurement
 
-[Implementation and validation](docs/development.md) · [Benchmarks](docs/benchmarks.md).
-Run `make` to compile the C module, or `make clean` to remove it. The Makefile uses
-GNU make 3.81-compatible syntax and does not invoke Neovim. `CC`, `CPPFLAGS`,
-`CFLAGS` and `LDFLAGS` can be overridden. Unicode data is committed as
-`src/grapheme_data.h`; updating it is a maintainer task, not an installation step.
-`compile_flags.txt` supplies clangd with portable flags; no generated database is needed.
+[Current implementation and validation](docs/development.md) · [Benchmarks](docs/benchmarks.md).
+Run `make` to compile the C module and `make clean` to remove the shared library.
+The Makefile uses GNU make 3.81-compatible syntax and does not invoke Neovim;
+`CC`, `CPPFLAGS`, `CFLAGS` and `LDFLAGS` can be overridden. The Unicode header
+`src/grapheme_data.h` is committed with the source and only needs to be generated
+when maintainers update the data. clangd uses `compile_flags.txt` directly;
+no compilation database needs to be generated.
 
 ## License
 
-Code: [MIT](LICENSE). Unicode data keeps its upstream license; see
-[THIRD_PARTY.md](THIRD_PARTY.md). Each optional source ships its own data notices. [Demo recording](demos/README.md).
+Project code is [MIT](LICENSE). Unicode data retains its upstream license; see
+[THIRD_PARTY.md](THIRD_PARTY.md). Each independent source provides its own table
+provenance and license. [Demo recording](demos/README.md).

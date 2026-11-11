@@ -4,11 +4,15 @@ local tables = require("flash-any.table")
 ---@class FlashAnySourceDefinition
 ---@field codetable? string Table name under flash-any.tables; mutually exclusive with data.
 ---@field data? FlashAnyTable Prepared data; may have a lazy __index.
+---@field file? string Weighted dictionary path; mutually exclusive with codetable/data.
+---@field format? string
+---@field columns? string[]
+---@field encoding? string
+---@field selection? FlashAnySelection|false
 ---@field matcher? "full_code"|"initial"|"prefix"|"letter"
 ---@field fallback? boolean
 ---@field prepared? boolean Factory owns data overrides and padding.
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
----@field selectors? table<string, table<string, string>>
 
 -- Only default instances are shared; configured instances own their data and caches.
 ---@type table<string, FlashAnySourceDefinition>
@@ -31,6 +35,10 @@ function M.load(name, opts)
 	assert(type(factory) == "function", "source module must return a factory: " .. name)
 	local source = factory(opts or {})
 	assert(type(source) == "table", "source factory must return a table: " .. name)
+	assert(
+		not source.file or (type(source.file) == "string" and not source.data and not source.codetable),
+		"file must be a path and cannot be combined with codetable or data: " .. name
+	)
 	if source.codetable ~= nil then
 		assert(type(source.codetable) == "string", "codetable must be a table name: " .. name)
 		assert(source.data == nil, "codetable and data are mutually exclusive: " .. name)
@@ -156,8 +164,28 @@ function M.resolve(values)
 			)
 			assert(value.groups == nil or type(value.groups) == "table", "groups must map codes to spelling lists")
 			local defaults = value.name and M.load(value.name, not named_only and value or nil) or {}
+			-- Factories declare file metadata; the same reader/ranking path serves direct files.
+			if defaults.file then
+				local configured = vim.tbl_extend("force", defaults, value)
+				if type(defaults.selection) == "table" and type(value.selection) == "table" then
+					configured.selection = vim.tbl_extend("force", defaults.selection, value.selection)
+				end
+				if type(value.file) == "string" then
+					-- An override is a different dictionary, whose header/format may differ.
+					for _, field in ipairs({ "format", "columns", "encoding", "header" }) do
+						configured[field] = value[field]
+					end
+				end
+				if value.data or value.lua then
+					configured.file = nil
+					configured.groups = value.groups
+				elseif value.file == false then
+					configured.file = defaults.file
+				end
+				value = configured
+			end
 			local data = defaults.data
-			local selectors = defaults.selectors
+			local selectors
 			local groups = defaults.groups
 			if not value.name or value.data or value.lua or value.file then
 				groups = value.groups

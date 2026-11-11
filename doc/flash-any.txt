@@ -109,11 +109,11 @@ pinyin、tiger 分别对应中文拼音和虎码 source 插件，插件自带相
 pinyin 省略 scheme 为全拼及首字母，
 scheme 可选 flypy、pyjj、natural、abc、mspy、st；双拼默认完整编码。fuzzy 可为 true
 或 initials/finals 等价分组。append_space_below 给短于阈值的编码加一个空格。
-全拼按音节共享模糊拼写，双拼仍在构建时逐字展开。声母/韵母变体组合相乘；
-过多分组可能增大双拼码表、构建时间和匹配开销，建议只配置需要的分组。
-Full pinyin shares fuzzy spellings per syllable; double pinyin expands per character.
-Many initial/final combinations increase build and matching work, especially double-
-pinyin dictionary size; enable only needed groups.
+全拼和双拼都按音节共享模糊拼写，工厂只声明文件和 groups，不加载逐字数据。
+声母/韵母变体组合相乘；过多分组增加共享拼写体积、构建和匹配开销。
+Full and double pinyin share spellings per syllable. Factories declare file/groups
+without loading character data. Many fuzzy combinations increase shared spelling
+size and build/matching work; enable only needed groups.
 
 用户可提供 data，或 lua 与可选完整 tsv 文件。Lua 工厂放在
 lua/flash-any/sources/name.lua，返回 {data/codetable, matcher, fallback}。

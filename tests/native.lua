@@ -55,7 +55,24 @@ local function literal(text, stream, _, emit)
 end
 local function compare(lines, queries, specs)
 	local compiled = engine(specs)
-	local sources = registry.resolve(specs)
+	-- Frozen factories predate declarative file definitions; adapt only their data input.
+	local reference_specs = vim.deepcopy(specs)
+	for i, spec in ipairs(reference_specs) do
+		local name = type(spec) == "string" and spec or spec.name
+		if name and require("flash-any.source").load(name).file then
+			local resolved = require("flash-any.source").resolve({ spec })[2]
+			local data = {}
+			for glyph, codes in pairs(require("flash-any.table").materialize(resolved.data)) do
+				local spellings = {}
+				for _, code in ipairs(codes) do
+					vim.list_extend(spellings, resolved.groups and resolved.groups[code] or { code })
+				end
+				data[glyph] = spellings
+			end
+			reference_specs[i] = { data = data, matcher = resolved.mode, fallback = resolved.fallback }
+		end
+	end
+	local sources = registry.resolve(reference_specs)
 	sources[1].matcher = literal
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
 	local query, labels = "", vim.split("asdfghjklqwertyuiopzxcvbnm", "")

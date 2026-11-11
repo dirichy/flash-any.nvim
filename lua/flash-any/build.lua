@@ -192,7 +192,7 @@ function M.read(path, opts)
 		---@type integer?, integer?
 		local text_index, code_index = 1, 2
 		---@type integer?, integer?
-		local weight_index, order_index = 3, nil
+		local weight_index = 3
 		if format == "fcitx" or format == "ibus" then
 			text_index, code_index = 2, 1
 		end
@@ -208,11 +208,10 @@ function M.read(path, opts)
 				if column == "weight" then
 					weight_index = index
 				end
-				if column == "order" then
-					order_index = index
-				end
+				assert(column ~= "order", "order columns are not supported; preserve dictionary row order")
 			end
 			assert(text_index and code_index, "columns must contain text and code")
+			assert(not weight_index or #columns == 3, "weighted dictionaries require three columns: text, code, weight")
 		end
 		local in_data = format ~= "fcitx" and format ~= "ibus"
 		local first_record, prefixes = true, {}
@@ -297,6 +296,10 @@ function M.read(path, opts)
 					)
 				end
 				if not omit then
+					assert(
+						not weight_index or #fields <= 3,
+						"weighted dictionaries accept text/code and optional weight only: " .. file.path .. ":" .. index
+					)
 					add(rows, fields[text_index], fields[code_index], literal)
 					if ranks and fields[text_index] and fields[code_index] then
 						local text, code = fields[text_index], vim.trim(fields[code_index])
@@ -304,19 +307,18 @@ function M.read(path, opts)
 						if text ~= "" and code ~= "" then
 							sequence = sequence + 1
 							local raw = weight_index and fields[weight_index]
-							local weight = raw
-									and raw ~= ""
-									and assert(tonumber(raw), "ranking requires numeric weights")
-								or 0
-							assert(
-								weight == weight and math.abs(weight) ~= math.huge,
-								"ranking requires finite weights"
-							)
-							local order = order_index and tonumber(fields[order_index]) or sequence
-							ranks[code] = ranks[code] or {}
-							local old = ranks[code][text]
-							if not old or weight > old.weight then
-								ranks[code][text] = { weight = weight, order = order }
+							if raw and vim.trim(raw) ~= "" then
+								local weight = assert(tonumber(raw), "ranking requires numeric weights")
+								assert(
+									weight == weight and math.abs(weight) ~= math.huge,
+									"ranking requires finite weights"
+								)
+								local order = sequence
+								ranks[code] = ranks[code] or {}
+								local old = ranks[code][text]
+								if not old or weight > old.weight then
+									ranks[code][text] = { weight = weight, order = order }
+								end
 							end
 						end
 					end

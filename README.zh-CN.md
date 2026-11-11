@@ -14,14 +14,14 @@
 
 需要 Neovim **0.11+**、flash.nvim，以及首次构建和升级时使用的 make 和 C 工具链
 （GCC 或 Clang）。
-公共 Lua/C 头文件已随插件提供。Linux 与 macOS 已验证；windows 暂不支持。
+公共 Lua/C 头文件已随插件提供。Linux 与 macOS 已验证；Windows 暂不支持。
 
-核心内置 Unicode literal (即原 flash.nvim 的字面匹配功能) 和可选的 `latin` source。`sources = {}` 只启用字面匹配，
-`sources = { "latin" }` 可匹配拉丁字母变体。其他支持的码表由外部插件提供：
+核心内置 Unicode 字面匹配（即原 flash.nvim 的字面匹配功能）和可选的 `latin` source。`sources = {}` 只启用字面匹配，
+`sources = { "latin" }` 可匹配拉丁字母变体。其他码表支持由外部插件提供：
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
-- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— nerdfont 图标
+- [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— Nerd Font 图标
 
 中文用户的 lazy.nvim 配置：
 
@@ -33,14 +33,14 @@
   dependencies = { "folke/flash.nvim","dirichy/flash-any-pinyin.nvim" }, -- 虎码用户把 pinyin 改为 tiger
   build = "make",
   opts = { sources = {
-       "latin", -- 可选拉丁字母变体扩展 
-       "pinyin", -- 中文全拼，具体配置请看对应 source 主页。虎码用户把 pinyin 改为 tiger，配置项同样看 source 插件主页。
+       "latin", -- 可选的拉丁字母变体扩展
+       "pinyin", -- 中文全拼，具体配置见对应 source 插件主页。虎码用户将 pinyin 改为 tiger，配置项同样见对应插件主页。
     } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
   },
-  -- 下面这段用来开启 f mode 
+  -- 以下配置用于开启字符模式（f mode）
   -- config=function(_,opts) 
   --   require("flash").setup({ 
   --   modes = { 
@@ -74,7 +74,7 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 ## 用法
 
 按 `s`，输入原文或编码，再按标签跳转。可连续混用原文、全拼、简拼和其他已构建编码。
-例如全拼/简拼 `zhongguo` / `zg` 匹配“中国”；配置 Unicode 表后 `grin` 匹配 😀。
+例如全拼/简拼 `zhongguo` / `zg` 匹配“中国”；配置 Unicode 码表后，`grin` 匹配 😀。
 简拼取首字母，例如“输”是 `s`，不是 `sh`。如果发现对应位置没有出现标签，就接着输入。
 
 操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
@@ -87,7 +87,7 @@ ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartc
 
 配置 `sources = { "latin" }` 后，`e` 可匹配 `é`、`é`，`o` 匹配 `ø`，`ae` 匹配
 `æ`，`ss` 匹配 `ß`。大写字母保留大写编码（`É` → `E`、`Æ` → `AE`），遵循上述
-`ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消费。
+`ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消耗。
 收录范围和数据来源见 [Latin 说明](docs/latin.md)。
 
 ### 字符模式 f/F/t/T
@@ -126,7 +126,7 @@ require("flash-any").setup({
 })
 ```
 
-可选 `binary = "/path/flash-any.bin"` 指定固定产物路径，文件缺失时使用 sources
+可用 `binary = "/path/flash-any.bin"` 指定固定产物路径，文件缺失时使用 sources
 构建；仅提供 binary 则加载现有文件。构建失败保留旧输出，已有搜索继续使用原
 快照。首次编译在 setup 中同步完成。`require("flash-any.build").binary()` 仍可用于
 显式导出及开发工具。
@@ -140,8 +140,8 @@ require("flash-any").setup({
 双拼、模糊音和默认选键属于相应 source 的配置，说明随 source 发布。
 
 每项的 `matcher` 可选 `full_code`、`initial`、`prefix`、`letter` 四种内置模式。
-普通源均参与；`fallback = true` 的源只为之前尚未认识的字素提供编码。
-空编码数组也算已认识，会屏蔽后面的 fallback。
+普通 source 均参与匹配；`fallback = true` 的 source 只为之前尚未识别的字素提供编码。
+空编码数组也算已识别，会屏蔽后面的 fallback。
 
 ### 自定义码表
 
@@ -162,7 +162,7 @@ sources = {
 ```
 
 第三方可直接提供 Rime、TSV、CSV、空白分隔、Fcitx 或 IBus 码表，
-无需排序、Lua 常用字表或 source 模块。Tab 表每行一个编码，多编码重复写行。可选 `converter` 指向返回编码转换函数的 Lua 文件，
+无需排序、Lua 常用字表或 source 模块。Tab 分隔的码表每行一个编码，多个编码分行重复写入。可选 `converter` 指向返回编码转换函数的 Lua 文件，
 只在构建时执行。[接入与 converter 说明](docs/sources.md) ·
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
@@ -181,9 +181,9 @@ sources = {
 :checkhealth flash-any
 ```
 
-只必需输入及 Lua 输出路径。format 为 auto/rime/tsv/tab/csv/space/fcitx/ibus，encoding 默认
-utf-8。TSV 每行一对文本和编码，多个编码重复写行；逗号原样保留，重复条目合并。转换器保留
-原始词组键并报告数量，生成当前二进制前需要筛选为单字素。编码中不能含 Tab 或换行；补充的直接 Lua 码表允许其他 ASCII 字节。
+只需提供输入路径及 Lua 输出路径。format 为 auto/rime/tsv/tab/csv/space/fcitx/ibus，encoding 默认
+utf-8。TSV 每行一对文本和编码，多个编码分行重复写入；逗号原样保留，重复条目合并。转换器保留
+原始词组键并报告数量，生成当前格式的二进制文件前，需要筛选为单字素。编码中不能含 Tab 或换行；补充的直接 Lua 码表允许其他 ASCII 字节。
 
 ## 开发与测量
 

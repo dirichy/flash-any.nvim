@@ -264,7 +264,8 @@ and restart Nvim after make.
 C 负责写入、验证和解码；Lua 只组织 ID 与拼写数组，不拼装二进制字段。
 音节的运行时视图由引擎持有并在 new_state 间共享，与底层字节一同保活。
 扫描只在遇到引用时比较该音节的拼写，保留每个拼写的匹配和 next；不预建输入图，
-不保存跨输入匹配缓存。双拼暂时沿用展开编码的构建流程。
+不保存跨输入匹配缓存。全拼和双拼均使用共享音节组，工厂只生成 groups 并声明
+文件路径，逐字数据统一由核心构建器读取。
 
 Full pinyin stores canonical readings and shares fuzzy spellings per syllable.
 A 0x08 flag in the matcher tag selects a u16 syllable reference instead of inline
@@ -274,7 +275,8 @@ the byte size of the profile appended after the string pool; offset 36 remains z
 C owns its codec and validates every reference. Immutable spelling views and backing
 bytes belong to the engine and are retained by child states. Spellings are matched
 on demand, preserving all alternatives and next bytes without an input graph or
-cross-input match cache. Double pinyin continues to expand codes at build time.
+cross-input match cache. Both full and double pinyin now share syllable groups.
+Factories generate groups and declare file paths; the core reads character data.
 
 v8 会使自动缓存重新构建；显式旧 binary 需重新导出，make 后重启 Nvim。
 Version 8 rebuilds automatic caches; regenerate explicit old binaries and restart

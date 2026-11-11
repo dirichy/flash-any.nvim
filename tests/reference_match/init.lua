@@ -10,7 +10,11 @@ local matcher = require("reference.match")
 local tables = require("reference.table")
 local registry = require("reference.source")
 local function load(name, opts)
-	return registry.load(name, opts).data
+	local source = registry.load(name, opts)
+	-- File-only factories declare build inputs rather than eagerly loaded data.
+	return rawget(source, "file")
+			and require("flash-any.source").resolve({ vim.tbl_extend("force", { name = name }, opts or {}) })[2].data
+		or source.data
 end
 local codetable = require("reference.codetable")
 local literal = require("reference.literal")()
