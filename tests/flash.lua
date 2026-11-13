@@ -66,6 +66,17 @@ end
 state:update({ pattern = "👩", check_jump = false, force = true })
 assert(#state.results == 1 and state.results[1].end_pos[2] == 7, "literal prefixes keep the whole emoji")
 state:hide()
+-- Word codes and their continuations use the same real Flash result ranges.
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国人民 中国" })
+state = plugin.jump(fixture.config({
+	sources = { { data = { ["中国"] = "zg", ["中国人民"] = "zgrm", ["人民"] = "rm" } } },
+}))
+for _, case in ipairs({ { "zg", 3, 3 }, { "zgrm", 1, 9 } }) do
+	state:update({ pattern = case[1], check_jump = false, force = true })
+	assert(#state.results == case[2], vim.inspect(state.results))
+	assert(state.results[1].pos[2] == 0 and state.results[1].end_pos[2] == case[3])
+end
+state:hide()
 -- Bundled Latin data integrates with the real state and consumes combining suffixes.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "café æx" })
 vim.go.ignorecase = true

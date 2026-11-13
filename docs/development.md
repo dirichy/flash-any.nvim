@@ -3,18 +3,19 @@
 ## 边界 / Boundaries
 
 运行时只有 C 后端。`setup` / `jump(opts)` / `remote(opts)` 接收 `sources` 或 `binary`；
-缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。每个键须恰好一个完整字素，连续输入
-可以跨字素匹配。多字素词条构建时报错，不为未来词组预留运行时兼容层。
+缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。
+键支持完整字素和词组，连续输入可以连接多个词条。词组只从字素边界开始和结束，不跨行。
 
 Runtime is C-only. Setup builds a missing package from sources or loads an existing
-binary. Lua factories/converters execute only while building. Keys are complete
-single graphemes; continuous input crosses graphemes. Word entries are rejected.
+binary. Lua factories/converters execute only while building. Keys can be complete
+graphemes or phrases; input can consume several entries. Phrase boundaries must be
+grapheme boundaries, and entries cannot span buffer lines.
 
 字表内容决定收录范围，构建器不另做字符范围过滤。需要删条目时更新码表，或由
-converter 返回 nil/空数组。fallback 仍按此前码表是否认识该字素判断。
+converter 返回 nil/空数组。fallback 按完整文字key合并，空编码列表也阻止后续同key的fallback。
 Dictionary contents define coverage; the builder applies no separate character-range
 filter. Remove entries in the dictionary or return nil/an empty array from a converter.
-Fallback still depends on whether earlier dictionaries recognized the grapheme.
+Fallback merges by exact text key; empty lists also block later fallback codes for that key.
 
 ## 模块 / Modules
 
@@ -22,8 +23,12 @@ Fallback still depends on whether earlier dictionaries recognized the grapheme.
   转换、校验、过滤和合并。Lua Unicode 分段器用于构建及测试参考。
 - `src/text.h`：严格UTF8解码及Unicode17扩展字素分段，只保留当前分段状态；没有
   文本索引数组、Cursor方法或Lua逐字素回调。
-- `src/native.c`：二进制序列化、原子写入、加载、统一字素索引查询、请求推进、候选合并、标签避让、
-  f/F/t/T识别。状态/临时存储由Lua userdata拥有，避免额外malloc生命周期。
+- `src/binary.c`：二进制序列化、共享编码组、索引构建、完整校验、文件读取与原子写入。
+- `src/scan.c`：单趟字素扫描、编码匹配、请求推进、候选合并、下一输入键收集与构建时字素枚举。
+- `src/trie.c`：构建普通码点双数组Trie；宽节点优先放置，临时树和空闲链只在构建时存在。
+- `src/native.c`：Lua入口、窗口行/结果缓存、标签分配与f/F/t/T位置转换。
+  状态/临时存储由Lua userdata拥有，避免额外malloc生命周期。
+- `src/native.h`：内部共享类型、格式常量与内联字典查询；匹配上下文只在`scan.c`内定义。
 - `native.lua`、`init.lua`、`char.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
   操作符、窗口、remote恢复和绘制。Flash要求的Lua matcher回调只是C入口。
 
@@ -41,14 +46,26 @@ Explicit binaries and cached built-in sources load without Lua builders or scann
 cover missing/broken native modules, external make, automatic dictionary compilation
 and persistent-cache reuse. Loading/setup never invokes a compiler.
 
-Review C时，可先读`text.h`的`decode`/`grapheme_break`，再沿`native.c`的
+Review C时，可先读`text.h`的`decode`/`grapheme_break`，再沿`scan.c`的
 `scan_line → scan_grapheme → match_codes → emit/request`阅读。二进制读写单独看
-`write_binary`和`load_data`；`scan`负责Lua参数、缓存及GC根。源文件中的短注释
+`binary.c`的`write_binary`和`load_data`；`native.c`的`scan`负责Lua参数、缓存及GC根。
+`scan_line`是匹配扫描的唯一跨文件入口：结果扩容时替换指定Lua栈槽并返回新指针，
+调用方继续持有该栈槽；行间复用请求工作区，每行开始重置。
+字典读取函数放在内部头中供校验和扫描共用，保留内联机会。源文件中的短注释
 说明跨调用的状态、位置单位和借用指针约束；`.clang-format`统一C排版。
 
-For review, start with decoding/boundaries, then follow the scanner into matching
-and request emission. Package IO is separate; `scan` owns Lua stack roots and caches.
-Format production C with `clang-format -i src/native.c src/text.h`.
+`binary.c` owns package encoding, shared groups, index construction, validation and
+file reads and atomic writes. `scan.c` owns forward grapheme matching, request advancement and
+build-time grapheme enumeration, keeping Unicode boundary table use in one translation unit;
+`native.c` owns Lua bindings, window caches, labels and motion positions. Shared
+types and inline dictionary lookups live in `native.h`; matching context stays
+private to `scan.c`. UTF-8 decoding and grapheme boundaries remain in `text.h`.
+For review, follow `scan_line → scan_grapheme → match_codes → emit/request`.
+`scan_line` is the only matching entry point: result growth replaces
+the caller-pinned Lua stack slot and returns the new address. Request storage is
+reused across rows and reset at each row's start. `native.c` keeps Lua stack roots
+and caches alive. Format production C with
+`clang-format -i src/native.c src/binary.c src/scan.c src/native.h src/text.h`.
 
 ## 构建 / Build
 
@@ -94,26 +111,64 @@ namespace, require explicit rebuilding.
 ## 码表 / Dictionary
 
 按source顺序处理fallback，再合并`(matcher模式, 编码)`。空编码集合
-也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为128个键，普通源
+也算认识，会屏蔽后续fallback但不产生匹配。ASCII literal构建为127个非NUL键，普通源
 仍可为ASCII附加编码。非 ASCII 或多码点字素不依赖码表，直接比较原文；
 fallback 的码表合并规则不因原文字面匹配而改变。运行时不保留source身份或fallback状态。
 
-格式`FANYBIN\x0A`，40-byte头：magic8及little-endian u32的Unicode版本17、总大小、
-条目数、哈希容量、页数、pool字节数、编码组区字节数和一个保留0。随后为16-byte条目（key及编码
-列表的offset/length）、复杂字素哈希槽、4352个u32页目录及每个实际页的256槽，
-随后是共享byte pool及编码组区。槽存条目序号+1，0为空。相同带标记编码列表共享pool片段。
+当前格式为`FANYBIN\x0D`（v13）。单码点页表和按节点取模的码点DAT共享编码池：
 
-列表为`[标记][ASCII编码][标记][ASCII编码]...`：0x80 literal、0x81 full_code、
-0x82 initial、0x83 prefix；组引用为0x89–0x8B，后跟u16 ID，详见末节。
-普通编码标记兼作模式与分隔，不需要source ID或结束符，NUL
-可以是编码内容。模式映射由C模块统一提供给构建器。加载校验区段/引用边界、
-标记、literal内容、排序、占用及索引可达性。输出原子替换；旧格式需要重建。
+- 单码点：4352个u32页目录，每个实际页256个u32槽。页目录存页序号+1，
+  槽存编码列表offset+1；0表示不存在，不保存key或条目记录。
+- DAT每单元8字节，低到高依次为有符号base24、入边商13、父节点编号+1占23位、
+  出边模数指数标记4位。普通标记0..13表示指数8..21，即每节点模数256..2^21。
+  标记14保留，15表示终点；终点低32位改存编码列表offset+1，位32..36必须为0。
+- `next = base[state] + (cp & (2^k - 1))`，先校验父节点，再校验入边商等于
+  `cp >> k`；这里k来自父节点。0标签边必须指向终点，普通边不得指向终点。
+  父节点校验确定归属，槽位确定余数，商确定高位；不要求base唯一。
+- 空单元全0；根在state0，父节点和入边商为0，出边指数仍正常存放。非法UTF-8
+  字节用`0x110000+原字节`作为标签。单元数最多8,388,607，构建或加载超限时失败。
+- 不存文本key、文本记录或hash槽，不合并根页表，不复用空base，不用多区域偏移。
 
-Lua仅传递排序后的字素及`{模式, 编码}`列表，C负责标记编码、共享池、偏移、索引、
+构建时将每组兄弟标签反转二进制位后排序，只检查相邻标签的共同低位长度，直接
+得到最小无冲突指数，最低取8。终点标签0参与计算。不枚举模数或反复试建DAT。
+临时树和空槽搜索仍由C实现；模数只改变寻址标签，不增加运行时侧表。
+
+40字节头为magic8及8个little-endian u32：Unicode版本17、总大小、文本key数、
+DAT单元数、码点页数、编码池字节数、编码组区字节数、单码点数。后续依次为
+页目录/页槽、DAT、编码池及编码组；没有单码点时不存页目录，没有文本key时不存DAT。
+
+编码列表为`[标记][编码或参数]...[NUL]`。0x80 literal、0x81 full_code、
+0x82 initial、0x83 prefix、0x84 suffix、0x85 letter；0x89/0x8A/0x8B/0x8D
+是对应模式的u16组引用。普通编码标记兼作模式与分隔，不保存逐编码长度。
+编码、后缀和组内拼写禁止NUL；组内拼写保留u8长度，组ID按固定两字节读取。
+文本或查询含NUL时，匹配行为不作保证，不增加专门的扫描分支。
+
+加载时校验页表归属与占用、DAT父节点及标签、终点数、环引用、终点不能有子节点，
+并校验编码偏移、列表语法及组引用。父链深度用临时数组记忆，每个单元最多遍历
+两次；同时求最长key码点数。加载后只保留原始只读字节，不重建索引或保留校验数组。
+输出前复用完整加载校验，之后原子替换文件。自动缓存因v13版本变化重建；显式
+binary需要重新导出，make后重启Nvim。
+
+Version 13 stores scalar offsets in a two-level page table and text keys in a
+codepoint DAT with per-node power-of-two moduli. Each LE u64 packs signed base24,
+incoming quotient13, parent-plus-one23 and an outgoing exponent tag4, low to high.
+Normal tags 0..13 encode exponents 8..21; tag14 is reserved and tag15 denotes a
+terminal with code-list offset-plus-one in its low32 bits. Terminal bits32..36
+must be zero. The root has no parent/incoming quotient; empty units are all zero.
+Queries check the exact parent and the quotient using the parent's exponent.
+Bases need not be unique. Reversed-label sorting computes the smallest allowed
+modulus for each node once, including terminal label zero, without trial builds.
+The 40-byte header and section order remain scalar pages, DAT, code pool and groups.
+There are no text strings, hash slots, merged roots, vacancy reuse or region flags.
+The 23-bit parent limit supports up to 8,388,607 units. Bounds, labels, chains,
+terminals and groups are validated before use. Explicit binaries need regeneration
+for v13; automatic caches rebuild and Nvim must restart after make.
+
+Lua仅传递排序后的文字key及`{模式, 编码}`列表，C负责标记编码、共享池、偏移、索引、
 文件头和写入；二进制规则不在Lua重复实现。完整输出先复用读取端校验，再在目标
 目录创建临时文件、写入、关闭并rename；失败清理临时文件，保留原输出。
 
-Lua supplies sorted graphemes and mode/code pairs. C owns serialization and file IO,
+Lua supplies sorted text keys and mode/code pairs. C owns serialization and file IO,
 including tagged lists, shared pools, indexes and headers. The loader validates the
 complete package before writing; replacement uses a temporary file in the output directory.
 
@@ -121,32 +176,43 @@ complete package before writing; replacement uses a temporary file in the output
 问题。不同Flash state共享只读码表，分别拥有行/查询缓存；按buffer/changedtick
 失效，随state回收。重新setup加载新快照，不改变已有搜索。
 
-Format v5 has one immutable dictionary and tagged ASCII code lists. Bounds, tags and
+Each snapshot owns both immutable tables and their tagged ASCII code lists. Bounds, tags and
 index reachability are validated at load time. Package replacement is atomic. Existing
 states pin their snapshot; per-state line/result caches expire with their buffer tick.
 
 ## 扫描 / Scanning
 
-每行边解码边匹配，不预建字素/码点/byte索引。解码得到一个码点时同步更新字素
-边界状态及hash，确认完整字素后立即查表匹配。判断边界需要预读下一个码点，
-预读值直接进入下一字素，不重复解码。单码点直接查页，复杂字素使用累计hash：
-初值2166136261，每码点`h=(h^cp)*16777619`，uint32回绕。非法字节使用
-`0x110000+原字节`作独立token；hash命中仍校验完整原文。
+单字素与词组共用一次前向扫描，不再维护单字素hash快路径。每解码一个码点，
+同步更新Unicode字素边界，并推进所有活动Trie状态；失败即移除。每个字素起点
+加入根状态，字素内部不启动新前缀。预读的码点直接用于下一字素，不重复解码。
+单码点规则查页表，其他终点从DAT的0标签边读取编码，仅在完整字素边界匹配；转移校验父节点和商。
 
-每字素查一次字典，列表复用给该位置的所有输入状态。按字素/输入byte offset
-合并请求，保留最早起点，固定两槽工作区推进；C处理完整/首字母/前缀消费、
-候选合并及next-key标签避让。每字素只用一个临时候选，命中后追加到按需增长的
-结果数组；不为所有字素预分配结果槽。相同输入复用结果；输入改变时重新解码并
-匹配缓存的原始行，不从上一轮候选筛选，也不保留跨输入的匹配进度。两槽请求仅
-在本轮扫描内推进。跨独立跳转只复用码表。f/F/t/T在前向扫描时
-记录相邻字素位置；Lua适配器按需逐行请求屏幕外目标，避免提前扫描整个buffer。
+请求按文字起点和输入字节偏移合并，保留最早起点。环形工作区为最长key码点数+1，
+至少两槽；词条完成后把消费请求发往下一字素。完成输入的候选保留结果编号，后续
+单字或词组补充next键；结果扩容后通过编号重新取址。候选只在实际命中时增长。
+文字、字面输入、普通编码、initial/prefix、letter、共享编码组沿用同一匹配逻辑。
+跨行状态不保留；f/F/t/T认可词组时使用第一个字素及其相邻位置。
 
-The scanner decodes and matches in one forward traversal, retaining only grapheme
-boundary state and the current glyph. It does not build per-line text indexes. Raw
-lines and identical-query results are cached. Each changed query decodes and matches
-the saved lines afresh, without filtering the previous candidate set or retaining
-cross-query matching progress. The two request slots advance only within that scan.
-Results grow only when a glyph matches. Lua handles editor/Flash integration.
+相同输入复用结果；输入改变时重新扫描缓存原始行，不从旧候选筛选，不保留跨输入
+的前缀推进状态。临时活动状态、请求环与结果由本次扫描的Lua userdata管理。
+
+Single graphemes and phrases share one forward scanner. Each decoded codepoint
+advances every live DAT state; failed states are removed. A new root starts only at
+a grapheme boundary, and terminals are evaluated only at complete boundaries.
+Scalar rules retain page lookup. A bounded ring keeps the input states at every
+live text start; completions schedule work at the terminal's successor. Completed
+results are referenced by index while following entries contribute next keys.
+Scratch state resets between lines. Character motions use the first grapheme and
+its native neighboring positions. Changed queries rescan saved lines; identical
+queries reuse results. There is no separate hash fast path or runtime index choice.
+
+v11的hash、排序区间、全局取模DAT、页表根和平行数组/空位复用方案均保留为历史实验。
+`bench_phrases.py`要求通过`--source-root`指定v11 C源码快照，避免旧格式实验误用
+当前加载器；不属于正式运行时选项。本轮快照位于`/tmp/flash-any-native-v11`。
+
+The v11 representations remain historical benchmark variants. The phrase benchmark
+requires a v11 C source snapshot via --source-root; it does not patch current code into
+an older-format experiment. None of these variants is a production runtime option.
 
 各轮输入独立按当前规则判定，不以之前的候选集约束下一轮输入，也不要求所有
 matcher 遵循统一的输入前缀约定。
@@ -201,7 +267,8 @@ LuaLS配置包含真实Neovim/Flash库与测试模块路径，保留全部诊断
 
 clangd的`--check`还自测代码动作；本机SwapBinaryOperands对Lua宏有重叠替换错误。
 使用`--tweaks=ExtractFunction`避开这个动作自测，但保留全部源文件诊断；项目未
-配置诊断抑制。分别检查src/native.c及src/text.h，确认生成头和随附公开Lua/C头可解析。
+配置诊断抑制。分别检查src/native.c、src/binary.c、src/scan.c、src/native.h及src/text.h，
+确认生成头和随附公开Lua/C头可解析。
 
 Tests keep the old Lua implementation solely as an independent oracle under tests.
 Production does not load it. Unicode boundaries, native/Lua differential behavior,
@@ -221,6 +288,9 @@ Python 和 iconv 仅用于这套开发测试，不增加插件构建或运行依
 The optional upstream corpus suite compares every text/code pair using an independent
 Python reader and samples C matches. Python/iconv are developer-test dependencies only.
 Downloaded data and reports stay in .dev; normal tests and plugin setup require no network.
+
+以下版本小节记录各功能引入时的格式；当前布局以上文v13为准。
+The versioned sections below describe historical introductions; v13 above defines the current layout.
 
 ## 可选后缀与二进制 v7 / Optional suffixes and binary v7
 

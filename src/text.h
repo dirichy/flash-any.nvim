@@ -4,8 +4,6 @@
 /* Sequential UTF-8 decoding and Unicode 17 grapheme boundaries.
  * Only the current boundary state is retained; no per-line index arrays.
  */
-#include <lua.h>
-#include <lauxlib.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>

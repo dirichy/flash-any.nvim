@@ -424,8 +424,8 @@ function M.selectors(data, ranks, keys)
 	local used = {}
 	for _, key in ipairs(keys) do
 		assert(
-			type(key) == "string" and #key > 0 and #key < 128 and not key:find("[\128-\255]"),
-			"selection keys must be nonempty ASCII strings shorter than 128 bytes"
+			type(key) == "string" and #key > 0 and #key < 128 and not key:find("[%z\128-\255]"),
+			"selection keys must be nonempty ASCII strings without NUL shorter than 128 bytes"
 		)
 		assert(not used[key], "selection keys must be distinct")
 		used[key] = true
@@ -455,9 +455,8 @@ end
 ---Compile ordered sources into one complete-grapheme dictionary.
 ---@param opts {sources: FlashAnySourceSpec[], output: string}
 ---@return integer sources Number of build-time sources, including literal.
----@return integer entries Number of merged graphemes with matchable encodings.
+---@return integer entries Number of merged text keys with matchable encodings.
 function M.binary(opts)
-	local grapheme = require("flash-any.grapheme")
 	assert(type(opts) == "table" and type(opts.output) == "string", "sources and output are required")
 	assert(type(opts.sources) == "table" and vim.islist(opts.sources), "sources must be a list")
 	local values = {}
@@ -478,8 +477,8 @@ function M.binary(opts)
 			local names = vim.tbl_keys(source.groups)
 			for _, name in ipairs(names) do
 				assert(
-					type(name) == "string" and name ~= "" and not name:find("[\128-\255]"),
-					"group names must be nonempty ASCII strings"
+					type(name) == "string" and name ~= "" and not name:find("[%z\128-\255]"),
+					"group names must be nonempty ASCII strings without NUL"
 				)
 			end
 			table.sort(names)
@@ -492,8 +491,8 @@ function M.binary(opts)
 						type(spelling) == "string"
 							and #spelling > 0
 							and #spelling <= 255
-							and not spelling:find("[\128-\255]"),
-						"group spellings must be ASCII strings of 1..255 bytes"
+							and not spelling:find("[%z\128-\255]"),
+						"group spellings must be ASCII strings of 1..255 bytes without NUL"
 					)
 					set[spelling] = true
 				end
@@ -510,16 +509,13 @@ function M.binary(opts)
 		end
 		local data = mode ~= 0 and source.data and tables.materialize(source.data) or {}
 		if mode == 0 then
-			for byte = 0, 127 do
+			for byte = 1, 127 do
 				local key = string.char(byte)
 				data[key] = { key }
 			end
 		end
 		for key, codes in pairs(data) do
-			assert(
-				type(key) == "string" and key ~= "" and grapheme.len(key) == 1,
-				"binary keys must contain exactly one complete grapheme: " .. tostring(key)
-			)
+			assert(type(key) == "string" and key ~= "", "binary keys must be nonempty text: " .. tostring(key))
 			if not source.fallback or not known[key] then
 				-- Recognition precedes matching: even an empty list blocks later fallbacks.
 				known[key] = true
@@ -527,8 +523,8 @@ function M.binary(opts)
 				merged[key] = set
 				for _, code in ipairs(codes) do
 					assert(
-						type(code) == "string" and code ~= "" and not code:find("[\128-\255]"),
-						"binary codes must be nonempty ASCII strings"
+						type(code) == "string" and code ~= "" and not code:find("[%z\128-\255]"),
+						"binary codes must be nonempty ASCII strings without NUL"
 					)
 					local kind, parameters, value = mode, "", code
 					if aliases[code] ~= nil then
@@ -583,8 +579,7 @@ function M.command(opts)
 	end
 	local level = vim.log.levels.INFO
 	if multi > 0 then
-		message = message .. ("; %d multi-grapheme entries must be filtered before binary compilation"):format(multi)
-		level = vim.log.levels.WARN
+		message = message .. ("; %d multi-grapheme entries"):format(multi)
 	end
 	vim.notify(message, level)
 end

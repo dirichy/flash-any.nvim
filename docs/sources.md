@@ -42,6 +42,7 @@ require("flash-any").setup({
 | `ibus` | BEGIN_TABLE / END_TABLE 段中的编码、文本、词频 |
 
 **每行一个编码，多编码重复写行。逗号是编码本身的一部分。**
+最终写入二进制的编码必须是非空 ASCII，编码、选键后缀和组内拼写均不能含 NUL。
 
 ```text
 中<TAB>zhong<TAB>100
@@ -57,8 +58,9 @@ Fcitx 数据段的 `#` / `;` 是普通编码，IBus 只跳过 `###` 注释。CSV
 CSV 有标题行时配置 `header = true`。Fcitx 支持英文/中文数据段标记、引号及转义，
 跳过 Prompt / ConstructPhrase 条目和需要自动造码的 Phrase 段。
 
-外部文件中的词组在构建时自动过滤，并报告多字素条目数量；无需维护单字副本。
-直接 `data` / Lua 码表仍严格校验单字素键。Rime 支持普通 columns 和 import_tables
+外部文件、直接 `data` 和 Lua 码表都保留词组，无需维护单字副本。
+同一文本起点的不同长度词条一起参与匹配，只在完整字素边界输出候选，不跨行。
+Rime 支持普通 columns 和 import_tables
 的块列表、内联列表；导入路径相对当前词典，循环或缺失导入报错。此处读取显式
 码表条目，不执行 Rime schema、拼写代数、造词规则或预设词汇编码推导。
 
@@ -68,6 +70,7 @@ Headerless files default to text/code order; use columns to specify code/text/we
 Extra fields such as frequency are ignored. There is **one encoding per row**;
 repeat text rows for multiple encodings. Commas in codes are literal; CSV codes
 containing commas must be quoted. No sorting or Lua companion is required.
+Compiled codes must be nonempty ASCII; codes, optional suffixes and group spellings must exclude NUL.
 
 The reader handles BOM, CRLF and blank lines. Ordinary tables/Rime skip # comments;
 Fcitx data preserves # and ; codes, while IBus skips only ### comments. Fcitx supports
@@ -75,8 +78,9 @@ English/Chinese section names, quoted values and escapes; prompt/construction ro
 and the unencoded Phrase section are excluded. Use header=true for CSV headings.
 UTF-8 is the default; encoding can select GB18030, UTF-16LE or another host encoding.
 Decoding happens before line splitting. Leading/trailing field whitespace is trimmed;
-use append_space_below for intentional padding. File sources filter and report
-multi-grapheme entries; direct Lua/data inputs remain strict. Rime supports ordinary
+use append_space_below for intentional padding. File sources and direct Lua/data
+inputs preserve phrase entries; overlapping word lengths participate at each text start.
+Matches start/end on complete grapheme boundaries and do not cross lines. Rime supports ordinary
 block/inline columns and import_tables lists, with relative recursive imports and
 cycle detection. It reads explicit entries, not schema spelling, rule-based encoding
 or preset-vocabulary inference. Ambiguous auto-detection can be overridden with format.
@@ -334,11 +338,11 @@ reads the complete table, independently of previous searches.
 ```
 
 `:FlashAnyBuildTable` 可从 Rime/CSV/TSV/空白分隔词典生成 Lua/TSV。转换器保留
-多字素条目并报告数量；直接 file 接入自动过滤词组，Lua/data 则需要手动过滤。格式详见
+多字素条目并报告数量；file 和 Lua/data 接入均可直接编译词组。格式详见
 [开发说明](development.md)；测试参考实现不属于插件 API。
 
-The export command preserves multi-grapheme entries; file sources filter these at
-build time, while direct Lua/data inputs remain strict. See [development notes](development.md)
+The export command preserves multi-grapheme entries; file and Lua/data sources compile them directly.
+See [development notes](development.md)
 for binary layout. The frozen Lua oracle under tests is not a plugin API.
 
 ## 真实码表验证 / Real dictionary checks

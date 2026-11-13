@@ -1,5 +1,6 @@
 """Benchmark a simple single-grapheme Lua callback from a temporary native module.
 
+Requires a v11 checkout (the scanner injection is historical).
 python3 scripts/bench_lua_matcher.py --samples 9
 Production C sources and APIs are untouched. The experimental callback takes
 (grapheme, input, 1-based byte position), returning consumed bytes and/or next ASCII byte.
@@ -18,11 +19,15 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--samples', type=int, default=9)
 parser.add_argument('--multiple', action='store_true', help='compare separate C calls with Lua fan-out')
 args = parser.parse_args()
+if '"FANYBIN\\x0B"' not in (ROOT / "src/native.h").read_text():
+    parser.error("historical callback experiment requires a v11 checkout")
 out = Path(tempfile.mkdtemp(prefix='flash-any-lua-matcher-'))
 os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
 env = dict(os.environ, NVIM_LOG_FILE=str(out / 'nvim.log'))
 subprocess.run(['make'], cwd=ROOT, check=True, stdout=subprocess.PIPE)
-source = (ROOT / 'src/native.c').read_text()
+source = ('#define _POSIX_C_SOURCE 200809L\n#include "binary.c"\n#include "prefix.c"\n'
+          + (ROOT / 'src/scan.c').read_text()
+          + (ROOT / 'src/native.c').read_text())
 
 
 def replace_once(old, new):
@@ -31,10 +36,10 @@ def replace_once(old, new):
     source = source.replace(old, new)
 
 
-replace_once('typedef struct {\n  Slice codes;', '''typedef struct {
+replace_once('typedef struct {\n  const unsigned char *codes, *letter_codes;', '''typedef struct {
   lua_State *L;
   int callback_mode, glyph_key;
-  Slice codes;''')
+  const unsigned char *codes, *letter_codes;''')
 replace_once('static void match_codes(MatchContext *context) {', '''/* Experimental API, outside production: arguments remain pinned on the scan stack. */
 static void match_lua(MatchContext *context) {
   lua_State *L = context->L;

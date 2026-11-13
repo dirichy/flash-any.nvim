@@ -53,7 +53,7 @@ if arg[1] then
 	assert(calls == 2 and vim.uv.fs_stat(path))
 	plugin.setup({ binary = path })
 	assert(calls == 2)
-	assert(not pcall(plugin.setup, { sources = { { data = { ["中国"] = "word" } } } }))
+	assert(not pcall(plugin.setup, { sources = { { data = { ["中国"] = "\0" } } } }))
 	assert(#vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2)
 	return
 end

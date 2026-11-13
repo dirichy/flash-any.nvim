@@ -16,7 +16,7 @@ vim.fn.writefile({
 	"辛\tef\t0",
 	"壬\tef\t0",
 	"癸\tef\t0",
-	"中国\tab\t200",
+	"中国\tword\t200",
 	"子\tzz;\t10",
 	"丑\txy,z\t10",
 	"赤\tgch\t100",
@@ -42,6 +42,7 @@ local function found(book, text, query)
 	return #scan(book, text, query) > 0
 end
 local book = engine()
+assert(found(book, "中国", "word") and found(book, "中国", "word "))
 for _, text in ipairs({ "甲", "乙", "丙", "丁", "戊" }) do
 	assert(found(book, text, "ab"))
 	assert(found(book, text .. "己", "abcd"), "bare codes must continue without selectors")

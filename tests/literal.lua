@@ -32,7 +32,6 @@ for _, glyph in ipairs({
 	"क्‍ष",
 	"́",
 	"\255",
-	"\0",
 }) do
 	local text = "\1" .. glyph .. "\2"
 	local found = find(text, glyph)

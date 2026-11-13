@@ -6,7 +6,7 @@ local groups, data, expanded = {}, {}, {}
 for i = 1, 160 do
 	local key, name = vim.fn.nr2char(0x4E00 + i), "group" .. i
 	local prefix = string.char(96 + i % 26 + 1)
-	local variants = { prefix, prefix .. "h", prefix .. "ab", "x" .. prefix, prefix .. "\0;" }
+	local variants = { prefix, prefix .. "h", prefix .. "ab", "x" .. prefix, prefix .. "\t;" }
 	groups[name], data[key], expanded[key] = variants, name, variants
 end
 local comparisons = 0
@@ -85,18 +85,32 @@ end
 local bytes = read(path)
 local profile = #bytes - u32(bytes, 32)
 assert(bytes:byte(profile + 1) == 2 and bytes:byte(profile + 2) == 0, "groups must be interned by normalized contents")
-for _, invalid in ipairs({ false, { a = "abc" }, { a = { "中" } }, { a = { "" } }, { a = { string.rep("a", 256) } } }) do
+for _, invalid in ipairs({
+	false,
+	{ a = "abc" },
+	{ a = { "中" } },
+	{ a = { "" } },
+	{ a = { "a\0" } },
+	{ a = { string.rep("a", 256) } },
+}) do
 	assert(not pcall(compile, { { data = { ["甲"] = "a" }, groups = invalid } }))
 end
 -- Exercise buffer chunk boundaries, arbitrary ASCII spellings and IDs above 255.
 local forms = {}
 for i = 1, 300 do
-	forms[i] = { string.rep("x", 255), "a;", "\0a", "ab", "a" }
+	forms[i] = { string.rep("x", 255), "a;", "\ta", "ab", "a" }
 end
 native.write(root .. "/large.bin", { "甲" }, { { { native.modes.initial + native.modes.group, 299 } } }, forms)
 local large = native.load(root .. "/large.bin")
 assert(#large:scan(0, 0, 1, 1, 1, { "甲" }, "a;", nil) == 1)
-assert(#large:scan(0, 0, 1, 1, 1, nil, "\0a", nil) == 1)
+assert(#large:scan(0, 0, 1, 1, 1, nil, "\ta", nil) == 1)
+-- A zero byte inside a fixed-width ID must not terminate the list.
+native.write(root .. "/zero-id.bin", { "甲", "乙" }, {
+	{ { native.modes.full_code + native.modes.group, 0 }, { native.modes.full_code, "tail" } },
+	{ { native.modes.full_code + native.modes.group, 256 }, { native.modes.full_code, "tail" } },
+}, forms)
+local zero_id = native.load(root .. "/zero-id.bin")
+assert(found(zero_id, "甲乙", "a;tail") and found(zero_id, "甲乙", "taila;"))
 bytes = read(root .. "/large.bin")
 for _, mode in ipairs({ 8, 12, 14, 31 }) do
 	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { mode, 0 } } }, forms))
@@ -109,25 +123,28 @@ local function change(value, offset, replacement)
 	return value:sub(1, offset) .. replacement .. value:sub(offset + #replacement + 1)
 end
 local profile_at = #bytes - u32(bytes, 32)
-local pool_at = 40
-	+ u32(bytes, 16) * 16
-	+ u32(bytes, 20) * 4
-	+ (u32(bytes, 24) > 0 and (0x1100 + u32(bytes, 24) * 256) * 4 or 0)
-local code_at = pool_at + u32(bytes, 48)
+local pages_at = 40 + 0x1100 * 4
+local pool_at = #bytes - u32(bytes, 32) - u32(bytes, 28)
+local cp = vim.fn.char2nr("甲")
+local page = u32(bytes, 40 + math.floor(cp / 256) * 4)
+local code_slot = pages_at + (page - 1) * 256 * 4 + cp % 256 * 4
+local code_at = pool_at + u32(bytes, code_slot) - 1
 for _, invalid in ipairs({
 	change(bytes, profile_at, "\0\0"), -- Count cannot hide trailing spelling records.
 	change(bytes, profile_at + 4, "\0"), -- Empty spelling.
 	change(bytes, profile_at + 5, "\255"), -- Non-ASCII spelling.
 	change(bytes, code_at + 1, "\255\255"), -- Out-of-range reference.
 	change(bytes, code_at, "\136"), -- Literal + syllable is invalid.
-	change(bytes, 52, "\2\0\0\0"), -- Truncated u16 reference.
+	change(bytes, code_slot, string.char(u32(bytes, 28), 0, 0, 0)), -- List starts at final NUL.
+	change(bytes, code_at + 3, "x"), -- Missing list terminator after a binary ID.
+	change(bytes, profile_at + 5, "\0"), -- NUL spelling.
 }) do
 	local file = assert(io.open(root .. "/bad.bin", "wb"))
 	file:write(invalid)
 	file:close()
 	assert(not pcall(native.load, root .. "/bad.bin"), "corrupt syllable profile must fail")
 end
-for _, invalid in ipairs({ { { "" } }, { { "中" } }, { { string.rep("a", 256) } }, { false } }) do
+for _, invalid in ipairs({ { { "" } }, { { "中" } }, { { "a\0" } }, { { string.rep("a", 256) } }, { false } }) do
 	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, 0 } } }, invalid))
 	assert(read(root .. "/large.bin") == bytes)
 end

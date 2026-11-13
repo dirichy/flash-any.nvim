@@ -130,6 +130,8 @@ require("flash-any").setup({
 构建；仅提供 binary 则加载现有文件。构建失败保留旧输出，已有搜索继续使用原
 快照。首次编译在 setup 中同步完成。`require("flash-any.build").binary()` 仍可用于
 显式导出及开发工具。
+当前 v13 格式需要重新导出旧的显式 binary；自动缓存会重建。
+更新后运行 make，并重启 Neovim 加载新模块。
 
 | source | 内容 / 默认规则 |
 | --- | --- |
@@ -151,7 +153,7 @@ require("flash-any").setup({
 
 ```lua
 sources = {
-  { data = { ["👩‍💻"] = { "dev", "coder" }, ["á"] = "accent" }, matcher = "prefix" },
+  { data = { ["👩‍💻"] = { "dev", "coder" }, ["á"] = "accent", ["中国"] = "zhongguo" }, matcher = "prefix" },
   {
     file = "/path/table.dict.yaml",
     matcher = "full_code",
@@ -166,12 +168,13 @@ sources = {
 只在构建时执行。[接入与 converter 说明](docs/sources.md) ·
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
-`data` 接受单编码字符串或编码数组；编码必须为非空 ASCII 字符串。
+`data` 接受单编码字符串或编码数组；编码必须为不含 NUL 的非空 ASCII 字符串。
 可通过 Lua 工厂及构建时转换生成码表。首次编写扩展可按[分步 source 教程](docs/writing-sources.zh-CN.md)
 完成本地安装、验证和演示发布；完整选项见[码表开发说明](docs/sources.md)。
 
-**每个键必须恰好是一个 Unicode 17 完整字素**，例如 `á` 或 `👩‍💻`；当前不接收
-“中国”这类多字素键。连续输入仍可逐字素匹配“中国”。不做 Unicode 归一化。
+键可以是 Unicode 17 完整字素或词组，例如 `á`、`👩‍💻` 或“中国”。
+同一位置的单字和不同长度词组都参与匹配，编码之后可以继续匹配后面的文字。
+匹配只从字素边界开始和结束，不跨行，不做 Unicode 归一化。
 字节位置保持 Neovim 约定，复杂字素的高亮覆盖最后一个码点。
 
 ### 转换已有词典
@@ -183,7 +186,8 @@ sources = {
 
 只需提供输入路径及 Lua 输出路径。format 为 auto/rime/tsv/tab/csv/space/fcitx/ibus，encoding 默认
 utf-8。TSV 每行一对文本和编码，多个编码分行重复写入；逗号原样保留，重复条目合并。转换器保留
-原始词组键并报告数量，生成当前格式的二进制文件前，需要筛选为单字素。编码中不能含 Tab 或换行；补充的直接 Lua 码表允许其他 ASCII 字节。
+原始词组键并报告数量，可直接生成二进制文件，无需过滤词组。编码中不能含 Tab、换行或 NUL；补充的直接 Lua 码表允许其他非 NUL ASCII 字节。
+文本或查询含 NUL 时，匹配行为不作保证。
 
 ## 开发与测量
 

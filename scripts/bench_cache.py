@@ -24,7 +24,7 @@ out = Path(tempfile.mkdtemp(prefix='flash-any-cache-'))
 os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
 env = dict(os.environ, NVIM_LOG_FILE=str(out / 'nvim.log'))
 source = (ROOT / 'src/native.c').read_text()
-assert 'make_text(L' in source, 'Text-index comparison requires an indexed snapshot; pass --root')
+assert 'make_text(L' in source, 'Text-index comparison requires an indexed snapshot; pass --root'
 assert source.count('if (same) {') == 1
 (out / 'rescan.c').write_text(source.replace('if (same) {', 'if (0 && same) {'))
 cflags = ['-I', str(SCRIPTS.parent / 'vendor/luajit')]

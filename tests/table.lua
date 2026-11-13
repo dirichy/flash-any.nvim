@@ -9,6 +9,7 @@ assert(input["甲"][1] == "a" and input["乙"] == "b")
 normalized["中国"][1] = "changed"
 assert(input["中国"][1] == "country" and normalized["きゃ"][1] == "kya")
 print("ok - normalize isolates caller-owned arrays")
+assert(tables.metadata(normalized).max_chars == 2, "plain maps retain phrase lengths")
 
 local lazy = tables.lazy({ ["甲"] = { "a" } }, function(char)
 	if char == "乙" then

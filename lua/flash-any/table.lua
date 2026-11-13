@@ -171,9 +171,7 @@ function M.normalize(map)
 	local ret = {}
 	for char, codes in pairs(values) do
 		assert(type(char) == "string" and char ~= "", "code-table keys must be nonempty strings")
-		if structured or prefixes then
-			length = math.max(length, grapheme.len(char))
-		end
+		length = math.max(length, grapheme.len(char))
 		if type(codes) == "string" then
 			ret[char] = { codes }
 		else
@@ -204,7 +202,7 @@ function M.normalize(map)
 	return ret
 end
 
----Read a dictionary through the build parser and retain single-grapheme entries.
+---Read a complete dictionary, including multi-grapheme phrases.
 ---@param path string
 ---@param opts? FlashAnySourceConfig
 ---@return FlashAnyTable
@@ -218,11 +216,8 @@ function M.from_file(path, opts)
 		assert(type(convert) == "function", "converter file must return a function")
 	end
 	local rows, ranks = require("flash-any.build").read(path, opts)
-	local skipped = 0
 	for char, codes in pairs(rows) do
-		if grapheme.len(char) ~= 1 then
-			rows[char], skipped = nil, skipped + 1
-		elseif convert then
+		if convert then
 			local converted = convert(codes)
 			assert(
 				converted == nil or (type(converted) == "table" and vim.islist(converted)),
@@ -230,9 +225,6 @@ function M.from_file(path, opts)
 			)
 			rows[char] = converted and #converted > 0 and converted or nil
 		end
-	end
-	if skipped > 0 then
-		vim.notify(("flash-any: skipped %d multi-grapheme dictionary entries"):format(skipped), vim.log.levels.INFO)
 	end
 	return M.normalize(rows), ranks
 end

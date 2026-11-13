@@ -36,13 +36,14 @@ code with a real Tab; the example below can be copied directly:
 重	chong
 ```
 
-Each row contains one grapheme and one code. Repeat rows for multiple codes rather
+Each row contains one text key and one code. Repeat rows for multiple codes rather
 than joining codes with commas. Commas are literal code characters. No sorting or
 separate common-character cache is needed.
 
-Each key must be one complete grapheme, such as “中”, `á` or `👩‍💻`. “中文” matches
-as two consecutive keys; do not add it as a phrase entry. Codes should be nonempty
-ASCII without Tabs or newlines.
+Keys can be complete graphemes, such as “中”, `á` or `👩‍💻`, or phrases such as “中文”.
+Single characters and phrases participate together, only at grapheme boundaries and within one line.
+Codes should be nonempty
+ASCII without Tabs, newlines or NUL. Optional suffixes and group spellings must also exclude NUL.
 
 For an existing Rime, CSV, Fcitx or similar dictionary, see
 [file integration and conversion](sources.md#直接读取码表--dictionary-files).

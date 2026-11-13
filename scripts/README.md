@@ -20,11 +20,18 @@ maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
 | `bench_cached.py --samples 9` | 原Lua常用字缓存、测试参考实现、当前C后端对照；原Lua版本从git读取 |
 | `bench_cache.py --root BASELINE --samples 9` | 历史索引版的文本/结果缓存对照；需要索引版快照，不能使用当前单趟版 |
 | `bench_merge.py BASELINE --samples 9` | 合表前后原生后端对照；需要合表前可运行快照 |
-| `bench_binary.py` | 当前二进制的局部查询对照，调用bench_binary.c，可选MARISA |
-| `bench_code_pool.py PACKAGE.bin ...` | 高频 matcher/编码记录的 1/2 字节字典体积原型；计入索引和字典开销并完整还原校验，输出不可供 C 加载的 .tokens / size-only token dictionary prototype with round-trip checks |
+| `check_trie.c ORIGINAL_V11.bin CURRENT.bin` | 编译后逐条校验全部key和编码，并独立检查每节点模数的最小性；输入为无编码组的受信任fixture / complete DAT and local-modulus verification |
+| `bench_binary.py` | 当前v13二进制的局部查询对照；计时外从页表和DAT重建key作为全文本索引基线，调用bench_binary.c，可选MARISA |
+| `bench_code_pool.py PACKAGE.bin ...` | 历史 v7/v8 包的高频 matcher/编码记录 1/2 字节字典体积原型；计入索引和字典开销并完整还原校验，输出不可供 C 加载的 .tokens / v7/v8-only size prototype with round-trip checks |
 | `bench_pinyin.py --baseline-native V7_NATIVE.c --samples 7 --nvim PATH` | 需要共享音节接入前的 v7 native.c 快照。隔离 C 原型：预建输入图、按需音节 matcher、全拼可选字节，与现有展开码表对照；不修改生产模块 / v7-snapshot based prebuilt/direct syllable and optional-byte C prototypes |
 | `bench_grapheme_hash.py` | 多码点字素hash实验，调用bench_grapheme_hash.c，需要Unicode17 emoji测试数据 |
-| `bench_lua_matcher.py --samples 9` | 临时C模块调用单字素Lua matcher的成本对照；加`--multiple`比较多个matcher分别跨界和Lua内部批量分派，不增加生产接口 |
+| `bench_robin_hood.py tiger.zip --samples 7` | 真实虎码词表的线性探测、槽内指纹、打包距离及独立字节距离对照；仅测索引，不修改运行时 / isolated lookup and distance-layout experiment |
+| `bench_trie.py --fixtures DIR --darts-header PATH` | 复用上一项的fixture，对比Rime Darts、字节/码点双数组原型及已装MARISA；含预解码码点对照 / byte and predecoded-codepoint Trie lookup comparison |
+| `bench_phrase_data.py DIR` | 从固定Rime Ice五份词典生成历史v11全量合成编码/真实编码子集与扫描负载；不执行自动注音 / controlled phrase-stress packages |
+| `bench_phrases.py --source-root V11_ROOT --data DIR --samples 7` | 同一完整扫描器的区间前缀、指纹hash、取模码点DAT、页表根DAT对照；可用`--methods dat paged range`选方案，提前构建实验索引并验证全部结果签名 / isolated full phrase scans, including a shared paged root |
+| `bench_root_pool.cc DICTIONARY.bin PAGED.index OUTPUT_PREFIX` | 编译后独立运行；拆分根codes/base数组，将去重共享池块搬入无分支base区，重建偏移并全量校验序列化结果 / reuse vacant root-base runs for shared-pool blocks |
+| `bench_phrases.py --source-root V11_ROOT --pool-images DIR --methods paged split packed packed-all range --data DIR` | 用实际搬移镜像做完整扫描；split编译去掉区域选择，packed仅搬编码，packed-all也搬文本 / full scans with actual relocated pool references |
+| `bench_lua_matcher.py --samples 9` | 历史v11 checkout上临时C模块调用单字素Lua matcher的成本对照；加`--multiple`比较多个matcher分别跨界和Lua内部批量分派，不增加生产接口 |
 | `bench_native.lua` | 单进程Lua参考实现或C扫描测量；独立进程对照优先使用上面的Python入口 |
 | `bench_binary_load.lua` | 单进程源数据或二进制加载测量 |
 | `bench_tsv.lua` | 构建工具使用的TSV查询测量 |
@@ -37,6 +44,19 @@ The Lua drivers support isolated-process comparisons. Snapshot-based experiments
 require the original implementation and its compiled library. MARISA is optional
 and never a production dependency. See script headers, `--help` and the benchmark
 record for conditions and limitations.
+
+`bench_trie.py`默认只测虎码；`--datasets`可选择已有fixture。`--packing`单独比较
+按层/宽节点优先排布和失效空位链接压缩，保留Rime原版作对照。
+普通查询对照可用`--wide-first --compress-free`选择宽节点优先及修正后的空槽搜索。
+`--signed-base`加入允许负偏移的码点原型；`--methods`可仅测指定方案。
+`--mod-bits N`加入取模标签及原码点校验的原型；已知同父标签冲突时拒绝构建。
+`bench_keys.py`复用确定性key/未命中fixture编码，不参与插件运行。
+The Trie runner defaults to Tiger keys; `--datasets` selects prepared fixtures,
+and `--packing` isolates build order and stale-free-link compression experiments.
+Normal comparisons accept `--wide-first --compress-free`; `bench_keys.py` shares
+deterministic fixture encoding between experiments and is not runtime code.
+`--signed-base` adds signed-offset codepoint prototypes; `--methods` selects a subset.
+`--mod-bits N` tests folded labels with exact codepoint checks and rejects sibling collisions.
 
 ## 保留与清理 / Retained references
 

@@ -25,6 +25,7 @@ local tests = {
 	"health",
 	"text",
 	"native",
+	"phrases",
 	"letter",
 	"literal",
 	"latin",

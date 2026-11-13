@@ -2,15 +2,18 @@
 
 本文按实现演进保留历史数据。旧Cursor、Lua匹配器及其12个实验脚本已经清理；
 早期章节中的脚本路径和命令仅描述当时测量，不能在当前版本直接执行。
-当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见本文
-“单趟解码匹配替换文本索引”。`tests/reference/`仍供差分测试使用，不是运行时后端。
+当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见末尾
+“v13局部模数与8字节节点”。`tests/reference/`仍供差分测试使用，不是运行时后端。
+v11格式的完整扫描实验需给`bench_phrases.py`传入`--source-root V11_ROOT`；本轮保留的
+源码快照为`/tmp/flash-any-native-v11`。下文旧命令不会自动转换为当前格式。
 用户侧构建现已改用Neovim Lua和随附头文件，只需C编译器；下文的旧Python构建及
 GNU make4.3要求属于历史实现。Python仍可用于独立性能实验。早期章节的增量匹配
 状态也仅描述旧实现；当前 C 版在输入变化时重新扫描缓存原始行，不依赖前缀闭合约定。
 
 Historical results and commands describe their original implementation. Obsolete
 Cursor/Lua experiment scripts have been removed. See [current tools](../scripts/README.md)
-for supported entry points and the section on sequential decoding/matching for the current scanner.
+for supported entry points and the final v13 DAT section for the current scanner.
+Historical v11 phrase experiments require --source-root pointing to v11 C sources.
 Native builds now use Neovim Lua, bundled headers and a C compiler; older Python
 build commands and GNU make4.3 requirements below are historical. Older incremental
 matching states are historical too: the current C scanner rescans saved lines when
@@ -1814,3 +1817,1207 @@ names. Built-in fuzzy pinyin collapses 426 groups to 334, so these particular bi
 become slightly smaller. The same v8 codec and scanning algorithm are retained;
 these figures measure file size only. Source packages are independently installed
 and are no longer shipped as part of the core repository.
+
+## 分开的码点/文本表与二进制 v11 / Separate scalar and text tables
+
+当前格式将两种索引完全分开。单码点页槽直接保存编码列表 offset+1，省去全部单码点
+key和条目；文本键表只保留自己的8-byte条目与哈希槽。文本key和编码列表以NUL结束，
+不保存长度。两表共享编码池；组ID仍是固定两字节，允许其内部出现零字节。
+编码、后缀和组内拼写禁止NUL，文本/查询含NUL的匹配不作保证。
+
+体积实测使用本地 `.dev/source-cleanup` 的Unicode、虎码、五笔86和Nerd Font TSV快照。
+其中Unicode表来自已移出的旧source归档，只作为格式对照样本；当前核心仅内置latin，
+这些文件大小不代表当前插件自身或用户实际配置的占用。它也不是`src/grapheme_data.h`
+中的Unicode字素属性数据。
+两版都读取前两列、合并逐字编码，仅保留完整单字素，用prefix matcher构建；不应用
+选键、权重、fallback或其他source配置，不能视为各source默认配置的体积。
+v10含128个隐式ASCII literal，v11省去其中的NUL条目，其他输入数据相同。
+小型混合表含“中”“国”、`á`、`👩‍💻`、`🇨🇳`及其编码，使用full_code。
+
+| 数据 / Data | v10 bytes | v11 bytes | 减少 / Saved |
+| --- | ---: | ---: | ---: |
+| Unicode | 2,155,886 | 1,405,366 | 34.8% |
+| Tiger（prefix，无选键） | 2,770,095 | 881,297 | 68.2% |
+| Wubi86 | 1,981,568 | 648,547 | 67.3% |
+| Nerd Font | 510,063 | 309,233 | 39.4% |
+| 混合字素 / Mixed graphemes | 23,102 | 20,997 | 9.1% |
+
+Unicode样本含40,289个有效单码点条目，v11完全没有文本条目和哈希槽；页目录/页槽
+占221,184 bytes，编码池占1,184,142 bytes，文件头40 bytes。去除单码点记录是
+主要收益，NUL终止串每份唯一列表增加一个字节，但省去逐条列表长度。
+
+性能对照：Linux、Neovim 0.12.6 / LuaJIT 2.1、GCC 16.2.1，均为make默认`-O3`。
+同一CPU核心、独立全新Neovim进程、每版每场景7个样本，交替运行。C模块在加载
+计时前打开；load包含码表文件读取、校验和userdata。扫描使用40行、每行重复4次：
+大表文本为`中国人民学习中文 αβ Ω≤≥←→… ASCII Hello `，小表为
+`中国 á 👩‍💻 🇨🇳 ASCII `。每组8次输入，预热2组后测30组，以下为每组的进程中位数。
+行快照已缓存，输入逐次变化；计时包含Lua→C调用、字素扫描、匹配及Lua结果构造，
+排除编译、码表构建、进程启动和Flash绘制。逐输入的候选、范围、next和标签签名完全一致。
+
+| 场景 / Case | load elapsed ms v10→v11 | load CPU ms | 8 inputs elapsed ms | 8 inputs CPU ms |
+| --- | ---: | ---: | ---: | ---: |
+| Unicode | 1.758→1.452 | 1.749→1.445 | 1.224→1.173 | 1.222→1.170 |
+| Tiger | 1.691→0.865 | 1.681→0.861 | 1.316→1.273 | 1.313→1.270 |
+| Mixed | 0.0134→0.0140 | 0.014→0.014 | 0.692→0.664 | 0.690→0.662 |
+
+这轮目标是格式和职责收敛，输入扫描变化较小，不据此声称稳定的CPU加速。
+`bench_binary.c`另将单码点key在计时外还原，保留全文本hash/sorted/MARISA对照；
+生产查询不重建key。其index_bytes统计含编码偏移的序列化等价空间，历史数值口径不同。
+Unicode和混合表的hash/sorted/scalar/pages命中与未命中均通过逐查询等价校验。
+
+Version 11 separates scalar pages from the text hash table, shares only pool data,
+and removes scalar keys/records and per-entry string lengths. Both text keys and
+code lists are terminated; group IDs retain fixed-width binary payloads. The size
+table uses identical single-grapheme inputs and explicit prefix matching without
+source selectors or weighting. One implicit NUL literal is omitted in v11.
+The Unicode dictionary is an archived source sample, not a current bundled source
+or the Unicode grapheme-property data. These sizes do not measure the plugin's
+own footprint or a user's actual configuration.
+Fresh-process comparisons pinned one CPU, alternated versions and used seven
+samples per case. Timings include package IO/validation or Lua/C scanning and
+result materialization as specified above; all result signatures agree. These are
+format-size results with small observed scan-time differences, not a claim of
+stable CPU acceleration. The lookup benchmark reconstructs scalar keys only for
+its experimental all-text indexes, outside timing.
+
+## 不扩容的开放寻址原型 / Open-addressing prototypes without larger tables
+
+本轮只在`/tmp/flash-any-probe-rhu61_l0`运行临时原型，生产C和二进制格式未修改。
+比较线性探测、三角增量二次探测（偏移0、1、3、6……）、双重哈希，以及各自加入槽内
+指纹的版本；另比较FNV码点hash追加fmix32的版本。所有方案都保留相同容量、4-byte槽
+和原文比较，不增加逐条metadata数组。
+
+指纹复用条目编号未使用的高位：容量为2^k、条目数小于容量时，低k位保存条目序号+1，
+高32-k位保存hash高位。查询先比较高位，匹配后才读取key并比较完整原文。mask直接由
+capacity-1得到，没有新增运行时字段。双重哈希取奇数步长`(hash >> 16) | 1`，在2的幂
+容量下能遍历整个槽数组；构建和查询使用相同步长。
+
+除本地gemoji的699个多码点条目、18,463个合法字素语料和12,288条合法字素的75%装载
+样本外，按用户建议用固定种子20261111生成了两份随机词key：英文用词片段随机拼接，
+中文用常见汉字随机拼接，各12,288条，16,384槽，槽区均为65,536 bytes。随机词只测
+哈希层，不改变运行时单字素限制。未命中key通过追加U+034F构造并逐条验证不存在。
+另有26条初始低位相同的构造样本，用于观察极端聚集，不能代表常用文本分布。
+
+Linux / GCC 16.2.1 `-O3`，固定同一CPU核心，各方案独立进程、轮换顺序、7个进程样本，
+每进程3次计时取中位数。每条命中/未命中查询都验证返回编号。以下是随机中文词的局部
+CPU时间；hash已算好，计时包含探测与完整key比较，不含UTF-8解码和hash计算：
+
+| 方案 / Method | 命中 ns | 未命中 ns | 平均未命中探测 | 最大未命中探测 | 槽区 bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 线性 / Linear | 17.69 | 39.29 | 7.99 | 87 | 65,536 |
+| 二次 / Triangular | 15.97 | 23.91 | 4.52 | 30 | 65,536 |
+| 双重 / Double | 15.21 | 22.67 | 4.01 | 33 | 65,536 |
+| 线性＋指纹 / Linear + fingerprint | 8.79 | 11.16 | 7.99 | 87 | 65,536 |
+| 二次＋指纹 / Triangular + fingerprint | 8.94 | 9.25 | 4.52 | 30 | 65,536 |
+| 双重＋指纹 / Double + fingerprint | 8.82 | 9.38 | 4.01 | 33 | 65,536 |
+
+随机英文结果相近：线性未命中41.03ns、平均8.37槽、最多84槽；双重＋指纹9.36ns、
+平均3.94槽、最多28槽。指纹不缩短探测链，但让本轮绝大多数未命中探测不再读取字符串。
+仅追加fmix32在这两组随机词上没有改善聚集，反而略慢；低位碰撞构造样本则受益明显。
+因此不能用“更强混合”代替对探测策略的测量。
+
+扫描测试使用临时编译的完整C模块，按各自槽编码/探测顺序重建完全相同的码表，文件大小
+逐字节数相同。原版和三个指纹版本分别加载各自模块和文件；独立Neovim 0.12.6进程、
+固定同一核心、交替顺序，每方案7个进程。每行16个字素，以空格隔开，最多1024个字素；
+预热3组后测40组，每组4个输入。行快照已缓存，计时包含Lua→C扫描与结果构造，排除
+文件加载、码表构建、进程启动和Flash绘制。逐输入候选、位置、next和标签签名一致。
+有结果的三组扫描如下，列出elapsed/CPU毫秒：
+
+| 场景 / Case | 原版 / Linear | 线性＋指纹 | 二次＋指纹 | 双重＋指纹 |
+| --- | ---: | ---: | ---: | ---: |
+| gemoji，输入f/m/w/s | 0.5145 / 0.5128 | 0.4908 / 0.4893 | 0.4963 / 0.4946 | 0.4950 / 0.4940 |
+| 18,463字素表，输入x/xx/xxx/xxxx | 0.5245 / 0.5231 | 0.5067 / 0.5053 | 0.5010 / 0.4997 | 0.5087 / 0.5072 |
+| 75%装载字素表，相同输入 | 0.5250 / 0.5233 | 0.4836 / 0.4820 | 0.4829 / 0.4815 | 0.4816 / 0.4800 |
+
+有结果扫描的观测改善约3%–8%，明显小于局部查询收益；零结果、字素未命中密集的扫描
+改善较大。小型latin纯码点对照约0.51ms，各版差异约1%量级，不能把这种差异解释为
+哈希收益。当前虎码＋Unicode没有文本hash条目，不会因这项优化直接获益。
+
+优先候选是槽内指纹：无需额外数据，保留线性探测的局部性。若目标是压低聚集区的尾部
+探测次数，可再选择二次探测或双重哈希；本轮整体扫描没有证明其中一种始终更快。
+实际接入需同步构建、校验和查询，并通过格式版本使旧binary重建。
+原始记录为该临时目录中的`lookup-raw.json`、`random-lookup-raw.json`、`scan-raw.json`
+和`positive-scan-raw.json`；对应summary文件保存所有八种方案的统计。
+
+Temporary prototypes compared linear, triangular and double-hash probing, with
+optional fingerprints packed into unused high bits of the existing 32-bit slots.
+No larger table or per-entry metadata array was introduced. Seeded random English
+and Chinese word fixtures each contained 12,288 keys at 75% load; they exercise
+hash lookup only, not runtime phrase matching. Separate processes pinned one CPU,
+rotated method order and verified every lookup. Fingerprints removed most string
+reads on misses; alternate probing shortened clusters. Additional hash finalization
+alone did not improve the random-word workloads. Complete C-module scans verified
+identical result signatures, with roughly 3%–8% observed elapsed-time improvements
+when materializing matches. These are scoped experiments, not a production change
+or a claim of comparable gains for scalar-only dictionaries.
+
+### 用户提供的虎码字词包规模 / Scale of the supplied Tiger phrase archive
+
+随后读取用户新放入的`tiger.zip`，内容为Rime文本词典；按各文件声明的columns读取
+显式text/code行，并沿import_tables合并、按原文字节身份去重。`tigress.extended`
+共251,264行记录，合并后233,929个文字key，其中103,485个是单码点，130,444个
+是词组或其他非单码点key。单码点继续使用页表，不占文本hash的编号空间。
+
+若未来支持词组并继续采用当前75%上限、2的幂容量：
+
+| 数据 / Data | 非单码点key | hash槽数 | 编号位数 | 可用指纹位数 | 槽区 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| tigress.extended及导入 | 130,444 | 262,144 | 18 | 14 | 1 MiB |
+| 包内独立easy_english | 719,017 | 1,048,576 | 20 | 12 | 4 MiB |
+| 包内独立PY_c | 801,974 | 2,097,152 | 21 | 11 | 8 MiB |
+
+英文和拼音表是独立词典，不是tigress的导入；此表分别计算。指纹位数是
+`32-log2(capacity)`，不是固定18位；容量增大时指纹缩短，仍保留原文比较。
+当前原型只证明过滤方案，不代表运行时已经支持词组。这轮统计没有提供大词表的
+查询计时，不能直接沿用12,288条随机词的纳秒结果。
+完整逐文件/合并统计位于`/tmp/flash-any-tiger-scale-7001pout/report.json`。
+
+The supplied Rime archive contains 130,444 non-scalar keys after merging the
+Tiger phrase dictionary and its imports. At the current capacity policy, these
+would use 262,144 slots, leaving 14 fingerprint bits in each 32-bit slot. The
+separate English and pinyin dictionaries leave 12 and 11 bits respectively.
+Fingerprint width adapts to capacity; it never replaces exact key comparison.
+These are scale calculations for possible future phrase support, not large-table
+latency measurements or a runtime feature change.
+
+### 指纹与 Robin Hood 距离布局 / Fingerprints and Robin Hood distance layouts
+
+2026-11-12，使用同一`tiger.zip`的真实文字key对照。可复现入口：
+
+```sh
+python scripts/bench_robin_hood.py tiger.zip --samples 7
+```
+
+Intel i5-14600K，GCC 16.2.1，`-O3`；固定同一个允许的CPU，各方案独立进程，
+每轮随机排列方案顺序，7轮，每个进程每项预热/校准后测3次取中位数，再取进程
+中位数。插入与查询分别固定种子打乱，不按词典顺序访问。保持现有逐码点FNV计算、
+8字节entry记录、NUL结尾key及完整字符串验证。探测次数和比较次数在计时外统计。
+
+虎码合并后130,444个非单码点key、262,144槽，占用49.76%；另随机取其中98,304个，
+使用131,072槽，形成75%占用对照。包内独立英文词典719,017个非单码点key、
+1,048,576槽，占用68.57%。未命中分别通过替换末字符（保留前缀）和同字母表、
+同长度的随机字符串构造，每条都先确认不在当前词典。所有查询逐条验证返回编号。
+
+下表为预计算hash的局部CPU纳秒，未计UTF-8解码/hash、文件构建加载、Lua调用、
+扫描/结果构造或Flash绘制。命中/未命中各自全量随机循环，是索引微基准，
+不能视为真实编辑场景的冷热比例或端到端收益。查空列使用替换末字符样本：
+
+| 方案 / Method | 虎码命中 ns | 虎码查空 ns | 75%命中 ns | 75%查空 ns | 英文命中 ns | 英文查空 ns |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 线性，无指纹 / Linear | 14.01 | 18.23 | 21.58 | 50.81 | 24.18 | 56.25 |
+| 线性＋全部高位指纹 / Fingerprint | 7.78 | 8.62 | 9.87 | 12.09 | 11.73 | 16.05 |
+| RH，4位距离 / 4-bit distance | 9.33 | 7.46 | 13.90 | 9.51 | 15.47 | 10.24 |
+| RH，6位距离 / 6-bit distance | 9.37 | 7.54 | 13.96 | 9.51 | 15.66 | 11.23 |
+| RH，8位距离 / 8-bit distance | 9.46 | 7.63 | 14.18 | 9.49 | 16.52 | 12.71 |
+| RH，独立1字节距离 / Separate byte | 9.32 | 7.80 | 13.88 | 9.51 | 15.89 | 10.66 |
+
+同长度随机未命中的结果与前缀未命中方向一致；完整原始样本及范围保存在报告中。
+线性指纹在虎码上使命中/查空耗时分别降低约44%/53%，75%占用时约54%/76%。
+在此基础上RH 4位距离使查空再降低约13%/21%，但命中耗时增加约20%/41%。
+英文表的查空再降低约36%，命中增加约32%。这些是各自分离的查询负载，不据此
+直接预测混合负载的速度。
+
+槽总宽仍是32位。全部指纹在三份表分别有14/15/12位，打包距离从指纹中取位，
+例如4位距离后剩10/11/8位。独立距离数组保留全部指纹，额外每槽1字节，槽及
+距离区由1 MiB/512 KiB/4 MiB变为1.25 MiB/640 KiB/5 MiB，均增加25%；
+这不表示整个码表文件增加25%。本轮没有观察到独立数组值得这部分空间的稳定优势。
+英文表若取8位距离只剩4位指纹，查空平均约0.09次字符串比较；取4位距离约0.005次，
+保留全部12位约0.0003次，说明过多占用指纹位确实会产生额外访存。
+
+RH在虎码、75%虎码、英文表的最大移动距离分别为10/17/16。4位距离把15当饱和
+哨兵；遇到哨兵时不使用距离提前结束，继续探测，因此不要求扩容或重建，也不会
+误判不存在。75%虎码有27个饱和条目，英文有14个。6位/8位/独立字节同样使用
+饱和哨兵，三份真实表未触及各自上限。另构造512个起始槽相同的key、1024槽，
+最大距离511，验证所有布局（包括255上限的字节数组）的命中/未命中正确性，
+六个版本还单独通过该样本的UBSan检查。
+
+| 查空探测 / Miss probes | 虎码平均 / 最大 | 75%虎码平均 / 最大 | 英文平均 / 最大 |
+| --- | ---: | ---: | ---: |
+| 线性（有无指纹相同） / Linear | 2.50 / 37 | 8.51 / 126 | 5.58 / 130 |
+| RH，4位距离 | 1.76 / 12 | 2.88 / 30 | 2.44 / 21 |
+| RH，6位距离或独立字节 | 1.76 / 12 | 2.88 / 19 | 2.44 / 18 |
+
+计入独立UTF-8解码与hash计算后，虎码线性指纹命中/查空15.99/18.95ns，RH 4位
+18.05/18.09ns；75%样本分别17.89/22.08ns和22.87/18.87ns。运行时在字素扫描
+中同步解码与累积hash，因此这些也仅是另一种局部计时，不是完整引擎扫描。
+
+结论：优先候选仍是无需额外空间的线性高位指纹。查空密集时，打包距离的RH值得
+考虑；追求尾部时6位距离比4位更稳。独立字节数组本轮没有证明空间代价值得。
+尚未更改生产索引或格式，也未增加词组匹配支持。
+本轮原始记录：`/tmp/flash-any-robin-hood-final/{raw,report,ubsan}.json`。
+
+The real Tiger phrase keys, a 75%-loaded subset and the archive's separate English
+dictionary were tested in isolated CPU-pinned processes. In-slot fingerprints
+provided the largest improvement. Robin Hood packed distances further reduced
+miss cost and probe tails, while increasing hit cost relative to linear probing
+with fingerprints. A separate byte per slot increased index space by 25% without
+demonstrating a consistent speed advantage over packed distances. Saturating
+distance sentinels preserve correctness without requiring construction retries;
+an adversarial 512-key single-bucket fixture also passed UBSan. Results describe
+lookup microbenchmarks, not end-to-end scans or runtime phrase support. Production
+lookup and binary format remain unchanged.
+
+### Rime 索引与 MARISA 对照 / Rime indexes and MARISA comparison
+
+2026-11-12检查librime主线源码：拼写索引`Prism`使用Darts双数组，按输入字节进行
+精确、公共前缀及扩展查询；正向词库另按音节ID分层索引。文字反查`ReverseDb`
+使用MARISA `StringTable`：文字→key ID→value ID→编码字符串。不能把Rime的
+全部查询统一称为MARISA Trie。
+
+源码：[Prism](https://github.com/rime/librime/blob/master/src/rime/dict/prism.cc)、
+[Darts实现](https://github.com/rime/librime/blob/master/include/darts.h)、
+[正向词库](https://github.com/rime/librime/blob/master/src/rime/dict/table.cc)、
+[反查库](https://github.com/rime/librime/blob/master/src/rime/dict/reverse_lookup_dictionary.cc)、
+[StringTable](https://github.com/rime/librime/blob/master/src/rime/dict/string_table.cc)。
+
+本机已装MARISA 0.3.1，使用上一节相同的虎码和英文fixture补测。固定相同CPU，
+GCC `-O3`，各方案独立进程、每轮打乱顺序、7轮，每轮每项3次取中位数。
+精确查询逐条验证原始entry编号。MARISA构建完成后序列化并重新map，保留一个
+4字节/key的ID映射，可在接入时改为编码池偏移。分别测每次新建Agent（接近Rime
+调用结构）和复用Agent；加速配置为`1 | MARISA_HUGE_CACHE`，即单层Trie及最大
+转移缓存。默认是三层Trie及普通缓存。没有实测Darts，因此这些数字不能代表Darts。
+
+计时口径与上一节cached-hash列不同：hash包含独立UTF-8解码与逐码点FNV计算，
+MARISA直接查询UTF-8字节。均不含文件加载、进程启动、Lua、完整扫描、结果生成，
+也不包括Rime的编码字符串反向恢复。查空分别使用保留前缀的末字符替换和随机字符串。
+
+| 虎码方案 / Tiger method | 命中 ns | 前缀查空 ns | 随机查空 ns | 索引及key空间 MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 线性＋高位指纹 | 16.14 | 18.93 | 18.91 | 3.112 |
+| RH 4位距离＋指纹 | 17.75 | 18.10 | 18.20 | 3.112 |
+| MARISA默认，新建Agent | 275.56 | 265.50 | 195.00 | 0.927 |
+| MARISA默认，复用Agent | 263.39 | 257.31 | 185.76 | 0.927 |
+| MARISA加速，新建Agent | 214.62 | 205.93 | 159.57 | 1.029 |
+| MARISA加速，复用Agent | 206.25 | 198.27 | 150.65 | 1.029 |
+
+空间列对hash计入槽数组、8字节entry及原始NUL结尾key；对MARISA计入序列化Trie
+和每key的4字节value引用。共同的编码池、标量页表、库代码、查询fixture、构建临时
+内存均不计。默认MARISA的Trie自身450,640 bytes，另有521,776 bytes引用数组。
+整体文字索引空间省约70%，但本组精确查询明显较慢；即使加速配置仍无法抵消差距。
+
+英文表的线性指纹命中/前缀查空23.03/34.68ns，默认MARISA新建Agent为
+263.82/262.24ns，加速配置复用Agent为217.38/212.56ns；索引及key空间分别
+15.149/4.545/4.782MiB。MARISA构建、序列化、map合计虎码约34–37ms、英文
+约197–200ms；这些不是Rime完整部署耗时，也不代表构建峰值内存。
+
+MARISA的递归压缩深度和转移缓存是空间/查询速度的权衡；增加构建时间本身并不能
+自动消除查询时的位向量导航和串行访存。单key精确查询与公共前缀匹配也不是同一种
+工作负载；本轮没有测量未来多词匹配扫描。
+原型驱动及记录：`/tmp/flash-any-rime-trie/{run.py,harness.c,wrapper.cc,raw.json,report.json}`。
+
+Rime uses Darts for its spelling Prism and MARISA for text tables/reverse lookup,
+alongside a separate syllable-ID vocabulary index. Isolated MARISA 0.3.1 tests on
+the same real phrase fixtures substantially reduced text-index storage, but exact
+lookups remained slower than fingerprinted hashing, including when configured
+for one trie, a huge transition cache and a reused Agent. Hash timings include
+UTF-8 decoding and hash computation. These are neither Darts measurements nor
+whole-Rime deployment/runtime results; accepting slower builds does not by itself
+remove the compact Trie's query-navigation costs.
+
+### Rime Darts 与码点双数组 / Rime Darts and codepoint double arrays
+
+2026-11-12，下载Rime主线的`include/darts.h`（Darts-clone 0.32），SHA-256：
+`ab742dbf6d199cd05e79c175872dd723761ba8e0b1a5c459c14d5e94c1ed6ead`。
+Rime原版只能消费字节，因此另写直接使用Unicode码点的普通双数组原型，并使用同一
+构建器、同一8字节`base/check`布局生成字节版作控制。码点直接作为转移标签，没有
+码点重编号表。终止边使用0，保存entry编号；fixture不含NUL。Rime原版为4字节
+packed unit，不能把它与原型的差别全部归因于字节/码点选择。
+
+复现入口（先用前述Robin Hood脚本生成fixture；需Rime头文件和已装MARISA）：
+
+```sh
+python scripts/bench_trie.py --fixtures /tmp/flash-any-robin-hood-final \
+  --darts-header /tmp/flash-any-rime-trie/darts.h --datasets tiger english --samples 7
+```
+
+沿用同一份虎码130,444条、英文719,017条key及相同命中/未命中样本。Intel
+i5-14600K，GCC 16.2.1 `-O3`，固定CPU，独立进程，每轮随机排列方案，7轮；每项
+3次CPU计时取中位数，再取进程中位数。所有命中和未命中逐条验证entry编号。
+构建、预解码、文件读取不计入查询；构建计时单列。
+
+为比较“码点已就绪”的情形，所有方案使用相同的扩展query记录，并预先解码相同的
+查询数据。hash分别测已算好hash、UTF-8解码+FNV、预解码码点+FNV三种阶段；码点
+原型分别测直接消费码点和边解码UTF-8边转移。预解码数据属于查询fixture，不计入
+索引空间。它模拟码点已就绪的局部阶段，不代表当前流式字素扫描的端到端开销；
+扩展query记录也使这轮数字不宜直接和前两节混用。
+
+虎码结果如下，单位ns。hash列包含其输入阶段需要的FNV计算，只有专门注明的行
+排除hash计算。空间包括完整key索引与编码引用，排除共同编码池、标量页表、查询
+fixture、库代码和构建临时内存：
+
+| 虎码方案 / Tiger method | 命中 | 前缀查空 | 随机查空 | 索引及key MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 线性指纹，hash已算好 | 8.04 | 8.83 | 8.86 | 3.112 |
+| 线性指纹，码点就绪+FNV | 12.33 | 13.16 | 13.03 | 3.112 |
+| 线性指纹，UTF-8解码+FNV | 16.27 | 18.58 | 18.47 | 3.112 |
+| RH 4位，码点就绪+FNV | 13.72 | 12.65 | 12.59 | 3.112 |
+| Rime Darts，原版字节 | 19.26 | 27.78 | 13.80 | 2.104 |
+| 原型DAT，字节 | 31.16 | 30.35 | 11.09 | 4.207 |
+| 原型DAT，码点已就绪 | 7.09 | 9.68 | 3.52 | 3.058 |
+| 原型DAT，UTF-8解码+码点转移 | 13.54 | 15.41 | 7.09 | 3.058 |
+| MARISA，单层+大缓存+复用Agent | 207.08 | 198.06 | 150.65 | 1.029 |
+
+虎码码点原型相对“码点就绪+FNV”的线性指纹，命中耗时减少约42%，前缀查空
+约26%，随机查空约73%；空间接近。在相同8字节单元和构建器下，码点版也明显
+快于字节版，说明减少转移层数确有收益。若hash已在上游免费得到，原型并不在
+所有查询类别占优，因此必须明确输入阶段。随机查空可能早期失败，与保留长前缀的
+查空代价相差较大，不能只挑其中一种说明“查空速度”。
+
+英文表结果不同，预解码码点与字节数接近，码点原型没有减少多少路径层数：
+
+| 英文方案 / English method | 命中 ns | 前缀查空 ns | 随机查空 ns | 索引及key MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 线性指纹，码点就绪+FNV | 24.65 | 23.49 | 23.58 | 15.149 |
+| 线性指纹，UTF-8解码+FNV | 23.87 | 34.76 | 35.82 | 15.149 |
+| RH 4位，码点就绪+FNV | 24.49 | 20.30 | 20.27 | 15.149 |
+| Rime Darts，原版字节 | 26.45 | 40.47 | 11.82 | 9.040 |
+| 原型DAT，字节 | 46.54 | 59.97 | 10.51 | 18.074 |
+| 原型DAT，码点已就绪 | 36.42 | 39.82 | 7.54 | 18.074 |
+| 原型DAT，UTF-8解码+码点转移 | 52.10 | 64.60 | 11.99 | 18.074 |
+| MARISA，单层+大缓存+复用Agent | 223.27 | 217.12 | 142.56 | 4.782 |
+
+本原型不是把Rime Darts直接改成码点版，也没有实现它的4字节打包和DAWG压缩。
+其逐条贪心排布的构建器在虎码上较慢：字节版约3.76s、码点版约1.05s；Rime
+原版约64ms。英文三者分别约468/462/348ms。接受慢构建使原型具备可用性，但
+这些数值不是生产构建器的下限，也没有测构建峰值内存。
+
+另构造共享前缀、组合重音、ZWJ emoji、U+10000和U+10FFFF，以及未知分支/未终止
+前缀的小样本，对原版Darts及三个原型路径运行ASan和UBSan。环境不支持ptrace下的
+LeakSanitizer，检查关闭泄漏检测，保留地址和未定义行为检测。
+完整产物：`/tmp/flash-any-darts-final/{hash.c,trie.c,darts.h,raw.json,report.json,sanitizers.json}`。
+生产索引、格式和匹配功能未改变。
+
+The benchmark compares the actual Rime byte Darts implementation with matched
+8-byte base/check byte and Unicode-codepoint prototypes. It separates cached
+hashes, predecoded codepoints plus hashing, and UTF-8 decoding plus hashing.
+Codepoint transitions substantially improve real Tiger phrase lookup, with
+similar index space to the current hash layout, but the larger English fixture
+does not show the same hit/near-miss advantage. Prototype construction is slower
+and intentionally offline. These remain exact-lookup microbenchmarks rather
+than a streaming engine or phrase-matching implementation.
+
+随后对上述普通双数组原型计数（非Rime原版Darts），区分真实单元和空槽：
+
+| 原型 / Prototype | 分配单元 | 已占用单元（含终止值） | 空槽比例 |
+| --- | ---: | ---: | ---: |
+| 虎码，字节标签 | 551,418 | 551,418 | 0% |
+| 虎码，原始码点标签 | 400,831 | 309,255 | 22.85% |
+| 英文，字节标签（历史控制） | 2,369,056 | 2,369,056 | 0% |
+| 英文，原始码点标签（历史控制） | 2,369,054 | 2,369,054 | 0% |
+
+双数组的不同分支共享同一数组空位，并不为每个节点预留完整字母表，因此并非必然
+大量空洞。原始码点跨度和当前只允许非负base的贪心构建器使虎码码点版出现91,576个
+空单元，约715KiB；即便如此，它仍比同构字节版小。此计数不表示能无成本消除所有
+空位，也不能用字节控制的0%推断所有key集都能达到0%。重新编号标签或更复杂的
+排布需要另计查询映射成本及构建复杂度。记录为`/tmp/flash-any-darts-final/holes.json`。
+
+Occupancy counts in the ordinary base/check prototypes show that holes are not
+an inherent large fixed overhead: the Tiger byte fixture packed without holes,
+while raw codepoint labels left 22.85% empty units in the current greedy layout.
+Codepoint labels nevertheless used fewer total units. These counts do not describe
+Rime Darts or guarantee equally dense packing for other key sets.
+
+### 同份虎码的当前格式总大小 / Current-format package size for the same Tiger keys
+
+2026-11-12实际调用当前C `native.write`，写入`tiger.zip`中`tigress.extended`及
+导入词典的全部显式text/code。每个key保留去重后的全部编码，按full_code记录，
+不派生选重后缀，不加入literal或其他source。公共Lua构建器仍限制单字素，因此本次
+直接使用现有C写入器测量当前格式，并不代表引擎已经支持词组匹配。
+
+| 部分 / Part | 130,444个多码点key bytes | 加上103,485个单码点key bytes |
+| --- | ---: | ---: |
+| 文件头 | 40 | 40 |
+| 单码点目录 | 0 | 17,408 |
+| 单码点页 | 0 | 422,912 |
+| 文本entry，8字节/key | 1,043,552 | 1,043,552 |
+| hash槽，262,144×4字节 | 1,048,576 | 1,048,576 |
+| NUL结尾原文key | 1,171,199 | 1,171,199 |
+| 去重编码池 | 683,624 | 1,072,430 |
+| **总计** | **3,946,991（3.764 MiB）** | **4,776,117（4.555 MiB）** |
+
+此前比较中的3.112MiB是当前文本索引（entry+槽+原文），3.058MiB是码点DAT
+索引，均未包含编码池等共同数据。如果仅用已测的码点DAT替换文本索引、在终止值
+中直接存编码池偏移并保持其他部分，则算术估算为3.710MiB/4.501MiB，比当前
+格式少56,679 bytes（约55.4KiB）。这是同一原型布局的替换估算，不是已生成的
+新DAT文件格式。两种结构的总大小十分接近；本轮码点DAT主要体现中文查询收益，
+并没有证明明显的体积优势。
+
+实际bin、构建脚本和逐项报告：`/tmp/flash-any-tiger-package-size/`。
+
+The existing C writer produced a 3.764 MiB package for the same 130,444 text keys,
+including their real deduplicated codes, and 4.555 MiB with the archive's scalar
+entries included. The previous 3.112/3.058 MiB hash/DAT figures described text
+indexes only. Replacing that index while preserving the common payload would
+save about 55.4 KiB in this prototype; no new DAT package format was implemented.
+
+### 排布顺序与空位搜索 / Packing order and free-slot search
+
+同一份130,444条虎码key，进一步对照构建策略。这里有两个不同的“字节版”：
+Rime原版Darts（4字节packed unit，约64ms）与普通base/check原型（8字节unit，
+初始约3.75s）。不能将原型的慢构建归因于字节标签，更不能混用这两个时间。
+
+检查本次下载的Rime源码，`DoubleArrayBuilder`按256槽为块，构建辅助数据只保留
+最近16个块的状态；旧块通过`fix_block`封存。`find_valid_offset`遍历有效空槽链表，
+找不到时直接选择新块；同父子标签为字节，XOR寻址使它们位于同一个256槽块中。
+原型则在全局数组找空位，保留的已占槽forward link可能形成很长的历史链。
+本节的主要优化是压缩这些历史链接，直接跳到下一个有效空槽；不改活跃空槽链表、
+候选顺序和最终布局。四组前后布局摘要均相同。
+
+排布顺序单独比较：原来的广度优先，以及在父节点位置已确定的待处理节点中，优先
+处理子标签数量最多者（包括终止标签0），相同时按确定的节点编号。它不是对所有
+节点无视父子依赖进行全局排序，也不是对“最难排”作精确求解。
+
+两项变更采用2×2对照，查询代码与数据不变。独立进程、固定相同CPU、随机排列
+执行顺序、7轮。统计计数使用另外编译的程序，未进入性能计时版本。
+
+| 构建策略 / Build policy | 字节原型构建 ms | 码点原型构建 ms | 字节索引 MiB | 码点索引 MiB |
+| --- | ---: | ---: | ---: | ---: |
+| 按层，原始空位链接 | 3745.63 | 1047.36 | 4.207 | 3.058 |
+| 按层，压缩失效链接 | 77.41 | 1061.65 | 4.207 | 3.058 |
+| 宽节点优先，原始链接 | 420.71 | 1861.07 | 4.208 | 2.815 |
+| 宽节点优先，压缩失效链接 | 440.81 | 1927.11 | 4.208 | 2.815 |
+| Rime原版（独立实现） | 64.32 | — | 2.104 | — |
+
+字节原型按层版仅压缩失效链接，就将重复跳过已占槽的次数由3,377,456,809降为
+540,759，候选次数与分支检查次数均不变，体积、布局也不变；构建已接近Rime
+原版。因此，之前秒级差距主要来自原型空位搜索的实现热点，而不是字节树必然难排。
+
+宽节点优先并不保证更快。本轮码点版候选次数由121,962,068增至386,618,133，
+分支槽位检查由535,028,046增至1,335,331,425。它得到了更紧的布局，但尝试更多。
+码点空槽由91,576降为59,649，空槽比例由22.85%降为16.17%，总索引减少约8%。
+字节版的候选及检查次数同样明显增加；失效链接修正后，按层方案反而构建更快。
+
+排布也影响查询局部性。本轮码点版按层/宽优先（均未压缩构建链接）的命中为
+7.24/6.61ns，前缀未命中9.86/9.34ns，随机未命中3.52/3.62ns；没有所有查询
+类别都更快。字节原型命中为30.78/19.08ns。此处是布局变化的观测结果，不能归为
+查询算法变化。构建链接压缩本身不改变布局，查询差异接近测量波动。
+
+所有63个独立进程均验证全部命中/未命中编号；八种原型配置还通过共享前缀、
+组合字符、ZWJ emoji及高位Unicode样本的ASan/UBSan（按上述环境限制关闭泄漏
+检测）。新增CLI也用同一边界fixture验证。可复现构建对照：
+
+```sh
+python scripts/bench_trie.py --fixtures /tmp/flash-any-robin-hood-final \
+  --darts-header /tmp/flash-any-darts-final/darts.h --datasets tiger --packing --samples 7
+```
+
+`BUILD_WIDE`、`COMPRESS_FREE`控制两项构建实验；默认0保留历史对照，均不进入
+生产模块。`PACK_STATS=1`仅用于非计时统计。原始样本及摘要位于
+`/tmp/flash-any-dat-order/{raw,report,stats,sanitizers}.json`。
+
+Rime's roughly 64 ms byte builder and the original roughly 3.75 s byte prototype
+are different implementations. Compressing stale free-slot links reduced the
+prototype to about 77 ms without changing its layout. Prioritizing ready nodes
+with more outgoing labels did not universally improve construction: codepoint
+packing became slower but saved about 8% index space and modestly improved hit
+and near-miss lookup in this fixture. This is a controlled build-policy experiment,
+not a production engine change or a guaranteed packing heuristic.
+
+### 官方全量 emoji / Complete official emoji fixtures
+
+2026-11-12检查本机现有source：gemoji有1,869个key，其中1,170个单码点、699个
+多码点，全部是单个完整字素。现有unicode.tsv的40,162个key和nerdfont.tsv的
+10,604个key均为单码点，继续由页表处理，不参与本次文本索引对照。
+
+随后下载[Unicode官方latest emoji-test.txt](https://www.unicode.org/Public/emoji/latest/emoji-test.txt)，
+文件声明Emoji 18.0，日期2026-04-30。并下载
+[17.0固定版本](https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt)作为项目分段规则的版本对照。
+下列数字直接统计文件的唯一编码序列；同一图案的不同编码形式分别作为key：
+
+| 版本 | fully-qualified | component | RGI合计 | minimally-qualified | unqualified | 全部key | 全部多码点key |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 17.0 | 3,944 | 9 | 3,953 | 1,029 | 243 | 5,225 | 3,825 |
+| 18.0 | 3,963 | 9 | 3,972 | 1,029 | 243 | 5,244 | 3,835 |
+
+Emoji 18.0的RGI集合中有2,770个多码点key；全部编码形式中有3,835个多码点、
+1,409个单码点。全部5,244条均通过当前Unicode 17分段器的单字素检查，这只说明
+这批样本兼容，不表示插件已升级Unicode 18属性数据。
+18.0下载文件SHA-256：`8f3735cda1f92a779d78af67cf86066bb1f07143dc22f2ac29394d9bc57ab21a`；
+17.0：`1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda`。
+
+建立四份文本索引fixture：真实gemoji的699条多码点key、18.0 RGI的2,770条、
+18.0所有形式的3,835条，以及后者与原虎码词组合并的134,279条。单码点没有改成
+Trie，也没有为官方数据假造source编码；这是key索引实验。实际gemoji全部原始
+编码另用当前写入器生成文件，77,994 bytes（未加literal），作为真实包大小对照。
+
+未命中样本的构造单独记录，避免把多个字素拼成一个emoji查询：
+
+- 前缀查空：在完整emoji后追加U+034F，逐条验证仍为单字素且不在词典。
+- gemoji随机查空：从官方全量中抽取未收录的多码点emoji。
+- RGI随机查空：抽取非RGI的其他资格形式，仍为单字素、多码点。
+- 全部形式的随机查空：从Unicode 17字素测试中抽取239种合法、非控制、多码点
+  字素，均不在emoji集合中；这是跨文字查空，不是同分布emoji查空。
+- 虎码合表保留原虎码的全部未命中样本，仅新增emoji部分使用上述规则。
+
+固定同一CPU、GCC 16.2.1 `-O3`、各方案独立进程、执行顺序随机、7轮；每项3次
+取中位数。32种数据/方法组合共224个独立进程，所有查询逐条验证entry编号。
+普通双数组均使用宽节点优先和失效链接压缩；原始失效链接版在小表构建中出现异常
+长耗时，本轮不使用它，也不把中断轮计入结果。修正版本全部完成。
+
+完整18.0所有形式的3,835条多码点key如下。单位ns，空间包含文本索引、key和
+编码引用，排除编码池、单码点页表、库代码、查询fixture和构建临时内存。
+hash分别保留预计算hash与码点就绪后计算FNV的阶段；码点DAT直接消费预解码数组。
+
+| 全形式方案 / All forms | 命中 ns | 前缀查空 ns | 跨文字查空 ns | 索引空间 |
+| --- | ---: | ---: | ---: | ---: |
+| 当前线性，hash预计算 | 5.47 | 6.23 | 5.15 | 122.73 KiB |
+| 当前线性，码点就绪+FNV | 8.32 | 12.42 | 8.21 | 122.73 KiB |
+| 线性指纹，hash预计算 | 3.99 | 2.10 | 1.46 | 122.73 KiB |
+| 线性指纹，码点就绪+FNV | 9.27 | 7.62 | 2.52 | 122.73 KiB |
+| RH 4位，码点就绪+FNV | 10.34 | 5.71 | 2.27 | 122.73 KiB |
+| Rime原版字节Darts | 23.67 | 41.80 | 3.21 | 59.00 KiB |
+| 普通字节DAT | 16.67 | 29.46 | 1.79 | 116.46 KiB |
+| 普通码点DAT，码点就绪 | 6.56 | 11.33 | 1.29 | 14.003 MiB |
+| 普通码点DAT，含UTF-8解码 | 12.84 | 14.44 | 2.46 | 14.003 MiB |
+| MARISA，单层+大缓存+复用Agent | 120.71 | 136.00 | 37.69 | 27.79 KiB |
+
+小表中指纹并非在所有输入阶段/命中场景都胜出；不能将cached-hash列与码点就绪
+列混用。对现有流式扫描，hash已在解码时同步累积，最终仍需完整扫描对照。
+RGI集合中，线性指纹“码点就绪+FNV”为9.89/9.70/8.23ns，码点DAT为
+5.66/9.47/4.14ns；二者空间为79.61KiB和7.001MiB。gemoji中对应查询为
+4.09/3.03/3.20ns和2.55/2.74/1.82ns，空间为16.53KiB和14.002MiB。
+不同key集及排布顺序的最高占用位置不同，不能按条目数量单调推断原型空间。
+
+合并虎码和全部emoji后，134,279条文本key的指纹hash索引3.201MiB，码点DAT
+7.001MiB；码点就绪阶段的命中/前缀查空分别12.67/13.67ns和6.85/10.37ns。
+Rime字节Darts为2.161MiB，20.49/28.17ns。仍可观察到中文密集负载的码点查询
+优势，但空间结论与单独虎码明显不同，不能直接采用该原型作统一索引。
+
+独立统计原型占用（含终止值），不将统计计数放入性能版本：
+
+| 码点DAT数据 | 总单元 | 有效单元 | 空槽比例 |
+| --- | ---: | ---: | ---: |
+| gemoji | 1,835,219 | 1,932 | 99.89% |
+| Emoji 18.0 RGI | 917,649 | 7,425 | 99.19% |
+| Emoji 18.0全部形式 | 1,835,255 | 8,929 | 99.51% |
+| 虎码+全部形式 | 917,635 | 318,183 | 65.33% |
+
+这里的膨胀与原型直接使用原始码点、只允许非负base有关。3个tag旗帜包含
+U+E0067等高位标签；对于`next=base+cp`且base非负，数组必须覆盖这些大下标。
+诊断性移除这3个序列（非正式测试数据），总单元降至259,581、索引约1.98MiB，
+但空槽仍有96.57%。这不是“Trie天生需要这么大”，也不能靠反复调整排布顺序就
+解决标签数值跨度。若继续研究码点索引，需改进标签表示/寻址，再重新计入转换成本。
+
+Rime原版、普通字节版和两种码点查询路径，在gemoji、RGI及全形式三组上均通过
+ASan/UBSan（按上述环境限制关闭泄漏检测）。共享fixture逻辑移入`bench_keys.py`，
+并验证重新生成的虎码fixture与前轮二进制逐字节相同。复现查询：
+
+```sh
+python scripts/bench_trie.py --fixtures /tmp/flash-any-emoji-fixtures \
+  --darts-header /tmp/flash-any-darts-final/darts.h \
+  --datasets gemoji emoji18_rgi emoji18_all tiger_emoji18 \
+  --wide-first --compress-free --samples 7
+```
+
+数据、预处理脚本及资格/边界验证：`/tmp/flash-any-emoji-fixtures/`；
+计时、空间及检查记录：`/tmp/flash-any-emoji-final/{raw,report,packing-stats,sanitizers}.json`。
+没有变更生产索引、外部source或Unicode版本。
+
+The downloaded official latest file identifies itself as Emoji 18.0: 3,972 RGI
+entries including components and 5,244 strings including qualification variants,
+of which 3,835 are multi-codepoint. All samples pass the current segmenter's
+single-grapheme check. Complete isolated lookup tests show that the raw-codepoint,
+nonnegative-base prototype is not a suitable universal replacement: high tag
+labels cause megabytes of sparse slots, and miss performance is workload-dependent.
+The matched hash index occupies about 123 KiB for all multi-codepoint forms,
+whereas this prototype occupies about 14 MiB. These are prototype addressing
+limitations rather than a lower bound for Unicode Tries. Production is unchanged.
+
+### 允许负 base / Signed base offsets
+
+非负base是原型选择，不是双数组的要求。增加`SIGNED_BASE=1`对照：节点仍为
+8字节，base字段保留32位二补码；正常转移时按int32解释，再用int64相加。将计算
+结果转为uint64后做一次上界检查，同时排除负下标和过大下标；只有通过检查才读取
+数组。终止值仍存原字段，终止标签0存在时最小标签为0，该父节点的base自然非负。
+
+构建时允许最小子标签直接对应最前空槽，base取`anchor-min_label`，可为负。
+空间扩展、占用检查及子节点位置统一使用`anchor+(label-min_label)`，避免将负偏移
+误当成巨大正下标。正偏移明确限制在INT32_MAX内；本实验只处理合法Unicode序列。
+
+沿用上节完全相同的fixture、查询及布局策略（宽节点优先、修正失效链接），固定
+同一CPU、GCC `-O3`、各方案独立进程、每轮随机执行顺序、7轮。负base版、原非负
+版、指纹hash及Rime字节版同轮重测，共175个进程。下列空间均为索引/key/编码引用，
+不含编码池、标量页表、库代码及查询fixture：
+
+| 数据 | 非负base MiB | 允许负base MiB | 指纹hash MiB |
+| --- | ---: | ---: | ---: |
+| gemoji | 14.002 | 6.938 | 0.016 |
+| Emoji 18.0 RGI | 7.001 | 6.941 | 0.078 |
+| Emoji 18.0全部形式 | 14.002 | 6.946 | 0.120 |
+| 原虎码词组对照 | 2.815 | 2.817 | 3.112 |
+| 虎码+全部emoji | 7.001 | 6.969 | 3.201 |
+
+允许负base后布局选择更多，贪心结果不保证处处更小；纯虎码本轮增加2,320 bytes。
+完整emoji的命中/前缀查空/跨文字查空在本轮非负版为7.48/11.75/1.31ns，负base
+版6.17/12.14/1.16ns；后者连同UTF-8解码为10.24/11.44/1.63ns。这些是独立输入
+阶段的局部CPU计时，不代表完整扫描；本轮没有观察到有符号寻址带来统一查询退化。
+纯虎码负base版命中/前缀未命中6.44/9.63ns；合表6.87/10.83ns。构建分别约
+1.41s，完整emoji约3.9ms；构建时间不是本轮选择标准。
+
+负base不能消除同父子标签间的距离。实际黑旗U+1F3F4后既可能是海盗旗的ZWJ
+U+200D，也可能是地区旗帜的tag U+E0067。直接以原始码点作加法标签时：
+
+```text
+slot_tag - slot_zwj = (base + 0xE0067) - (base + 0x200D) = 909402
+```
+
+这两个子节点至少要求909,403个连续数组单元覆盖它们的跨度，即8字节单元至少
+7,275,224 bytes（约6.938MiB），不计额外布局约束。真实gemoji负base结果为
+7,275,240 bytes，已经接近该表示的下限。因此负base有效，但无法将当前原码点
+加法表示压到几十KiB；若目标是更紧的emoji索引，需要改变标签编号或分支表示，
+并另测查询成本。这个结论只针对当前表示，不是Trie的空间下限。
+
+负base的码点直接查询、解码查询及字节查询，共15组ASan/UBSan通过，包括完整
+emoji、RGI、gemoji、既有Unicode边界fixture，以及专门构造的负下标查询：根仅有
+高位emoji标签，查询低位拉丁标签，计算结果为负时必须安全返回不存在。泄漏检测
+仍按前述环境限制关闭。所有175个计时进程逐条验证全部查询编号。
+
+```sh
+python scripts/bench_trie.py --fixtures /tmp/flash-any-emoji-fixtures \
+  --darts-header /tmp/flash-any-darts-final/darts.h \
+  --datasets gemoji emoji18_rgi emoji18_all tiger-control tiger_emoji18 \
+  --wide-first --compress-free --signed-base \
+  --methods fingerprint darts_byte dat_cp_ready dat_signed_cp_ready dat_signed_cp_decode \
+  --samples 7
+```
+
+本轮纯虎码控制在报告中命名`tiger_control`，与预处理的`tiger-control.bin`逐字节相同。
+完整记录：`/tmp/flash-any-signed-base-final/{raw,report,sanitizers}.json`。
+生产格式、查询和source没有更改。
+
+Signed base offsets are valid and keep each prototype unit at eight bytes. They
+substantially reduce some emoji layouts, but raw sibling labels retain their
+numeric spacing: the real black-flag ZWJ/tag branch alone requires roughly
+6.94 MiB of span in this representation. The signed prototype approaches that
+bound for gemoji, so changing base sign alone cannot yield a compact universal
+emoji index. Paired measurements and negative-index sanitizer cases pass;
+production remains unchanged.
+
+### 标签取模与原码点校验 / Modulo labels with exact codepoint verification
+
+针对少数高位标签跨度过大，新增`MOD_BITS`原型：将寻址标签换成`cp & (M-1)`，
+其中M为2的幂，查询不用整数除法。独立分析各父节点的标签集合（包括终止标签0），
+枚举2^8至2^21；gemoji、Emoji 18.0 RGI和全形式最小无同父冲突的幂次均为13，
+虎码及合表为18，即模数分别8192和262144。这里的“最小”只限枚举的2的幂，
+不声称是任意整数中的最小模数；当前CLI指定位数，构建器验证，不自动选择。
+
+仅验证已知子标签不冲突仍不够：未知码点也可能和已有标签取模同值。因此本轮更改
+8字节单元的校验语义，保持总宽不变：`base`仍4字节，原`check`字段改存原码点+1
+（0表示空槽，终止标签原码点为0）。查询同时检查完整原码点。为了区分不同父节点，
+构建时额外保证每个父节点的base唯一；用于去重的位标记仅在构建中保留，查询无需
+额外表。若位置和原码点同时相同，取模标签相同，继而base相同；base唯一就保证
+属于同一个父节点。原始完整key字符串无需重新保存。
+
+对于黑旗的两个分支，U+200D模8192为13，U+E0067模8192为103，位置间距从
+909,402缩到90。这改变了前述“直接用原码点相加”的表示，因而不再受那个跨度
+下限约束。如果一个父节点的两个已知标签取模碰撞，构建器立即拒绝该模数；上调
+位数可以消除碰撞，合法Unicode码点在M=2^21时必然彼此不同，终止0也不与非NUL
+码点混同。压紧程度仍受布局影响，不承诺固定小容量内一定放得下。
+
+两组各自顺序运行、固定同一CPU、GCC `-O3`、独立进程、方案顺序随机、7轮：
+emoji组用13位，虎码/合表组用18位。每组同时重测指纹hash、无取模的负base原型、
+取模的预解码及边解码查询；全部140个计时进程逐条验证返回编号。下表查询单位ns，
+hash为“码点就绪后计算FNV”，Trie直接消费相同预解码查询，仍不是完整引擎扫描。
+空间计入文本索引、key和编码引用，不含共同编码池、标量表及构建临时内存：
+
+| 数据/方案 | 命中 | 前缀查空 | 其他查空 | 索引空间 |
+| --- | ---: | ---: | ---: | ---: |
+| 全形式emoji，指纹hash | 9.28 | 7.61 | 2.53 | 125,672 B（122.73 KiB） |
+| 全形式emoji，负base无取模 | 6.21 | 11.89 | 1.21 | 7,282,984 B（6.946 MiB） |
+| 全形式emoji，取模8192 | 5.97 | 12.58 | 1.03 | 125,432 B（122.49 KiB） |
+| 虎码，指纹hash | 12.28 | 13.11 | 12.98 | 3.112 MiB |
+| 虎码，取模262144 | 6.26 | 9.74 | 3.46 | 2.817 MiB |
+| 虎码+emoji，指纹hash | 12.65 | 13.63 | 13.42 | 3.201 MiB |
+| 虎码+emoji，负base无取模 | 6.66 | 10.53 | 3.63 | 6.969 MiB |
+| 虎码+emoji，取模262144 | 6.71 | 10.93 | 3.66 | 3.295 MiB |
+
+gemoji取模后52,664 bytes，对照hash16,928 bytes；命中/前缀查空2.16/2.32ns，
+对照4.08/3.03ns。RGI取模后65,928 bytes，对照81,516 bytes；命中/前缀查空
+5.37/10.25ns，对照9.94/9.74ns。小表和完整表的空间收益不同，不宜只选其中一组。
+完整emoji取模版连UTF-8解码为11.29/14.31/2.37ns。虎码及合表构建约1.48s，
+本轮没有通过扩大单元或保留额外运行时映射换取构建速度。
+
+该方案有效消除原型的大跨度膨胀，但不意味着所有查询更快：完整emoji的命中更快，
+保留长前缀的查空仍比指纹hash慢；合表空间比hash增加约2.9%，不是完全零空间代价。
+仍需流式扫描的完整对照，不能将局部查询倍数直接推广到插件。
+
+额外构造两种错误风险：相差8192的未知码点必须拒绝；不同父节点下相同/不同的
+子标签不得串支，未结束的前缀不得命中。模数别名fixture、既有Unicode边界及三组
+emoji上，码点直接、解码及字节路径共15组ASan/UBSan通过（按前述环境限制关闭
+泄漏检测）。另用同父取模冲突的fixture验证构建确实拒绝。所有140个进程也验证
+全部命中及未命中结果。
+
+```sh
+python scripts/bench_trie.py --fixtures /tmp/flash-any-emoji-fixtures \
+  --darts-header /tmp/flash-any-darts-final/darts.h \
+  --datasets gemoji emoji18_rgi emoji18_all --mod-bits 13 \
+  --wide-first --compress-free --signed-base \
+  --methods fingerprint dat_signed_cp_ready dat_mod_cp_ready dat_mod_cp_decode --samples 7
+```
+
+虎码/合表同命令改为`--datasets tiger-control tiger_emoji18 --mod-bits 18`。
+原始记录分别在`/tmp/flash-any-modulo-emoji/`与`/tmp/flash-any-modulo-tiger/`；
+模数枚举、别名fixture及检查记录在`/tmp/flash-any-modulo/`。生产代码未改变。
+
+Power-of-two modulo labels remove the raw codepoint spacing problem, but exact
+incoming-label checks and unique parent bases are required to prevent aliases.
+The prototype reuses the existing eight-byte unit and keeps base-uniqueness flags
+only during construction. Full emoji index space falls to about 122.5 KiB,
+comparable to hashing, with mixed lookup tradeoffs. The combined Tiger/emoji
+index is about 2.9% larger than hashing. Alias and sibling-collision validation
+passes; no production format or scanner was changed.
+
+### 词组完整扫描与 rime_ice 压力测试 / Phrase scanning at Rime Ice scale
+
+2026-11-12，正式引擎新增多字素词组匹配，file source不再过滤词组。每个字素起点
+维护一个活动前缀，每个新码点同步推进全部活动前缀，失败即移除；仅在完整字素
+边界查询终点编码。起点的输入消费状态保存在有界环中，允许词码后继续匹配文字，
+并让后续词条补充已完成候选的next键。单码点仍查页表；没有词组的字典保留原单
+字素路径。正式前缀实现复用排序文本记录区间，不新增持久索引或改变v11格式。
+这条区间基线的作用是先固定词组语义；它不是此前测试过的压紧双数组。
+
+数据来自[iDvel/rime-ice固定提交](https://github.com/iDvel/rime-ice/tree/927e1cf1d3eeb9bf4be85e3f684dba4dd485b6f6)，
+SHA为`927e1cf1d3eeb9bf4be85e3f684dba4dd485b6f6`。读取`cn_dicts/8105`、`base`、
+`ext`、`tencent`、`others`五份dict.yaml的显式文字行，共1,873,842行，去重后
+1,870,585个key。腾讯表981,543行只有text/weight，没有code；本实验没有执行
+Rime自动注音、schema或造词规则，也不推测缺失的读音。
+
+| 数据集 | 所有key | 单码点key | 文本key | 最长码点数 | 当前v11文件 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全量key，统一测试编码x | 1,870,585 | 8,183 | 1,862,402 | 29 | 56,213,262 B（53.609 MiB） |
+| 有显式编码的真实子集 | 888,841 | 8,183 | 880,658 | 29 | 37,756,503 B（36.007 MiB） |
+
+第一组仅用统一的合成编码`x`控制matcher与结果数量，不代表完整Rime词库的编码
+内容；第二组保留所有显式ASCII编码，去掉音节间分隔空白，未注音条目不参与。
+`scripts/bench_phrase_data.py`是测试专用v11生成器，输出由正式C加载器完整校验。
+正常用户构建仍用现有C写入器。单文件SHA及条目统计保存于data-report.json。
+
+构建三个隔离模块，只有`text_advance/prefix_codes`索引遍历不同，字素分段、
+活动前缀、编码匹配、请求、结果扩容和Lua结果构造完全相同：
+
+- 区间基线：正式实现，沿共享前缀缩小排序key区间，无额外索引。
+- 前缀hash：收录所有不同的码点前缀，FNV增量更新，线性探测及槽内高位指纹；
+  命中校验长度与原文字节，缺失前缀立即剪枝。12字节前缀记录保存借用原池的
+  offset、长度和终点编号；构建所需完整hash另存在临时数组，不保留运行时冗余字段。
+- 码点DAT：宽节点优先、负base、2^18取模、完整原码点校验，8字节单元；构建时
+  base唯一，终点值是原文字entry编号。查询复用正式扫描器已经解码的码点，
+  hash也复用同一码点，不各自重新解码。
+
+这两个额外索引是实验数据，在加载前预建并缓存。缓存由runner统一拥有，按原始
+binary内容、索引源码和模数生成身份，变化时重建；不属于生产文件格式。每个实验
+进程只加载一份只读字典。公共v11包仍保留以便按终点编号访问编码，因此额外索引
+大小不能冒充替换后的最终文件大小，RSS也不能当作最终压缩格式的内存下限。
+
+Intel i5-14600K，GCC 16.2.1 `-O3`，固定同一CPU、各方案独立Neovim进程，
+7轮、每轮随机排列方案。每进程预热后校准至每项至少30ms，测3次取中位数，
+再取7进程中位数。计时包括Lua→C、UTF-8解码、Unicode边界、全部前缀查询、
+编码匹配和Lua候选/标签构造，排除文件加载、索引构建、进程启动及Flash绘制。
+行快照复用，查询轮换以避免命中同query结果缓存；不是跨输入的增量匹配缓存。
+
+固定种子20261112，分别从两组真实key中抽512个词，每行拼16个，共32行；不称
+其为自然语料。另测32行每行64个随机汉字（仍可能命中单字或短词），以及四行
+重复前缀文本。全量组词表拼接文本6,345 bytes，真实编码组5,795 bytes，随机组
+均6,144 bytes，重复组1,536 bytes。查询序列与每项候选数量见report.json。
+
+下表为最终版本（复用码点、hash无冗余记录字段）的CPU毫秒/次完整扫描：
+
+| 数据/负载 | 区间基线 | 前缀hash＋指纹 | 码点DAT | DAT相对hash耗时降低 |
+| --- | ---: | ---: | ---: | ---: |
+| 全量187万key，词表拼接 | 2.3694 | 0.5095 | 0.4492 | 11.9% |
+| 全量，随机汉字 | 0.9051 | 0.1224 | 0.1082 | 11.6% |
+| 全量，重复前缀 | 0.1766 | 0.0981 | 0.0961 | 2.0% |
+| 真实编码88.9万key，词表拼接 | 1.5456 | 0.1877 | 0.1613 | 14.1% |
+| 真实编码，随机汉字 | 0.8176 | 0.0730 | 0.0673 | 7.8% |
+| 真实编码，重复前缀 | 0.1245 | 0.0482 | 0.0461 | 4.4% |
+
+elapsed时间与CPU接近，例如全量词表拼接hash0.5108ms、DAT0.4503ms；真实编码
+词表拼接0.1881/0.1616ms。42个独立进程的每个查询都检查完整候选位置、结束位置、
+next集合和标签的规范签名，三种实现全部一致。重复前缀场景中词条检查之外的开销
+占比更高，不能从孤立查询的倍数推断完整扫描也有同样倍数提升。
+
+| 数据/索引 | 唯一非空前缀 | hash槽/DAT单元 | 额外索引 bytes | 额外索引 MiB | 查询后进程RSS MiB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全量，hash | 3,287,854 | 8,388,608槽 | 73,008,692 | 69.627 | 196.27 |
+| 全量，DAT | 同上 | 5,190,089单元 | 41,520,720 | 39.597 | 166.39 |
+| 真实编码，hash | 1,580,621 | 4,194,304槽 | 35,744,680 | 34.089 | 123.52 |
+| 真实编码，DAT | 同上 | 2,501,652单元 | 20,013,224 | 19.086 | 108.85 |
+
+区间基线无额外索引，查询后RSS约124.30/87.64MiB，包含Neovim、公共包、
+工作负载和结果内存。缓存索引的加载及正式包完整校验，全量hash/DAT约219/213ms，
+真实编码约93/89ms；不含首次构建。首次DAT加载包含构建及序列化，单次观测
+约141.5s（全量）和34.2s（真实编码），不是多次受控构建基准。慢构建只发生在
+实验缓存缺失时，不进入查询计时，符合本轮优先查找与空间的取舍。
+
+复现流程：把固定提交五份dict.yaml保存到同一目录，并把提交SHA写入revision：
+
+```sh
+python scripts/bench_phrase_data.py /tmp/flash-any-rime-ice
+python scripts/bench_phrases.py --data /tmp/flash-any-rime-ice --samples 7
+```
+
+原始数据及元信息：`/tmp/flash-any-rime-ice/`；本轮代码、缓存及记录：
+`/tmp/flash-any-phrase-index/{raw,report,index-stamps,build-observations}.json`。
+正式词组匹配通过1,118组冻结Lua差分比较、新增Unicode/字素边界/组编码/词后next/
+motion检查、全部常规测试及真实Flash jump/char/remote集成。ASan/UBSan覆盖native、
+phrases、selection、literal、groups、text；泄漏检测按此前环境限制关闭。
+
+结论：词组功能已在正式路径可用；真正复用前缀后的完整扫描中，DAT相对经过优化的
+前缀hash观测改善约2%–14%，同时额外索引较小，并非所有Flash工作负载全面倍增。
+压紧DAT和hash仍是隔离实验，正式前缀路径暂用不增加格式/加载内存的区间表示；
+在百万级词表上，它比两个专用索引慢，数据和取舍如上，不隐瞒这项限制。
+
+The native engine now supports overlapping phrases while preserving grapheme
+boundaries, literal continuation and character-motion positions. A bounded active
+prefix array reuses each decoded codepoint. Complete isolated scans compare the
+production sorted-range representation, a fingerprinted prefix hash, and a modulo
+codepoint DAT with identical matcher/result code. Fixed Rime Ice data contains
+1,870,585 unique keys; unannotated Tencent rows are used only in a clearly synthetic
+uniform-code control, while 888,841 keys retain explicit codes. Across these
+fixtures DAT lowers full-scan CPU time by roughly 2%–14% versus the optimized
+prefix hash and uses less additional index space. These measurements exclude
+Flash drawing and do not describe a new production DAT format. All result signatures
+agree, and the production phrase scanner passes differential and sanitizer checks.
+
+### 页表根节点与DAT合并 / Paged root for DAT
+
+2026-11-12，继续用相同rime_ice包和工作负载，对比独立单码点页表＋DAT与合并
+页表根节点的DAT。正式格式和扫描器不变，通过`bench_phrases.py --methods dat
+paged range`构建隔离模块。两种DAT都在活动前缀中保留下一步base，避免把缓存
+base带来的收益混入根节点合并的对比；区间实现只用于结果校验。
+
+页表槽由4字节输入码列表偏移改为8字节`{base, codes}`：`codes`仍存池偏移＋1，
+0表示没有单字输入码；base采用有符号偏移，保留-1表示无后续节点，构建时禁止
+其他节点使用该base。首码点通过一次两级页表查询，同时得到单字输入码和词组
+状态，省去DAT根转移及根层check；后续码点继续查取模DAT，并保留原码点校验。
+复合字素的首码点输入码也由这次查询供letter规则使用，终点仍受字素边界限制。
+
+根页覆盖单码点key与所有文本key首码点的并集。实验目录另预留一个非法字节token
+页的目录槽，因此比纯Unicode目录多4字节；rime_ice数据本身都是有效UTF-8。
+第一层不再取模，首码点取模冲突不影响它；后续层的同父子节点仍必须取模无冲突。
+
+空间比较按“单码点页表＋词组DAT”的完整索引计算：旧方案包含原页表183 KiB；
+合并方案用新页表替换它，不能把仍为加载校验而保留的旧页表再计入最终布局。
+实际实验缓存仍叠加于公共v11包，磁盘文件和RSS因此包含这份保留数据。数值包含
+实验索引的序列化头，不代表已经生成了可分发的新格式。
+
+| 数据 | 原单码点页数 | 合并根页数 | 独立页表＋DAT bytes | 合并页表根＋DAT bytes | 增加 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全量187万key | 166 | 170 | 41,708,112（39.776 MiB） | 41,833,592（39.896 MiB） | 122.54 KiB，0.30% |
+| 真实编码88.9万key | 166 | 170 | 20,200,616（19.265 MiB） | 20,326,440（19.385 MiB） | 122.88 KiB，0.62% |
+
+原页表为187,392 bytes；合并根目录与页为365,572 bytes。全量DAT单元从5,190,089
+降至5,183,501，减少52,704 bytes；真实编码DAT从2,501,652降至2,495,107，减少
+52,360 bytes。增加的根页空间扣除移除的DAT根层单元后，净增约123 KiB。两次
+构建的装填布局并不要求相同，因此按最终数组长度计算，不能只按有效节点数量估算。
+
+相同CPU、独立进程、7轮随机顺序，计时范围与上一节相同；以下为两组都缓存base
+后的完整扫描CPU毫秒，不包含构建、加载和Flash绘制：
+
+| 数据/负载 | 独立页表＋DAT | 合并页表根＋DAT | 耗时降低 |
+| --- | ---: | ---: | ---: |
+| 全量187万key，词表拼接 | 0.4449 | 0.4440 | 0.2%，视为持平 |
+| 全量，随机汉字 | 0.1053 | 0.0968 | 8.0% |
+| 全量，重复前缀 | 0.0986 | 0.0961 | 2.5% |
+| 真实编码88.9万key，词表拼接 | 0.1640 | 0.1496 | 8.7% |
+| 真实编码，随机汉字 | 0.0641 | 0.0579 | 9.7% |
+| 真实编码，重复前缀 | 0.0489 | 0.0469 | 3.9% |
+
+42个独立进程每个查询的完整结果签名均与区间实现一致。小表额外覆盖单字叶子、
+词组首码点没有单字编码、emoji、组合字素、字面预览、f/F/t/T，以及U+4E2D与
+U+44E2D同余首码点和未知U+84E2D的拒绝；合并实现通过ASan/UBSan检查。
+根节点取模版无法构建这份同余首码点小表，页表根版与正式区间实现结果一致。
+
+单次无缓存加载（包含校验、构建、序列化）全量独立/合并为147.8/134.8秒，真实
+编码为33.9/32.4秒；未作重复构建统计。查询实验复用这批索引镜像，在两个方案中
+统一缓存base后重新编译模块、独立运行。记录位于
+`/tmp/flash-any-paged-root-final/{raw,report,build-observations}.json`；小表位于
+`/tmp/flash-any-root-edge/`。重新运行可用：
+
+```sh
+python scripts/bench_phrases.py --data /tmp/flash-any-rime-ice --methods dat paged range --samples 7
+```
+
+结论是根层合并只增加约123 KiB，完整扫描持平或小幅变快，同时消除首码点的取模
+冲突限制；它仍是实验实现，尚未替换正式v11格式。原包、文本记录、编码池等公共
+部分未重新设计，表中是完整查找索引的变化，不能当作最终包的全部大小。
+
+The experimental paged root combines the scalar code-list offset and continuation
+base in each eight-byte slot. Both DAT variants cache continuation bases, so the
+comparison isolates root access and packing changes. Across the same two Rime Ice
+fixtures, combined lookup indexes grow by about 123 KiB (0.30%/0.62%); complete scan
+CPU time is essentially unchanged or improves by roughly 2%–10%, depending on the
+workload. All result signatures agree. Root modulo collisions are avoided; deeper
+DAT transitions retain their existing constraints. This remains an isolated
+experiment, without a production file-format change.
+
+### 复用根base数组空闲区 / Reusing vacant root-base runs
+
+2026-11-12，在上节已构建的页表根DAT上，将根节点拆成平行`codes[]`和`base[]`
+数组。`codes`最高位表示有后续分支，次高位选择剩余共享池或base字节区，低30位
+保存区域内偏移＋1；0表示没有数据引用。文本entry的key和code引用使用同一区域
+规则。只有根节点没有后续分支时，其4字节base槽才可被覆盖；相邻空槽连续使用，
+跨已分配物理页边界也可连续，不要求数据长度或放置位置按4字节对齐。
+
+使用`scripts/bench_root_pool.cc`读取原v11包与页表根实验索引，按所有引用收集
+已经去重的完整池块。保持块不可拆分，按长度从大到小选择最小可容纳空闲区，
+构建时维护空闲区长度表。分别输出不搬移、只搬编码列表、全部池块均可搬移三种
+自包含实验镜像；搬移后删除原副本，压紧剩余共享池，重写所有根和文本引用。
+同一块被多个词条引用时只搬一次。运行时不需要构建用空闲表或额外分配元数据。
+镜像以`FANYPAK1`开头，包含根目录、平行根数组、DAT、文本记录、剩余池和组数据；
+不保留原单码点页表及文本hash，是尺寸实验格式，不能交给正式v11加载器。
+
+| 数据 | 根槽数 | 有分支槽 | 可复用字节 | 连续空闲区数 | 最大连续区 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全量187万key | 43,520 | 6,584 | 147,744（144.28 KiB） | 3,690 | 6,672 B |
+| 真实编码88.9万key | 43,520 | 6,539 | 147,924（144.46 KiB） | 3,680 | 6,672 B |
+
+真实编码中2,827段空闲区不超过16字节，但这些短段只占21,228字节；大多数空闲
+字节仍在较长的区间里。因此短段虽然多，并没有阻止大部分容量被利用。
+
+| 数据/搬移范围 | 搬移块数 | 从原池移除 bytes | 空闲区利用率 | 相比不复用的页表根 | 按上节口径相比独立页表＋DAT |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 全量，仅编码 | 1 | 3 | 0.002% | 减少3 B | 仍增加122.54 KiB |
+| 全量，编码和文本 | 4,752 | 140,264 | 94.94% | 减少136.98 KiB | 减少14.44 KiB |
+| 真实编码，仅编码 | 4,547 | 142,687 | 96.46% | 减少139.34 KiB | 减少16.47 KiB |
+| 真实编码，编码和文本 | 4,356 | 142,699 | 96.47% | 减少139.35 KiB | 减少16.48 KiB |
+
+全量控制组的输入码统一为`x`，原本整个池就只有一份3字节编码块，因此只搬编码
+不可能回收更多空间。这不是实际词库的编码分布；开放文本块后，也能填满约95%。
+真实编码子集仅搬编码已足够；开放文本只多回收12字节，这批数据下无需为此扩大
+文本key的运行时寻址规则。贪心装填是可复现的实际结果，不声称全局最优。
+
+三种自包含镜像实际文件大小如下，包含共同固定32字节实验头：
+
+| 数据 | 不搬移 | 仅编码 | 编码和文本 |
+| --- | ---: | ---: | ---: |
+| 全量 | 81,082,226 B | 81,082,223 B | 80,941,962 B |
+| 真实编码 | 49,506,923 B | 49,364,236 B | 49,364,224 B |
+
+保存后重新读取镜像，逐块比较全部原始数据，检查所有根分支标志、有效base、
+根编码引用、文本key和编码引用，再用搬移后的key遍历DAT并验证每个终点编号。
+全量验证1,862,403个共享块和1,862,402个文本key，真实编码验证1,668,343个共享块
+和880,658个文本key；根编码引用同时覆盖8,183个单码点key。另以包含同余首码点、
+emoji和组合字素的小表验证。真实编码全表和小表通过，真实编码全表另通过
+ASan/UBSan检查，结果与优化构建逐字段一致。
+
+```sh
+c++ -O3 -std=c++17 -Wall -Wextra -Werror scripts/bench_root_pool.cc -o /tmp/bench-root-pool
+/tmp/bench-root-pool /tmp/flash-any-rime-ice/ice_annotated.bin \
+  /tmp/flash-any-paged-root-final/ice_annotated.paged.index /tmp/flash-any-annotated-pool
+```
+
+stdout每行输出一种布局的JSON，含完整空闲区长度直方图。结果位于
+`/tmp/flash-any-{annotated,uniform}-pool.jsonl`，汇总及源码SHA为
+`/tmp/flash-any-root-pool-report.json`。本轮测空间和全量数据/索引一致性，没有重新
+测完整Flash扫描耗时，也没有修改正式格式。结论：碎片不是这批数据的主要障碍，
+空闲容量可以有效复用；收益上限由根base空闲总量约144 KiB决定，抵消上一节增加
+的约123 KiB后，相比最初分开存放只净省约14–16 KiB。
+
+The isolated pool experiment splits root codes and bases into parallel arrays,
+packs deduplicated whole pool blocks into consecutive non-branch base slots, and
+rebuilds every affected offset. Moved originals are removed from the compacted
+pool. The two Rime Ice fixtures reuse about 95%–96% of roughly 144 KiB of vacant
+base storage. The real-code subset recovers 139.34 KiB using code lists alone;
+allowing text blocks saves only 12 additional bytes. This offsets the paged-root
+overhead and leaves a net saving of about 16.5 KiB versus the separate indexes.
+Serialized references, preserved bases, and every text-key DAT terminal are
+verified; the real-code fixture also passes ASan/UBSan. This is a space experiment,
+with no new production format or full-scan timing claim.
+
+### 搬移池的完整扫描开销 / Full-scan cost of pool relocation
+
+2026-11-12，将上节真实生成的`FANYPAK1`镜像通过
+`scripts/bench_packed_root.cc`接入同一正式词组扫描逻辑，对照四种实际数据布局，
+另用区间实现验证结果。没有用虚拟地址计算代替真实搬移数据的读取：
+
+- `paged`：上一节的交错`{base,codes}`根槽，编码仍在原包共享池。
+- `split`：平行codes/base数组，但不搬数据；编译时去掉区域选择，作为布局对照。
+- `packed`：相同平行数组，编码列表搬入base空闲区，引用按高位选择区域。
+- `packed-all`：也允许搬文本块，实际查询使用与packed相同的区域解码逻辑。
+
+split/packed/packed-all使用同一个镜像读取器和完全相同的扫描器；只有split通过
+编译选项`POOL_RELOCATED=0`删除区域选择。根codes高位决定是否读取base，编码
+引用先取低30位，再按区域位选择剩余共享池或base字节区。选择可能由编译器实现
+为条件跳转或条件移动，不预设会有某种分支预测表现。
+
+继续固定CPU0、各方案独立进程、7轮随机顺序，每项预热校准至少30ms、3次取中位，
+再取7进程中位；同样是完整扫描CPU毫秒，不含加载、构建或Flash绘制：
+
+| 数据/负载 | 交错根槽paged | 平行数组split | 仅搬编码packed | 编码＋文本packed-all |
+| --- | ---: | ---: | ---: | ---: |
+| 全量187万key，词表拼接 | 0.4496 | 0.4363 | 0.4299 | 0.4313 |
+| 全量，随机汉字 | 0.0965 | 0.0932 | 0.0983 | 0.0951 |
+| 全量，重复前缀 | 0.0960 | 0.0920 | 0.0928 | 0.0924 |
+| 真实编码88.9万key，词表拼接 | 0.1496 | 0.1468 | 0.1475 | 0.1469 |
+| 真实编码，随机汉字 | 0.0579 | 0.0555 | 0.0563 | 0.0564 |
+| 真实编码，重复前缀 | 0.0469 | 0.0426 | 0.0435 | 0.0435 |
+
+真实编码packed相对split的耗时分别增加0.5%、1.4%、2.0%，区域寻址和搬移后
+局部性的合计成本很小。相对上一版paged，则分别降低1.4%、2.7%、7.3%，布局
+收益抵消了这部分成本。全量合成编码随机汉字场景packed比split慢5.4%，比paged
+慢1.9%；不能声称所有负载一定不变慢。该组只有一个统一编码块，允许搬文本的
+packed-all更接近其实际空间收益方案。百分比来自这批固定负载的中位数，小差异
+不能保证在其他词库和CPU上保持相同方向。
+
+70个独立进程的每项完整候选位置、结束位置、next和标签签名全部与正式区间
+实现一致。真实编码packed和包含同余首码点、emoji、组合字素的packed-all小表，
+另外通过ASan/UBSan完整扫描检查。本轮没有重测构建，也没有改正式文件格式。
+
+镜像用上节工具生成，文件名需为`DATASET.{plain,codes,all}.bin`，例如：
+
+```sh
+/tmp/bench-root-pool /tmp/flash-any-rime-ice/ice_annotated.bin \
+  /tmp/flash-any-paged-root-final/ice_annotated.paged.index /tmp/pool-images/ice_annotated
+/tmp/bench-root-pool /tmp/flash-any-rime-ice/ice_uniform.bin \
+  /tmp/flash-any-paged-root-final/ice_uniform.paged.index /tmp/pool-images/ice_uniform
+python scripts/bench_phrases.py --data /tmp/flash-any-rime-ice \
+  --pool-images /tmp/pool-images --methods paged split packed packed-all range --samples 7
+```
+
+生成镜像前需创建`/tmp/pool-images`目录。runner记录镜像与读取器源码SHA；实验
+结果在`/tmp/flash-any-root-pool-scans/{raw,report}.json`。读取器为实验保留正式原包，
+再加载包含文本和池的完整镜像，因此RSS包含重复数据；此RSS不能当作替换格式
+之后的内存占用。表中时间包含实际解码及区域寻址，不包含这些重复数据的加载。
+
+Actual relocated images are now used by the full native phrase scanner. A split
+array control compiles out region selection; packed variants select the original
+remaining pool or vacant-base storage using the reference flag. In the real-code
+fixture, packing adds roughly 0.5%–2% versus split arrays without relocation, while
+remaining about 1%–7% faster than the earlier interleaved paged root. One synthetic
+random-Han case does regress, so this is not a universal speed guarantee. All 70
+independent-process signatures agree; sanitizer checks cover actual relocated
+full scans. Production format and loading remain unchanged.
+
+### v12普通DAT与统一扫描 / Plain DAT and one scanner
+
+2026-11-12，按可维护性收敛正式实现：单码点保留直接页表，文本键改为普通有符号
+base/check码点DAT，check存父状态＋1，0标签终点直接存输入码列表offset＋1。
+不用取模、指纹、base唯一性约束、根层合并、空槽复用或多区域偏移，也不引入
+C++或第三方依赖。正式包不再保存文本key、文本entry和hash槽，池只存去重编码。
+旧单字素hash扫描和词组区间扫描合并为一条活动Trie状态扫描。
+
+`src/trie.c`用排序key构造临时树，通过宽节点优先的确定性空槽搜索打包为8字节
+单元。临时树、堆及空闲链只在构建时存在，运行时不重建索引、不加载额外缓存。
+加载器验证父链、标签、终点、编码列表和组引用，检测环与终点子节点；临时深度
+数组不由快照持有。旧显式binary需重新导出，自动缓存按v12版本重建。
+
+将前述v11数据解码为keys及原始mode/code数组，交给正式C写入器；未用另写格式
+的测试生成器。保留相同key及全部显式编码，全量控制组仍统一使用合成码x：
+
+| 数据 | key数 | DAT单元 | 页表bytes | 编码池bytes | v12完整文件 | 单次构建 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 全量控制组 | 1,870,585 | 5,186,954 | 187,392 | 3 | 41,683,067（39.752 MiB） | 225.8 s |
+| 真实编码子集 | 888,841 | 2,499,113 | 187,392 | 11,199,827 | 31,380,163（29.926 MiB） | 54.6 s |
+
+构建为单次观测，包含C编码、Trie构建、完整校验与原子写入，排除测试脚本把v11
+解码成Lua数组的时间，未做重复构建统计。两份大表均实际完成，未截断条目。
+
+固定CPU0、方案独立进程、7轮随机顺序，用相同文字及查询对照v11页表根DAT原型
+与正式v12。计时仍为完整扫描CPU毫秒，不含加载、构建或Flash绘制：
+
+| 数据/负载 | v11页表根原型 | v12普通DAT |
+| --- | ---: | ---: |
+| 全量，词表拼接 | 0.4481 | 0.3949 |
+| 全量，随机汉字 | 0.0977 | 0.0890 |
+| 全量，重复前缀 | 0.0965 | 0.0838 |
+| 真实编码，词表拼接 | 0.1501 | 0.1275 |
+| 真实编码，随机汉字 | 0.0577 | 0.0510 |
+| 真实编码，重复前缀 | 0.0470 | 0.0377 |
+
+28个独立进程完整结果签名一致。这里比较完整架构，包含终点表示、编码池布局和
+活动状态变化，不能把差异归因于单个寻址指令；没有围绕差值继续调优。v11原型
+保留原包＋额外索引，v12表格是最终正式文件大小，不混用两者口径。记录及转换
+脚本位于`/tmp/flash-any-simple-dat/`和`/tmp/flash-any-rebuild-v12.lua`。
+
+全部常规测试、1,156组冻结Lua差分比较、真实Flash jump/char/remote集成通过。
+新增有效UTF-8与非法前缀共享字节时的分支排序检查及父链循环损坏包校验。
+ASan/UBSan覆盖native、phrases、groups、text、selection、literal；LuaLS与clangd
+均无诊断。普通构建仍为C99/O3，不包含实验模块，没有索引方案开关。
+
+Production v12 uses a scalar page table plus an ordinary signed-base codepoint
+DAT with parent checks and direct code-list terminals. One scanner handles single
+graphemes and phrases. Text keys, text records and hash slots are no longer stored.
+Modulo labels, merged roots, vacancy reuse and region flags remain historical
+experiments. The real-code subset occupies 29.926 MiB; the 1.87-million-key
+synthetic-code control occupies 39.752 MiB. All 28 full-scan signatures agree with
+the earlier prototype, with no observed scan regression. Differential, real Flash,
+sanitizer and static checks pass. Explicit binaries require regeneration for v12.
+
+### v13局部模数与8字节节点 / Local moduli in eight-byte units
+
+2026-11-12，纠正上一节取消取模的取舍：emoji的空洞压缩不是几十KiB的微优化。
+正式DAT改为每节点自己的模数，最小256；父节点检查与码点商都保留，仍为8字节。
+与依赖全局模数及base唯一的早期原型不同，本轮不要求base唯一，也没有全局模数。
+
+单元按低到高打包为base24（有符号）、入边商13、父节点编号+1占23位、出边指数
+标记4位。标记0..13代表指数8..21，14保留，15代表终点，终点低32位改存编码池
+offset+1。入边商按父节点模数计算，查询先校验父节点，再校验商；余数由转移槽位
+确定。根的父节点和入边商为0；空单元全0。单元数最多8,388,607，不静默截断。
+加载校验同时检查字段范围、余数范围、重建码点、终点payload、父链循环及编码列表。
+
+每组兄弟标签包含可能的0终点，反转比特后排序，相邻标签最长共同低位数直接
+给出所需指数，再取至少8。不逐一试模数，不反复构建。`check_trie.c`另外用独立
+判据验证最小性：所有高于256的节点都必须存在一对孩子，在模数减半时发生冲突。
+
+沿用前述完整正式C构建，两份rime_ice表所有key及全部编码列表逐条校验通过。
+另用冻结Unicode18 emoji测试数据全部5,244个key（1,409单码点、3,835文本key），
+统一合成码x，分别经v12/v13正式写入器构建：
+
+| 数据 | v12完整文件bytes | v13完整文件bytes | v13 DAT单元 | 纯编码池bytes |
+| --- | ---: | ---: | ---: | ---: |
+| 全量187万控制组 | 41,683,067 | 41,410,419 | 5,152,873 | 3 |
+| 真实编码88.9万子集 | 31,380,163 | 31,089,155 | 2,462,737 | 11,199,827 |
+| 全形式emoji | 7,328,875 | 111,411（108.8 KiB） | 8,929 | 3 |
+
+emoji完整文件缩小98.48%。其5,094个非终点节点中，5,075个用指数8、18个用9、
+只有1个用13；全部8,929个槽都有用途。真实编码表只有根用指数18，绝大多数
+节点用8，证明不同子树不再被全局大模数一起抬高。两份rime_ice共校验2,759,426个
+key，另证明对应每个非终点节点都使用允许范围内的最小模数。emoji全部命中及
+3,835个追加组合字符的查空检查均通过，两版共用同一冻结输入。
+
+单次构建观测真实编码60.6s、全量253.5s，包含C编码、构建、加载校验与写入，
+不含读取v11测试输入；不称为重复构建基准。复用此前输入，CPU0、独立进程、7轮
+随机顺序，仍测完整扫描CPU毫秒，排除加载、构建、进程启动及Flash绘制：
+
+| 数据/负载 | v12无取模 | v13局部取模 | 耗时增加 |
+| --- | ---: | ---: | ---: |
+| 全量，词表拼接 | 0.3902 | 0.4062 | 4.1% |
+| 全量，随机汉字 | 0.0906 | 0.0928 | 2.4% |
+| 全量，重复前缀 | 0.0842 | 0.0861 | 2.3% |
+| 真实编码，词表拼接 | 0.1277 | 0.1357 | 6.2% |
+| 真实编码，随机汉字 | 0.0511 | 0.0533 | 4.3% |
+| 真实编码，重复前缀 | 0.0381 | 0.0385 | 1.2% |
+| emoji，词表拼接 | 0.1695 | 0.2055 | 21.2% |
+| emoji，其他字素 | 0.0074 | 0.0083 | 11.6% |
+| emoji，重复前缀 | 0.0539 | 0.0654 | 21.3% |
+
+42个独立进程的完整候选、next与标签签名一致。emoji输入按固定种子抽512个key、
+每行拼16个，共32行；其他字素来自前述Unicode边界fixture的候选字素，共15行，
+无NUL。重复组为程序员、国旗与表情各重复成一行。三类负载沿用查询轮换和30ms
+校准规则。位解码、变长移位和商校验确有CPU代价，不能由空间变小推断查询更快。
+结果保留这一取舍，没有为几个百分点继续增加优化路径。
+
+新增检查包含每节点模数差异、同父同余未知码点、不同父节点相同商、终点0参与
+模数选择、指数21、保留标记、超过24位的终点编码偏移及非法UTF-8。常规测试、
+1,218组冻结Lua差分和真实Flash jump/char/remote集成通过；ASan/UBSan覆盖构建、
+损坏包与扫描，静态检查通过。正式格式为v13，旧显式binary需重新导出。
+
+原始性能记录、文件大小和指数分布为`/tmp/flash-any-local-modulo/{raw,report,space}.json`。
+逐条校验可复现：
+
+```sh
+cc -O3 -std=c99 -Wall -Wextra -Werror -Ivendor/luajit scripts/check_trie.c -o /tmp/check-trie
+/tmp/check-trie /tmp/flash-any-rime-ice/ice_annotated.bin /tmp/flash-any-rime-ice/ice_annotated-v13.bin
+/tmp/check-trie /tmp/flash-any-rime-ice/ice_uniform.bin /tmp/flash-any-rime-ice/ice_uniform-v13.bin
+```
+
+Production v13 keeps exact parent checks and incoming codepoint quotients within
+eight-byte units, alongside a per-node exponent. Reversed-label sorting directly
+selects the smallest collision-free power of two, with minimum256; no unique-base
+constraint or trial builds are needed. The complete emoji file shrinks from
+7,328,875 to 111,411 bytes. The real-code Rime Ice subset occupies 31,089,155 bytes.
+Full scans cost roughly 1%–6% more on the Chinese fixtures and 12%–21% more on the
+emoji fixtures, with all 42 process signatures agreeing. Every source key/code list
+and local-modulus minimality is independently checked. Tests and sanitizers cover
+packed boundaries, alias rejection and terminal payloads. Explicit binaries must
+be regenerated for v13.

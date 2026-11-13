@@ -137,6 +137,8 @@ Use `binary = "/path/flash-any.bin"` to specify a fixed output path. If the file
 missing, it is built from sources; specifying only binary loads an existing file.
 Failed builds retain the old output, and existing searches continue using their
 snapshot. Initial compilation runs synchronously during setup.
+The v13 format requires regenerating older explicit binaries; automatic caches rebuild.
+Run make after updating and restart Neovim to load the new native module.
 `require("flash-any.build").binary()` remains available for explicit exports and development tools.
 
 | Source | Contents / default behavior |
@@ -162,7 +164,7 @@ performance hint, not a usage limit.
 
 ```lua
 sources = {
-  { data = { ["👩‍💻"] = { "dev", "coder" }, ["á"] = "accent" }, matcher = "prefix" },
+  { data = { ["👩‍💻"] = { "dev", "coder" }, ["á"] = "accent", ["中国"] = "zhongguo" }, matcher = "prefix" },
   {
     file = "/path/table.dict.yaml",
     matcher = "full_code",
@@ -180,14 +182,15 @@ that runs only at build time. See [integration and converters](docs/sources.md) 
 [third-party recording and README templates](demos/README.md#第三方码表--third-party-tables).
 
 `data` accepts a single code string or an array of codes; codes must be nonempty
-ASCII strings. Lua factories and build-time conversions can generate tables.
+ASCII strings without NUL. Lua factories and build-time conversions can generate tables.
 For your first extension, follow the [step-by-step source guide](docs/writing-sources.md)
 for local installation, verification and demo publication. See the
 [table development reference](docs/sources.md) for complete options.
 
-**Each key must contain exactly one complete Unicode 17 grapheme**, such as `á` or
-`👩‍💻`. Multi-grapheme keys such as 中国 are not currently accepted; continuous input
-can still match 中国 one grapheme at a time. No Unicode normalization is applied.
+Keys may be complete Unicode 17 graphemes or phrases, such as `á`, `👩‍💻` or 中国.
+Single characters and overlapping phrases of different lengths all participate;
+input can continue into the following text after consuming a phrase's code.
+Matches start and end at grapheme boundaries, stay within one line, and apply no Unicode normalization.
 Byte positions follow Neovim conventions; highlighting covers the last codepoint
 of a complex grapheme.
 
@@ -202,9 +205,10 @@ Only the input and Lua output paths are required. format is
 auto/rime/tsv/tab/csv/space/fcitx/ibus, and encoding defaults to utf-8. TSV uses one
 text/code pair per row; repeat rows for multiple codes. Commas are preserved
 literally, and duplicate entries are merged. The converter preserves original
-phrase keys and reports their count; these must be filtered to single graphemes
-before generating a binary in the current format. Codes cannot contain tabs or
-newlines; supplementary direct Lua tables allow other ASCII bytes.
+phrase keys and reports their count; they can be compiled directly without filtering.
+Codes cannot contain tabs or
+newlines or NUL; supplementary direct Lua tables allow other non-NUL ASCII bytes.
+Matching text or queries containing NUL has undefined behavior.
 
 ## Development and measurement
 

@@ -1,6 +1,6 @@
 """Size-only prototype: encode repeated native matcher/code records in 1 or 2 bytes.
 
-Run after make and build.binary: python scripts/bench_code_pool.py package.bin ...
+Requires historical v7/v8 input: python scripts/bench_code_pool.py old-package.bin ...
 Writes .tokens prototypes beside inputs. These are not loadable by the C engine.
 """
 import argparse

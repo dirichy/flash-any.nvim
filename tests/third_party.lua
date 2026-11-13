@@ -82,7 +82,7 @@ for _, row in ipairs({ "中" }) do
 	assert(not pcall(source.resolve, { { file = table_path } }), "malformed TSV accepted: " .. row)
 end
 write("external.tsv", { "中国\tword" })
-assert(#matches(native.load(nil, { { file = table_path } }), "中国", "word") == 0)
+assert(#matches(native.load(nil, { { file = table_path } }), "中国", "word") == 1)
 write("convert.lua", { "return {}" })
 assert(not pcall(source.resolve, specs))
 vim.fn.delete(root, "rf")

@@ -46,7 +46,7 @@ for _, case in ipairs(json(path)) do
 		local output = root .. "/" .. case.name .. ".bin"
 		local _, entries = build.binary({ sources = { opts }, output = output })
 		if #case.samples == 0 then
-			assert(entries == 128, "word-only table must retain only ASCII literals")
+			assert(entries == 127, "word-only table must retain only ASCII literals")
 		end
 		local book = require("flash-any.native").load(output)
 		for index, sample in ipairs(case.samples) do

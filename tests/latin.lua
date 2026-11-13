@@ -5,7 +5,7 @@ local registry, native = require("flash-any.source"), require("flash-any.native"
 assert(vim.tbl_contains(registry.available(), "latin"))
 local path = vim.fn.tempname() .. ".bin"
 local _, entries = require("flash-any.build").binary({ sources = { "latin" }, output = path })
-assert(entries == 490, "362 non-ASCII letters plus 128 literals")
+assert(entries == 489, "362 non-ASCII letters plus 127 non-NUL literals")
 local book = native.load(path)
 local query = ""
 local state = {
