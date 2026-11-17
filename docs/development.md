@@ -396,14 +396,15 @@ nvim --clean -l tests/run.lua
 FLASH_ANY_SOURCE_PATH="$PWD/.dev/source-packages" nvim --clean -l tests/run.lua
 ```
 
-The default suite needs no source tables. The opt-in integration suite checks all
-five real packages. Demo CI needs published source repositories and repository variable
-FLASH_ANY_SOURCE_OWNER; core CI runs independently while that variable is unset.
+The default suite needs no source tables. The opt-in integration suite requires
+pinyin, japanese, tiger and nerdfont; it also checks wubi86 and unicode when installed.
+Demo CI installs the four published source repositories from the repository owner
+by default; FLASH_ANY_SOURCE_OWNER overrides that owner. Core CI uses fixtures.
 
 
-Demo generator tests also need fontconfig (fc-match/fc-query) and CJK/emoji fonts;
+Demo generator tests also need fontconfig (fc-match/fc-query) and JetBrainsMono Nerd Font Mono plus CJK/emoji fonts;
 these are developer/recording dependencies, not plugin install dependencies.
-录制生成器测试需要 fontconfig 与 CJK/emoji 字体；不增加插件安装依赖。
+录制生成器测试需要 fontconfig、JetBrainsMono Nerd Font Mono 与 CJK/emoji 字体；不增加插件安装依赖。
 
 ## 字母规则 / Letter rules
 

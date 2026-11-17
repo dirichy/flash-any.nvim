@@ -267,11 +267,14 @@ if #vim.api.nvim_get_runtime_file("lua/flash-any/sources/pinyin.lua", false) > 0
 	end
 
 	-- Recognition and fallback disappear at build time, including empty lists.
-	compare(
-		{ "中国，a。𠮷😀󰊢", "重行长" },
-		{ "z", "zhong", "zg", "x", "g", "grin", "fa", "a" },
-		{ "pinyin", { name = "tiger", selection = false }, "wubi86", "nerdfont", "unicode" }
-	)
+	local sources = { "pinyin", { name = "tiger", selection = false }, "nerdfont" }
+	local available = require("flash-any.source").available()
+	for _, name in ipairs({ "wubi86", "unicode" }) do
+		if vim.tbl_contains(available, name) then
+			sources[#sources + 1] = name
+		end
+	end
+	compare({ "中国，a。𠮷😀󰊢", "重行长" }, { "z", "zhong", "zg", "x", "g", "grin", "fa", "a" }, sources)
 end
 compare({ "甲乙丙a á👩‍💻\255" }, { "a", "b", "ab", "x", "xy" }, {
 	{ data = { ["甲"] = {}, a = "ab", ["á"] = "xy" } },

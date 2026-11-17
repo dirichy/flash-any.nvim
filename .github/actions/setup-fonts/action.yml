@@ -1,0 +1,28 @@
+name: Setup demo fonts
+description: Install and verify fonts used by demo preparation tests and recordings
+runs:
+  using: composite
+  steps:
+    - name: Install font tools and CJK fonts
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fontconfig unzip fonts-noto-cjk fonts-noto-color-emoji
+    - name: Install and check Nerd Font
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        font_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fonts"
+        mkdir -p "$font_dir" "$RUNNER_TEMP/demo-fonts"
+        gh release download v3.4.0 --repo ryanoasis/nerd-fonts \
+          --pattern JetBrainsMono.zip --dir "$RUNNER_TEMP/demo-fonts"
+        unzip -j "$RUNNER_TEMP/demo-fonts/JetBrainsMono.zip" \
+          JetBrainsMonoNerdFontMono-Regular.ttf JetBrainsMonoNerdFontMono-Bold.ttf \
+          JetBrainsMonoNerdFontMono-Italic.ttf JetBrainsMonoNerdFontMono-BoldItalic.ttf \
+          -d "$font_dir"
+        fc-cache -f
+        for family in 'JetBrainsMono Nerd Font Mono' 'Noto Sans CJK SC'; do
+          fc-match -f 'Family: %{family}\nStyle: %{style}\nFile: %{file}\n' "$family"
+          test "$(fc-match -f '%{family}' "$family" | cut -d, -f1)" = "$family"
+        done

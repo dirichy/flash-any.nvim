@@ -1,7 +1,13 @@
 -- Source packages contain one complete TSV each; no common Lua or punctuation modules.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local tables, registry = require("flash-any.table"), require("flash-any.source")
-local names = { "pinyin", "japanese", "tiger", "wubi86", "nerdfont", "unicode" }
+local names = { "pinyin", "japanese", "tiger", "nerdfont" }
+local available = registry.available()
+for _, name in ipairs({ "wubi86", "unicode" }) do
+	if vim.tbl_contains(available, name) then
+		names[#names + 1] = name
+	end
+end
 for _, name in ipairs(names) do
 	assert(#vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false) == 1)
 	assert(#vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false) == 0)
@@ -44,14 +50,17 @@ assert(vim.deep_equal(actual, expected))
 local rare = resolved({ fuzzy = { finals = { { "iu", "ou" } } } })
 assert(vim.deep_equal(rare.data["㐀"], { "qiu" }) and vim.deep_equal(rare.groups.qiu, { "qiu", "qou" }))
 local punctuation = { ["，"] = { "," }, ["。"] = { "." }, ["；"] = { ";" }, ["、"] = { "/", "\\" } }
-for _, data in ipairs({
+local punctuation_tables = {
 	pinyin,
 	flypy.data,
 	fuzzy.data,
 	full_fuzzy.data,
 	registry.resolve({ "tiger" })[2].data,
-	registry.load("wubi86").data,
-}) do
+}
+if vim.tbl_contains(available, "wubi86") then
+	punctuation_tables[#punctuation_tables + 1] = registry.load("wubi86").data
+end
+for _, data in ipairs(punctuation_tables) do
 	for char, codes in pairs(punctuation) do
 		assert(vim.deep_equal(data[char], codes), char)
 	end

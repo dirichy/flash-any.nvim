@@ -8,6 +8,7 @@ on:
       - .github/workflows/demos.yml
       - .github/workflows/table-demo.yml
       - .github/actions/setup-demo/**
+      - .github/actions/setup-fonts/**
       - demos/**
       - tests/**
       - README.md
@@ -27,7 +28,6 @@ concurrency:
 
 jobs:
   record:
-    if: vars.FLASH_ANY_SOURCE_OWNER != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-demo
         with:
-          source-owner: ${{ vars.FLASH_ANY_SOURCE_OWNER }}
+          source-owner: ${{ vars.FLASH_ANY_SOURCE_OWNER || github.repository_owner }}
       - name: Check automatic build and matching
         run: |
           make

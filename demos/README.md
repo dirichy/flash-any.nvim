@@ -7,11 +7,11 @@
 | --- | --- | --- |
 | Latin | `cafe` | café |
 | 中文 / Chinese | `zhongwen` | 中文 |
-| 日文 / Japanese | `sushi` | 寿司 |
+| 日文 / Japanese | `taberu` | 食べる |
 | Nerd Font | `vim` |  |
-| 混输 / Mixed | `cafe zw sushi vim` | café 中文 寿司  |
+| 混输 / Mixed | `cafe zw taberu vim` | café 中文 食べる  |
 
-混输只开启一次搜索：cafe 匹配带重音的 Latin，zw 是中文简拼，sushi 是日语罗马音，
+混输只开启一次搜索：cafe 匹配带重音的 Latin，zw 是中文简拼，taberu 是日语罗马音，
 vim 是图标名，空格按 ASCII 字面匹配。停顿仅用于阅读，不切换输入模式。
 
 The main clip uses one source configuration for Latin accents, Chinese pinyin,
@@ -231,7 +231,7 @@ FLASH_ANY_SOURCE_PATH="$HOME" sh demos/record.sh
 FLASH_ANY_SOURCE_PATH="$HOME" nvim --clean -l demos/prepare-table.lua demos/demo.lua demo
 ```
 
-默认演示 CI 在设置仓库变量 FLASH_ANY_SOURCE_OWNER 后启用，从该所有者的
+默认演示 CI 从当前仓库所有者（可用仓库变量 FLASH_ANY_SOURCE_OWNER 覆盖）的
 flash-any-NAME.nvim main 分支安装 source，包括 japanese；核心基础测试使用小型 fixture，
 不依赖这些 source 仓库。普通外部 file 录制无需安装上述插件。
 
@@ -240,8 +240,8 @@ in. Character recordings need pinyin only. Set FLASH_ANY_SOURCE_PATH to the pare
 of the source checkouts (for example HOME), without loading personal configuration.
 The same preparation entry accepts demo.lua plus the demo output name; record.sh
 also accepts `demo /path/config.lua` for a different examples configuration.
-Set repository variable FLASH_ANY_SOURCE_OWNER to enable recording CI and install
-published source dependencies, including japanese. Core tests use small fixtures;
+Recording CI installs published source dependencies, including japanese, from the
+repository owner; set FLASH_ANY_SOURCE_OWNER to use a different owner. Core tests use small fixtures;
 ordinary file-based table recordings do not need the optional packages.
 
 
