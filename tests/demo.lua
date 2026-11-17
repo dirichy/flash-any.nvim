@@ -8,7 +8,8 @@ local function write(name, lines)
 end
 write("table.tsv", { "国\tGUO", "中\tZHONG", "👩‍💻\tDEV" })
 write("convert.lua", { "return function(codes) return vim.tbl_map(string.lower, codes) end" })
-local function prepare(config, overrides)
+local function prepare(config, overrides, scene)
+	scene = scene or "table"
 	write("demo.lua", vim.split("return " .. vim.inspect(config), "\n", { plain = true }))
 	local process = vim.system({
 		vim.v.progpath,
@@ -18,6 +19,7 @@ local function prepare(config, overrides)
 		"-l",
 		project .. "/demos/prepare-table.lua",
 		root .. "/demo.lua",
+		scene,
 	}, {
 		cwd = root,
 		text = true,
@@ -34,7 +36,7 @@ local function prepare(config, overrides)
 	if process.code ~= 0 then
 		return nil, process.stderr
 	end
-	return vim.json.decode(table.concat(vim.fn.readfile(root .. "/demos/output/table-config.json"), "\n"))
+	return vim.json.decode(table.concat(vim.fn.readfile(root .. "/demos/output/" .. scene .. "-config.json"), "\n"))
 end
 local function check(config)
 	assert(#config.stages == 2)
@@ -169,5 +171,53 @@ assert(#engine:scan(0, 0, 1, 1, 1, lines, "zhong", {}) == 3)
 assert(#engine:scan(0, 0, 1, 1, 1, nil, "zhongwen with flash", nil) == 1)
 local workflow = table.concat(vim.fn.readfile(project .. "/demos/templates/table-demo.yml"), "\n")
 assert(workflow:find("config: demo.lua", 1, true) and not workflow:find("      file:", 1, true))
+-- The main clip uses the same planner, with five explicit multi-source examples.
+-- Small dictionaries keep core tests independent of optional source downloads.
+local main = assert(loadfile(project .. "/demos/demo.lua"))()
+assert(vim.deep_equal(main.sources, { "latin", "pinyin", "japanese", "nerdfont" }))
+main.sources = {
+	"latin",
+	{ data = { ["中"] = "zhong", ["文"] = "wen" }, matcher = "initial" },
+	{
+		data = { ["食べる"] = "た べ る" },
+		groups = { ["た"] = { "ta" }, ["べ"] = { "be" }, ["る"] = { "ru" } },
+	},
+	{ data = { [""] = "vim" }, matcher = "prefix" },
+}
+local prepared = assert(prepare(main, { TABLE_FILE = "must-not-override-main.tsv" }, "demo"))
+assert(#prepared.stages == 5 and prepared.verification == "verification.json")
+local fixture = vim.fn.readfile(prepared.fixture)
+for index, stage in ipairs(prepared.stages) do
+	assert(stage.pattern == main.examples[index].pattern)
+	assert(stage.target[1] == index * 2 - 1, "dedicated examples must not jump into the mixed example")
+	assert(fixture[stage.target[1]]:sub(stage.target[2] + 1, stage.target[2] + #stage.text) == stage.text)
+	assert(stage.matches >= 1 and stage.label)
+end
+assert(prepared.stages[5].matches == 1 and prepared.stages[5].narrow)
+local generated = table.concat(vim.fn.readfile(root .. "/demos/output/demo.tape"), "\n")
+assert(generated:find("demo-config.json", 1, true) and generated:find("demo.mp4", 1, true))
+local invalid = vim.deepcopy(main)
+invalid.examples[1].checkpoints = { "ca", "c" }
+assert(not prepare(invalid, nil, "demo"))
+invalid.examples[1].checkpoints = { "ca" }
+assert(not prepare(invalid, nil, "demo"))
+invalid.examples[1].checkpoints = { "wrong", "cafe" }
+assert(not prepare(invalid, nil, "demo"))
+invalid = vim.deepcopy(main)
+invalid.examples[1].pattern = "not-in-the-sample"
+invalid.examples[1].checkpoints = nil
+assert(not prepare(invalid, nil, "demo"))
+assert(not prepare({ sources = {}, examples = main.examples }, nil, "demo"))
+assert(not prepare({ sources = main.sources, examples = {} }, nil, "demo"))
+local unicode = assert(prepare({
+	sources = {},
+	examples = { { title = "Literal", text = "本", pattern = "本" } },
+}, nil, "demo"))
+assert(vim.deep_equal(unicode.stages[1].checkpoints, { "本" }))
+local ascii = assert(prepare({
+	sources = { "latin" },
+	examples = { { title = "Literal", text = "local", pattern = "local" } },
+}, nil, "demo"))
+assert(ascii.stages[1].target[2] == #'local example_1 = "', "target must refer to the value, not its declaration")
 vim.fn.delete(root, "rf")
-print("external-table demo configuration, converted examples and input validation tests passed")
+print("table and multi-source demo preparation, real targets and input validation tests passed")

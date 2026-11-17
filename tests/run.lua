@@ -18,6 +18,7 @@ local tests = {
 	"third_party",
 	"formats",
 	"demo",
+	"source_guide",
 	"groups",
 	"group_sequences",
 	"selection",

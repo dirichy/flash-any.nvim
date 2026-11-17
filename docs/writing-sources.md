@@ -2,59 +2,80 @@
 
 [简体中文](writing-sources.zh-CN.md)
 
-This tutorial targets the `main` branch. Start with a small dictionary and turn it into
-an installable `flash-any-mycodes.nvim` plugin with a recorded demo. You need data and
-a short Lua factory; you do not need to change the core or write C.
+This tutorial targets the core's `main` branch and takes a source through local
+use, recording and publication. An ordinary table needs a factory and data, without
+core changes, C code or a runtime matcher. Run the minimal example first, then
+replace its dictionary and names with yours.
 
-Local testing requires Neovim 0.11+, flash.nvim and flash-any.nvim built with `make`.
-The source package itself needs no native build.
+## 1. Run a minimal package first
 
-## 1. Create the package
+You need Neovim 0.11+, make, a C compiler, and local checkouts of flash-any.nvim and
+flash.nvim. The commands below target Linux/macOS. Enter your existing core checkout,
+or download the dependencies first:
 
-Start with two files:
+```sh
+git clone --branch main https://github.com/dirichy/flash-any.nvim.git "$HOME/flash-any.nvim"
+git clone https://github.com/folke/flash.nvim.git "$HOME/flash.nvim"
+cd "$HOME/flash-any.nvim"
+```
+
+The source package itself needs no make, Python, VHS or dictionary-download install hook.
+
+Run the block below from the **flash-any.nvim checkout root**. Set FLASH_NVIM_PATH
+to your existing flash.nvim checkout and choose an empty FLASH_ANY_SOURCE_ROOT.
+Neither dependency nor source needs to live inside the core checkout.
+
+```sh
+# Create the minimal source package.
+export FLASH_ANY_ROOT="$PWD"
+export FLASH_NVIM_PATH="${FLASH_NVIM_PATH:-$HOME/flash.nvim}"
+export FLASH_ANY_SOURCE_ROOT="${FLASH_ANY_SOURCE_ROOT:-$HOME/flash-any-mycodes.nvim}"
+
+mkdir -p "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/sources" "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/tables"
+sed 's/SOURCE/mycodes/g' demos/templates/source.lua > "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/sources/mycodes.lua"
+sed 's/"SOURCE"/"mycodes"/g' demos/templates/minimal.lua > "$FLASH_ANY_SOURCE_ROOT/minimal.lua"
+cp demos/templates/source.gitignore "$FLASH_ANY_SOURCE_ROOT/.gitignore"
+printf '中\tzhong\n文\twen\n重\tzhong\n重\tchong\n' > "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/tables/mycodes.tsv"
+printf '中 文 重\n中文 with flash\n' > "$FLASH_ANY_SOURCE_ROOT/sample.txt"
+
+make -C "$FLASH_ANY_ROOT"
+NVIM_LOG_FILE="$FLASH_ANY_SOURCE_ROOT/nvim.log" nvim --clean -l "$FLASH_ANY_SOURCE_ROOT/minimal.lua"
+```
+
+A successful exit verifies **named factory discovery, dictionary loading and setup's
+binary build**, rather than just parsing a Lua file. The isolated development entry
+comes from [minimal.lua](../demos/templates/minimal.lua). Keep the exported variables
+and run in the same terminal:
+
+```sh
+nvim --clean -u "$FLASH_ANY_SOURCE_ROOT/minimal.lua" "$FLASH_ANY_SOURCE_ROOT/sample.txt"
+```
+
+Press `s`, type `zhong`, and select a label on 中 or 重. Confirm the cursor position.
+Press `s` again and enter `zhongwen with flash` to match the second line. Ordinary
+ASCII needs no dictionary entries. Reproduce problems here before adding personal
+configuration or trying to diagnose them through the recorder.
+
+The package now contains:
 
 ```text
 flash-any-mycodes.nvim/
+├── .gitignore
+├── minimal.lua
+├── sample.txt
 └── lua/flash-any/
     ├── sources/mycodes.lua
     └── tables/mycodes.tsv
 ```
 
-`mycodes` is the name users put in `sources`. Keep the factory filename and its
-`codetable` value consistent. Choose a name describing the language or encoding in
-your actual project.
+## 2. Replace the dictionary and names
 
-## 2. Prepare the dictionary
-
-Save the following as UTF-8 in `lua/flash-any/tables/mycodes.tsv`. Separate text and
-code with a real Tab; the example below can be copied directly:
-
-```tsv
-中	zhong
-文	wen
-重	zhong
-重	chong
-```
-
-Each row contains one text key and one code. Repeat rows for multiple codes rather
-than joining codes with commas. Commas are literal code characters. No sorting or
-separate common-character cache is needed.
-
-Keys can be complete graphemes, such as “中”, `á` or `👩‍💻`, or phrases such as “中文”.
-Single characters and phrases participate together, only at grapheme boundaries and within one line.
-Codes should be nonempty
-ASCII without Tabs, newlines or NUL. Optional suffixes and group spellings must also exclude NUL.
-
-For an existing Rime, CSV, Fcitx or similar dictionary, see
-[file integration and conversion](sources.md#直接读取码表--dictionary-files).
-You do not need a plugin just to use your own dictionary; a separate package makes it
-convenient to distribute to others.
-
-## 3. Provide the factory
-
-Save this as `lua/flash-any/sources/mycodes.lua`:
+`mycodes` is the name in `sources = { "mycodes" }`, not the repository name. The
+repository can be named flash-any-mycodes.nvim. Keep the factory path, codetable
+value and configured source name consistent:
 
 ```lua
+-- lua/flash-any/sources/mycodes.lua
 return function()
   return {
     codetable = "mycodes",
@@ -63,33 +84,72 @@ return function()
 end
 ```
 
-`codetable` refers to the TSV from step 2. The factory returns configuration; the
-core reads the data and matches it. No registration call is needed. You can also
-start from the [factory template](../demos/templates/source.lua).
+Place the complete UTF-8 table in lua/flash-any/tables/mycodes.tsv. Each row contains
+text, a **real Tab**, and one code. The printf above writes real Tabs, not literal
+backslash-t pairs. Repeat rows for multiple codes; commas are literal characters.
+No sorting, common-character subset or registration function is needed.
 
-Choose the matching mode for your source:
+Text keys can be graphemes, combining sequences or phrases, such as 中, `á`, 👩‍💻
+and 中文. Inline codes must be nonempty ASCII without Tabs, newlines or NUL; group
+references may use Unicode names. Character and phrase entries participate together
+at complete grapheme boundaries, without crossing lines. Word entries do not infer
+readings for their individual characters or unlisted contextual pronunciations.
 
 | matcher | Accepted input |
 | --- | --- |
-| `full_code` | Complete code, such as `zhong` |
-| `initial` | First letter or complete code, such as `z` or `zhong` |
-| `prefix` | Any nonempty prefix, such as `z`, `zh` or `zhong` |
+| `full_code` | Complete codes, e.g. zhong; the tutorial default |
+| `initial` | First letter or complete code, e.g. z or zhong |
+| `prefix` | Any nonempty prefix, e.g. z, zh or zhong |
+| `letter` | Complete codes, ignorecase/smartcase, optional grapheme-head lookup |
 
-Keep `full_code` for this tutorial. A factory can process source-specific options
-and build-time conversions; runtime Lua matchers are unsupported. See the
-[factory reference](sources.md#工厂--factory) for further options.
+When renaming, update the factory filename, codetable, minimal.lua source name,
+READMEs and demo. **Restart Neovim** after factory/table changes; calling setup again
+does not clear Lua require caches. Use `:checkhealth flash-any` for environment
+checks and the [reference](sources.md) for caches and explicit binary rebuilding.
 
-For shared syllable spellings, factories can provide `groups` and dictionary codes
-can name one group or a sequence separated by single ASCII spaces. For example,
-`寿司<Tab>す し` with `groups = { ["す"] = { "su" }, ["し"] = { "shi", "si" } }`
-accepts `sushi` and `susi`. Names may use kana; spellings remain ASCII. The matcher
-applies independently to each group, so `initial` also accepts `ss`. A build-time
-converter can segment unseparated kana readings; see
-[sequences and converters](sources.md#内部编码组--internal-spelling-groups).
+## 3. Existing files, converters and groups
 
-## 4. Install locally
+A factory can return file for an existing supported dictionary instead of exporting
+another format during installation:
 
-Add your local package as a lazy.nvim dependency and enable `mycodes`:
+```lua
+return function()
+  return {
+    file = assert(vim.api.nvim_get_runtime_file("lua/flash-any/tables/mycodes.tsv", false)[1]),
+    format = "tsv",
+    matcher = "full_code",
+  }
+end
+```
+
+Locate factory-owned files through nvim_get_runtime_file, independently of the
+shell's working directory and the author's absolute paths. Headerless files default
+to text/code order; reversed columns require `columns = { "code", "text" }`.
+See [file integration](sources.md#直接读取码表--dictionary-files) for Rime, CSV,
+Fcitx, IBus, encodings and weights.
+
+- **ASCII codes are already correct:** read the table directly, without a converter.
+- **Readings need conversion or segmentation:** use file with converter; the factory
+  supplies the converter's absolute path. It receives one text entry's deduplicated
+  code array and returns ASCII codes or valid group-reference/sequence strings.
+  Returning nil or an empty array omits that entry. Conversion runs only at build
+  time, without buffer context or XML parsing. Maintainers must first extract
+  unsupported source formats into supported tables; installation should not download
+  the original dictionaries.
+- **Syllables have alternative spellings:** supply groups. A table code `す し` for
+  寿司 with `groups = { ["す"] = { "su" }, ["し"] = { "shi", "si" } }` accepts
+  sushi and susi. Full_code/initial/prefix/letter apply independently to each group.
+  A converter can segment すし into す し; arbitrary unknown names are not segmented
+  automatically.
+
+Distinguish raw readings, group names and actual input spellings. Metadata and symbol
+definitions are not necessarily pronunciations. Report unsupported readings and
+filtered counts, preserving the text's other valid readings. Ordinary tables still
+need only the factory in step 2; the [build reference](sources.md) covers the full API.
+
+## 4. Separate local and public installation instructions
+
+During development, lazy.nvim can load a local source:
 
 ```lua
 {
@@ -108,59 +168,42 @@ Add your local package as a lazy.nvim dependency and enable `mycodes`:
 }
 ```
 
-Change `dir` to your package directory. Load the source before setup; the source
-itself needs no `build` hook. The core's `make` builds its C module, and setup
-compiles dictionary data when needed.
+Load the source before core setup. When testing unpublished core features, also use
+the corresponding local core checkout; remote main does not contain unpushed edits.
+Public installation examples use the real `"OWNER/flash-any-mycodes.nvim"` dependency.
+**Do not leave the author's dir, HOME or .dev paths in public READMEs.** Only the
+core has a build = make hook; the source needs no separate installation build.
 
-## 5. Check single-character and mixed input
+## 5. Complete READMEs, licenses and ignore rules
 
-Start a fresh Neovim with this configuration and open a buffer containing:
+Copy the templates from the core checkout root:
 
-```text
-中 文 重
-中文 with flash
+```sh
+mkdir -p "$FLASH_ANY_SOURCE_ROOT/docs" "$FLASH_ANY_SOURCE_ROOT/.github/workflows"
+cp demos/templates/README.zh-CN.md "$FLASH_ANY_SOURCE_ROOT/README.md"
+cp demos/templates/README.md "$FLASH_ANY_SOURCE_ROOT/README.en.md"
+cp demos/templates/maintenance.md "$FLASH_ANY_SOURCE_ROOT/docs/maintenance.md"
+sed 's/SOURCE/mycodes/g' demos/templates/table-demo.lua > "$FLASH_ANY_SOURCE_ROOT/demo.lua"
+cp demos/templates/table-demo.yml "$FLASH_ANY_SOURCE_ROOT/.github/workflows/demo.yml"
 ```
 
-Press `s` and type `zhong`. Labels should appear for both “中” and “重”; select a
-label to jump. Press `s` again and type `zhongwen with flash` to match the complete
-second line. Ordinary ASCII works directly and need not be added to the dictionary.
+Replace OWNER/TABLE in the READMEs with the actual repository, e.g.
+OWNER/flash-any-mycodes.nvim, and SOURCE with mycodes. Language-specific packages use
+that language for README.md and link an English translation. The commands above
+set up a Chinese homepage; write a homepage in the relevant language for other
+languages. Language-neutral packages can retain English as the homepage. Document
+all user options, defaults, enums, examples and combination constraints, keeping
+internal build data in maintenance documentation.
 
-Restart Neovim after editing the factory or dictionary. If it reports a missing
-source, check runtimepath, the `sources/mycodes.lua` path and the configured name.
-Use `:checkhealth flash-any` to check the environment. Cache behavior and cases
-requiring manual rebuilds are covered in the [reference](sources.md).
+Add a code license and THIRD_PARTY.md with upstream versions, data terms, input
+hashes and transformations. The code license does not license the data. The copied
+.gitignore excludes generated media, Neovim logs and Python caches. Review
+`git status --short` before committing; exclude local dependencies, downloaded
+original dictionaries and recording outputs.
 
-## 6. Write the user-facing README
+## 6. Prepare scenes before recording
 
-Copy the [English](../demos/templates/README.md) and
-[Chinese](../demos/templates/README.zh-CN.md) templates. Replace `OWNER/TABLE`,
-`SOURCE` and the input examples; `SOURCE` is `mycodes` here. Focus on installation,
-what to type and how to jump. Keep maintenance commands in a separate document.
-Document every user-facing option, default, enum value, practical example and
-combination constraint. For pinyin, include every scheme, default fuzzy groups and
-whether custom groups replace defaults. Keep common settings in the README and link
-a reference for other user settings. Do not present factory-generated build metadata
-as installation options.
-
-For a language-specific source, use that language for the `README.md` homepage and
-link the English translation as `README.en.md`. For a Chinese source, save the
-Chinese template as `README.md` and the English template as `README.en.md`.
-Language-neutral packages may keep an English homepage; update both language links.
-
-Save the [maintenance template](../demos/templates/maintenance.md) as
-`docs/maintenance.md`. Choose a license for your code and record the dictionary's
-upstream provenance and terms separately; the code license does not license the data.
-
-## 7. Record and publish a demo
-
-Copy these templates into the source package:
-
-| Template | Destination |
-| --- | --- |
-| [table-demo.lua](../demos/templates/table-demo.lua) | `demo.lua` |
-| [table-demo.yml](../demos/templates/table-demo.yml) | `.github/workflows/demo.yml` |
-
-Replace `SOURCE` with `mycodes` in `demo.lua`. The main fields for this example are:
+For an ordinary table, edit the copied demo.lua's language name, text and narration:
 
 ```lua
 return {
@@ -174,26 +217,134 @@ return {
 }
 ```
 
-The template explains every field. Query codes come from the dictionary automatically.
-Use `sample` for your own short sample file; paths are relative to `demo.lua`.
-Omitting `text` chooses a font-covered random entry. The first scene demonstrates
-multiple labels for one grapheme; the second mixes codes and ASCII and may also
-have several labels. Keep the factory and demo modes consistent if you change them.
-If the factory supplies groups, pass the same groups in the recording config.
-A demo.lua can load its local source factory and reuse the returned fields to
-avoid maintaining a second converter, groups and matcher configuration.
+**For a converter, groups or a custom default matcher**, use this complete alternative
+to reuse the real factory, rather than maintaining demo-only conversion rules:
 
-The workflow passes only `config: demo.lua`. Pin its `uses` reference and
-`flash-any-ref` to the same tested commit published on the core's `main`, then push
-your source repository to its GitHub `main` branch. Users can replace the local
-`dir` dependency with `"OWNER/flash-any-mycodes.nvim"` after publication.
+```lua
+-- demo.lua: reuse the source factory
+local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h")
+vim.opt.runtimepath:append(root)
+local source = require("flash-any.sources.mycodes")()
+return vim.tbl_extend("force", source, {
+  file = source.file or "lua/flash-any/tables/mycodes.tsv",
+  text_name = "Chinese",
+  text = "中",
+  mixed_text = "中文 with flash",
+  comment = "Type a code, then choose a label to jump.",
+  mixed_comment = "Mix codes and ASCII in the same search.",
+})
+```
 
-Every main push or manual dispatch records and verifies two actual jumps. On success,
-it replaces GIF, MP4, cover and reports in the dedicated `demos` prerelease. README
-links use stable asset URLs; generated media is never committed. Recording uses
-read permissions; publishing alone receives `contents: write`.
+File factories retain their actual file; codetable factories use the same-name TSV
+as recording input. Demo-relative paths resolve from demo.lua's directory. Requiring
+the factory also needs the runtimepath initialization above. Queries and labels are
+inferred from real table/group data, without manually duplicating them.
 
-After the first run, open the README to view the GIF and inspect the Actions report
-and rendered frames. Edit `demo.lua` and push again to change targets, narration or
-sample text. See the [recording guide](../demos/README.md) for local commands,
-dependencies and font checks.
+The current template's first target must be **one complete grapheme** with a code;
+two copies are added for multiple labels. Mixed_text must include table text and
+ASCII, and every non-ASCII grapheme in it must have an individual encoding. Phrase
+support does not infer character readings; phrase-only tables do not currently fit
+this single-grapheme recording template. Optional sample must contain the complete
+mixed_text and use covered fonts. Omitted text triggers font-covered single-scalar
+sampling. Text_name names the language/category, not the target character's meaning.
+
+Local scene preparation also needs fontconfig (fc-match/fc-query) and the recording
+fonts: JetBrainsMono Nerd Font Mono, Noto CJK and Noto Color Emoji. Full recording
+additionally requires VHS, ttyd, Chromium/Chrome, FFmpeg/ffprobe, Python 3 and Tokyo
+Night; see [dependencies](../demos/README.md#录制--record). Without local recording
+tools, verify the source first and use CI in step 7; CI installs recording dependencies.
+
+With fonts available, prepare scenes without launching a browser from the core checkout:
+
+```sh
+nvim --clean -l demos/prepare-table.lua "$FLASH_ANY_SOURCE_ROOT/demo.lua"
+```
+
+Expect Prepared 2 jumps for table. This already reads the table, executes the converter,
+compiles real group data and checks both targets and available labels. Fix targets,
+paths, missing fonts or the core version here first. Recording retains FLASH_NVIM_PATH
+from step 1; set TOKYONIGHT_PATH to an existing theme checkout. If needed, first run
+`git clone https://github.com/folke/tokyonight.nvim.git "$HOME/tokyonight.nvim"`. Then record:
+
+```sh
+export TOKYONIGHT_PATH="${TOKYONIGHT_PATH:-$HOME/tokyonight.nvim}"
+sh demos/record.sh table "$FLASH_ANY_SOURCE_ROOT/demo.lua"
+```
+
+If sandboxing blocks
+local ports or Chromium, run the recorder with appropriate permissions instead of
+changing the tape to conceal the failure.
+
+Outputs belong to the **core checkout's** demos/output: table.gif, table.mp4,
+table.png, table-verification.json, table-media.json and README.local.md. Check
+verified: true, both actual cursor positions and the unchanged fixture; inspect the
+GIF/MP4 fonts and cropping. Use that directory's README.local.md for local previews.
+Copying media into a source package does not publish it.
+
+## 7. Configure remote recording against a suitable core
+
+The template defaults to uses ...table-demo.yml@main and flash-any-ref: main, so each
+new run follows the published core. Table-ref: ${{ github.sha }} selects the source
+commit; the workflow passes only config: demo.lua.
+
+| Setting | Controls |
+| --- | --- |
+| @ref in uses | The reusable recording workflow definition |
+| flash-any-ref | The checked-out core and recording implementation |
+| table-ref | The checked-out source and dictionary revision |
+
+For reproducibility, pin the first two to the same **published core SHA tested with
+this source**. Matching SHAs alone do not imply feature compatibility: an accessible
+old commit may lack converters, groups or group sequences. Run the local source and
+scene preparation against the chosen version. Uncommitted or unpushed local changes
+are not included in a remote ref.
+
+Publish the source repository on main. Main pushes or Actions' Run workflow start
+recording. Core pushes alone do not trigger the source workflow; start a **new run**
+on the source's main after a core update. Also start a new run after changing workflow
+refs, rather than only retrying an old failed job: it may retain the reusable
+workflow SHA from the first attempt. See
+[GitHub's rerun rules](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations).
+The publishing job runs only on main; change both push and publish conditions for a
+different default branch.
+
+The template grants read access to recording and contents: write only to publication.
+It uses this repository's GITHUB_TOKEN to replace the demos prerelease assets; no
+separate uploader is needed. If recording succeeds but publication lacks permissions,
+inspect the table-demo artifact first. An artifact does not establish that the
+README's Release URLs exist.
+
+## 8. Verify publication as a new user
+
+Before the first media release, READMEs may link to
+https://github.com/OWNER/TABLE/actions/workflows/demo.yml. After successful publication,
+update **every language README** to the template's stable GIF, MP4 and verification
+report URLs. Do not stop at an Actions link or reference ignored local output:
+
+```markdown
+![Search and jump](https://github.com/OWNER/TABLE/releases/download/demos/table.gif)
+
+[MP4](https://github.com/OWNER/TABLE/releases/download/demos/table.mp4) · [Verification report](https://github.com/OWNER/TABLE/releases/download/demos/table-verification.json)
+```
+
+Subsequent successful recordings replace the same filenames without README edits.
+Open all three URLs after the first publication, check verified and the actual
+frames, then install with the README's remote dependencies from a fresh checkout
+and test character and mixed input. This must use only the published core/source,
+without the author's local paths or unpublished changes.
+
+Completion means **named installation can jump, playback verifies, release assets
+are accessible, and every README displays the demo**. Local success, Actions artifact
+success and Release publication are distinct outcomes.
+
+## Troubleshooting
+
+| Symptom | First check |
+| --- | --- |
+| source is not installed | Factory path, name, runtimepath before setup; retry minimal.lua |
+| Tabs, columns or Unicode code errors | Real Tabs, text/code order, format, missing converter/groups |
+| Factory/converter cannot find files | Runtime file lookup in factories; demo-relative configuration paths |
+| Updates appear stale | Make and restart; restart for source Lua/TSV too; rebuild explicit binaries as documented |
+| Local success but CI lacks groups etc. | Actual features in both core refs; publish the new core and start a new run |
+| Demo target has no code/font | Single-grapheme text, per-grapheme mixed coverage, converter output and real fonts |
+| Local GIF exists but GitHub shows no image | Publish job, demos release assets, README's remote URLs |

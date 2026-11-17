@@ -1,0 +1,5 @@
+/demos/output/
+nvim.log
+.nvimlog
+__pycache__/
+*.pyc

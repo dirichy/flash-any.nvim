@@ -44,6 +44,13 @@ runs:
     - uses: actions/checkout@v4
       if: inputs.source-owner != ''
       with:
+        repository: ${{ inputs.source-owner }}/flash-any-japanese.nvim
+        ref: main
+        path: .dev/source-packages/flash-any-japanese.nvim
+        persist-credentials: false
+    - uses: actions/checkout@v4
+      if: inputs.source-owner != ''
+      with:
         repository: ${{ inputs.source-owner }}/flash-any-nerdfont.nvim
         ref: main
         path: .dev/source-packages/flash-any-nerdfont.nvim

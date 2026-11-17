@@ -12,7 +12,11 @@ Search and jump using this code table with
 
 ![Search and jump](https://github.com/OWNER/TABLE/releases/download/demos/table.gif)
 
-[HD MP4](https://github.com/OWNER/TABLE/releases/download/demos/table.mp4)
+[HD MP4](https://github.com/OWNER/TABLE/releases/download/demos/table.mp4) · [Verification report](https://github.com/OWNER/TABLE/releases/download/demos/table-verification.json)
+
+<!-- Before the first successful demos release, use a workflow link here instead
+     of the media block. Once published, restore the GIF/MP4/report links above.
+     Never link to ignored demos/output files from a published README. -->
 
 ## Install
 

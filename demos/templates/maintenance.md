@@ -21,6 +21,8 @@ Copy the templates to these locations, then replace OWNER/TABLE and SOURCE:
 | README.zh-CN.md (Chinese-source homepage / 中文 source 主页) | README.md |
 | README.md (English translation / 英文版) | README.en.md |
 | maintenance.md | docs/maintenance.md |
+| source.gitignore | .gitignore |
+| minimal.lua (replace quoted SOURCE only / 只替换引号内的 SOURCE) | minimal.lua |
 
 For a language-specific source, put that language's documentation in README.md and
 link the English translation as README.en.md. For Chinese sources, the table above
@@ -33,11 +35,13 @@ README.zh-CN.md, updating both navigation links accordingly.
 
 Use the same SOURCE name in the factory filename, its codetable field, the README's
 sources list, and demo.lua's file path. The workflow reads demo.lua without overriding
-its dictionary or matcher. Set the mode in both the factory and demo.lua if changing
-from full_code. Source-specific options belong in the factory; plain tables need no
+its dictionary or matcher. Keep plain-table demo modes aligned with the factory;
+for converters/groups, reuse the factory with the tutorial's complete demo example.
+Source-specific options belong in the factory; plain tables need no
 additional loading code. Verify data provenance and licenses before publication.
 工厂文件名、codetable、README 的 sources、demo.lua 的码表路径使用同一 SOURCE 名称。
-工作流只读取 demo.lua，不再重复覆盖码表和匹配模式；修改模式时同步工厂与 demo.lua。
+工作流只读取 demo.lua，不重复覆盖码表和模式；普通码表保持模式一致，有 converter/groups
+时按教程的完整 demo 示例复用工厂，避免两份配置分叉。
 专有配置留在各 source 工厂；纯码表无需额外加载逻辑。发布前核实数据来源与许可。
 
 ## Configuration documentation / 配置文档
@@ -51,10 +55,10 @@ against the factory instead of copying every field it accepts.
 
 ## Dictionary / 码表
 
-The default TSV format is one grapheme, a Tab, and one code per row. Repeat rows for
+The default TSV format is one text key, a Tab, and one code per row. Repeat rows for
 multiple codes; commas in codes are literal. Other formats, column order, converters,
 and optional weights are documented in [source configuration](https://github.com/dirichy/flash-any.nvim/blob/main/docs/sources.md).
-默认 TSV 每行是字素、Tab、编码；多编码重复写行，逗号原样保留。
+默认 TSV 每行是单字或词组、Tab、编码；多编码重复写行，逗号原样保留。
 其他文件格式、列顺序、编码转换及可选权重见上述 source 文档。
 
 Record the upstream source and license in THIRD_PARTY.md when updating the dictionary.
@@ -70,7 +74,15 @@ short sample file. Codes come from the table automatically.
 复制上述工作流模板和带注释的 Lua 配置，填写码表路径、熟悉的目标文字、两段旁白；
 工作流用 `config: demo.lua` 指向配置。可用 `sample` 指定简短样本文件，编码自动从码表推导。
 
-Pin the workflow reference and flash-any-ref to the same tested core commit.
+The template follows main for both the workflow reference and flash-any-ref. For
+reproducibility, pin both to the same published core commit tested with this source;
+an arbitrary older SHA can lack required group/converter features. Local core edits
+do not change remote refs. A core push alone does not trigger the source workflow:
+start a new manual run on main after a core update, rather than retrying an old job.
+模板两处引用默认跟随 main；需要复现时同时固定到本 source 已测试、且包含所需功能的
+已发布核心提交。本地修改不会进入远端版本；仅更新核心不会触发 source 工作流，
+请在 source main 发起一次新运行，不只重跑旧的失败 job。
+
 Push to main to record automatically, or run the workflow manually. After verification,
 the caller workflow replaces the GIF, MP4, cover and reports in the dedicated `demos`
 prerelease. README links use stable release asset URLs; generated media is never
@@ -85,3 +97,20 @@ for private repositories. Artifacts remain available for diagnosis.
 For local commands, dependencies, font coverage and playback checks, see the
 [recording guide](https://github.com/dirichy/flash-any.nvim/blob/main/demos/README.md).
 本地命令、录制依赖、字体覆盖与回放验证见上述录制说明。
+
+First prepare scenes with `nvim --clean -l demos/prepare-table.lua /path/to/demo.lua`
+from the core checkout, then run `sh demos/record.sh table /path/to/demo.lua`.
+Converters and groups must be the same as the installed source; reuse its factory
+with the complete example in the source tutorial. Output and README.local.md live
+in the core's demos/output, not in the source checkout. Check playback verified:true,
+actual frames and both cursor positions before treating a local recording as done.
+先在核心仓库执行场景准备，再录制；converter/groups 应复用真实工厂，完整配置见教程。
+输出及 README.local.md 在核心的 demos/output，须检查实际跳转、verified 和画面。
+
+Before the first release, a workflow link can replace the README media block.
+After publishing, every language README must embed the stable table.gif release URL
+and link table.mp4 and table-verification.json. Open all three URLs and test the
+README's remote installation instructions from a fresh checkout. Never publish
+author-specific dir/HOME/.dev paths or links into ignored demos/output directories.
+首次发布前可以临时链接工作流；发布后同步所有语言 README 的 GIF、MP4 和验证报告。
+打开三个远端地址，并用新 checkout 测 README 的远程安装配置，不依赖作者机器路径。

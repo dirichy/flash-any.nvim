@@ -1,14 +1,16 @@
 # ⚡ flash-any.nvim
 
-[简体中文](README.zh-CN.md)
+[简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 > **Migration in progress — currently unstable.** `main` uses the C matching core and a new configuration API.
 > For the previous version, see the [master branch README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md).
 
-Jump with pinyin, double pinyin, shape codes, icon names or custom encodings.
+Jump with Latin variants, Chinese pinyin, Japanese romaji, icon names or custom encodings.
 Built on [flash.nvim](https://github.com/folke/flash.nvim), with runtime matching handled entirely in C.
 
-![Full pinyin, initials and continuous mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![Latin, Chinese, Japanese, Nerd Font and mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+
+[HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [Playback verification](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
 
 ## Installation and setup
 
@@ -22,41 +24,35 @@ and the optional `latin` source. `sources = {}` enables literal matching alone;
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double pinyin
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) — Chinese Tiger shape codes
+- [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) — Japanese romaji for kana, kanji and dictionary words
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font icons
 
-A lazy.nvim configuration for Chinese users:
+A lazy.nvim configuration for all five demo examples:
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
-  dependencies = { "folke/flash.nvim","dirichy/flash-any-pinyin.nvim" }, -- Tiger users: replace pinyin with tiger
+  dependencies = {
+    "folke/flash.nvim",
+    "dirichy/flash-any-pinyin.nvim",
+    "dirichy/flash-any-japanese.nvim",
+    "dirichy/flash-any-nerdfont.nvim",
+  },
   build = "make",
-  opts = { sources = {
-       "latin", -- Optional Latin letter variants
-       "pinyin", -- Full pinyin; see the source plugin's README for options. Tiger users: replace pinyin with tiger and refer to its README.
-    } },
+  opts = { sources = { "latin", "pinyin", "japanese", "nerdfont" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
   },
-  -- Enable character motions (f mode) with the following configuration
-  -- config=function(_,opts)
-  --   require("flash").setup({
-  --   modes = {
-  --       char = {
-  --       matcher = function(win, state, range)
-  --           return require("flash-any").char(win, state, range)
-  --       end,
-  --       -- multi_line = false,
-  --       },
-  --   },
-  --   })
-  --   require("flash-any").setup(opts)
-  -- end
 }
 ```
+
+Keep only the external sources you need, removing both their dependency and source
+name. Tiger users can add dirichy/flash-any-tiger.nvim and select tiger instead of
+pinyin. The built-in latin source needs no extra plugin. Displaying icons requires
+a Nerd Font in your terminal.
 
 With other managers, configure an install/update hook to run `make` in the plugin
 directory. vim-plug uses `{'do': 'make'}` and packer.nvim uses `run = "make"`.
@@ -76,11 +72,21 @@ configurations containing `sources` or `binary`; they do not inherit setup field
 
 ## Usage
 
-Press `s`, type literal text or codes, then select a label to jump. Continuously mix
-literal text, full pinyin, initials and other compiled encodings. For example,
-`zhongguo` / `zg` matches 中国; with the Unicode table configured, `grin` matches 😀.
-Initials use the first letter: 输 is `s`, not `sh`. If no label appears at the expected
-position, keep typing.
+Press `s`, type a query, then choose a displayed label. The same source configuration
+accepts all of these examples, including the final query as one continuous search:
+
+| Example | Buffer text | Query |
+| --- | --- | --- |
+| Latin accents | café | `cafe` |
+| Chinese pinyin | 中文 | `zhongwen` |
+| Japanese romaji | 食べる | `taberu` |
+| Nerd Font icon |  | `vim` |
+| Mixed input | café 中文 食べる  | `cafe zw taberu vim` |
+
+In the mixed query, zw uses Chinese initials; the spaces are literal ASCII. Full
+pinyin and initials can mix too. Initials use the first letter: 输 is s, not sh.
+Other code tables and double-pinyin schemes are documented by their source plugins.
+If no label appears at the expected position, keep typing.
 
 In operator-pending mode, press `yr`, search for the target and select a label, then
 type `iw` to copy a remote word and return to the original window. Use `dr` to delete.
@@ -119,14 +125,16 @@ This callback only bridges to Flash; it is not a custom code matcher.
 
 ## Configure tables
 
-Select sources in setup. `latin` is built in; pinyin and Tiger come from the source
-plugins listed above:
+Select sources in setup. Latin is built in; Chinese, Japanese and icon sources
+come from the plugins listed above and must load before setup:
 
 ```lua
 require("flash-any").setup({
   sources = {
     "latin",
     "pinyin",
+    "japanese",
+    "nerdfont",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
   },
@@ -137,7 +145,7 @@ Use `binary = "/path/flash-any.bin"` to specify a fixed output path. If the file
 missing, it is built from sources; specifying only binary loads an existing file.
 Failed builds retain the old output, and existing searches continue using their
 snapshot. Initial compilation runs synchronously during setup.
-The v13 format requires regenerating older explicit binaries; automatic caches rebuild.
+The v14 format requires regenerating older explicit binaries; automatic caches rebuild.
 Run make after updating and restart Neovim to load the new native module.
 `require("flash-any.build").binary()` remains available for explicit exports and development tools.
 
@@ -145,6 +153,8 @@ Run make after updating and restart Neovim to load the new native module.
 | --- | --- |
 | `latin` | Latin letter variants, `letter` |
 | `pinyin` | Full pinyin, accepting full codes and initials; defaults to full codes when a scheme is configured |
+| `japanese` | Kana and dictionary kanji/word readings, romaji spelling groups, `full_code` |
+| `nerdfont` | Nerd Font icon names, `prefix` |
 | `tiger` | Tiger codes, with optional selection keys assigned by weight: space for the first candidate and semicolon for the second by default |
 
 Double pinyin, fuzzy spelling and default selection keys are configured by the
@@ -186,7 +196,8 @@ that runs only at build time. See [integration and converters](docs/sources.md) 
 [third-party recording and README templates](demos/README.md#第三方码表--third-party-tables).
 
 `data` accepts a single code string or an array of codes; codes must be nonempty
-ASCII strings without NUL. Lua factories and build-time conversions can generate tables.
+ASCII strings without NUL, or valid group references/sequences with Unicode names.
+Group spellings remain ASCII. Lua factories and build-time conversions can generate tables.
 For your first extension, follow the [step-by-step source guide](docs/writing-sources.md)
 for local installation, verification and demo publication. See the
 [table development reference](docs/sources.md) for complete options.

@@ -18,7 +18,7 @@ vim.fn.writefile({
 	"辛\tef\t0",
 	"壬\tef\t0",
 	"癸\tef\t0",
-	"中国\tab\t200",
+	"中国\tword\t200",
 	"子\tzz;\t10",
 	"丑\txy,z\t10",
 	"赤\tgch\t100",
@@ -40,6 +40,7 @@ local function found(book, text, query)
 	return #scan(book, text, query) > 0
 end
 local book = engine()
+assert(found(book, "中国", "word") and found(book, "中国", "word "))
 for _, text in ipairs({ "甲", "乙", "丙", "丁", "戊" }) do
 	assert(found(book, text, "ab"))
 	assert(found(book, text .. "己", "abcd"), "bare codes must continue without selectors")
@@ -91,6 +92,13 @@ local resolved = require("flash-any.source").resolve({ { name = "tiger", file = 
 assert(vim.deep_equal(resolved.data["甲"], { "ab" }), "base code must be stored only once")
 assert(resolved.selectors["甲"].ab == " " and resolved.selectors["乙"].ab == ";")
 assert(resolved.selectors["丙"] == nil)
+-- Phrase weights share the same ranking as characters; keep this separate from
+-- the ab character-ranking fixture above so its expected ranks stay explicit.
+local phrase_file = root .. "/phrase.tsv"
+vim.fn.writefile({ "甲\tab\t100", "中国\tab\t200" }, phrase_file)
+local phrase = engine({ file = phrase_file })
+assert(found(phrase, "中国", "ab ") and not found(phrase, "甲", "ab "))
+assert(found(phrase, "甲", "ab;") and not found(phrase, "中国", "ab;"))
 -- The C suffix matcher also handles partial multi-byte ASCII suffixes without expanding aliases.
 local valid = root .. "/metadata.bin"
 local parameters = ";!"

@@ -4,7 +4,7 @@
 -- 所有相对路径均以本文件所在目录为基准。
 return {
 	-- Replace SOURCE with your source name / 将 SOURCE 换成 source 名称。
-	-- Dictionary file / 码表路径。One grapheme per key; codes are inferred automatically.
+	-- Dictionary file / 码表路径。Text<Tab>code; queries are inferred automatically.
 	file = "lua/flash-any/tables/SOURCE.tsv",
 
 	-- Built-in matching mode / 匹配模式：full_code (default), initial, or prefix.

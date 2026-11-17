@@ -1,15 +1,34 @@
 # Demo recordings / 演示录制
 
-一段连续演示使用同一套 `sources = { "pinyin", "unicode" }` 配置，真实输入查询并按 Flash 标签跳转：
+主 demo 由 [demo.lua](demo.lua) 配置，同一份 `sources = { "latin", "pinyin", "japanese", "nerdfont" }`
+依次演示五个例子。每次都真实输入查询，再选择匹配器返回的标签跳转：
 
-| 场景 / Scene | 输入 / Input | 目标 / Target |
+| 场景 / Scene | 查询 / Query | 目标 / Target |
 | --- | --- | --- |
-| 全拼 / Full pinyin | `s` → `quan` → `pin` → `a` | 全拼 |
-| 简拼 / Initials | `s` → `j` → `p` → `a` | 简拼 |
-| 连续混输 / Mixed input | `s` → `hun` → `s` → `ascii` → `grin` → `a` | 混输ascii😀 |
+| Latin | `cafe` | café |
+| 中文 / Chinese | `zhongwen` | 中文 |
+| 日文 / Japanese | `sushi` | 寿司 |
+| Nerd Font | `vim` |  |
+| 混输 / Mixed | `cafe zw sushi vim` | café 中文 寿司  |
 
-混输只开启一次搜索：`hun` 是“混”的全拼，`s` 是“输”的简拼首字母，`ascii` 按字面匹配，
-`grin` 是 😀 的 Unicode 名称前缀。分段停顿仅用于阅读，不切换输入模式。
+混输只开启一次搜索：cafe 匹配带重音的 Latin，zw 是中文简拼，sushi 是日语罗马音，
+vim 是图标名，空格按 ASCII 字面匹配。停顿仅用于阅读，不切换输入模式。
+
+The main clip uses one source configuration for Latin accents, Chinese pinyin,
+Japanese romaji, Nerd Font names and one continuous mixed query. It uses the same
+native dictionary, label planning, generated tape and playback verification as table demos.
+
+修改 demo.lua 的 sources 和 examples 即可更换例子。每个例子包含 title、text 和 pattern；
+可选 checkpoints 是逐步增长的查询前缀，最后一项必须等于 pattern，用来安排输入停顿。
+不指定时按第一个完整字素和完整查询停顿。可选 comment 控制单行旁白，默认用 title。
+查询显式填写以固定多音字及图标别名，候选、标签和落点均从真实匹配计算。
+每个例子跳到自己的样本行，最后的混输另有一行，不会因同样文字重复出现而提前跳到混输。
+
+Edit sources and examples in demo.lua. Each example supplies title, text and pattern;
+optional checkpoints must be increasing prefixes ending at the full pattern. Optional
+comment provides one-line narration. Explicit queries select the intended readings
+and icon aliases; labels and targets always come from the actual matcher. Empty
+sources enable literal-only examples. Samples and tapes are generated in demos/output.
 
 `f` 模式单独录制，使用 `sources = { "pinyin" }` 和 Flash 原生字符按键：
 
@@ -31,7 +50,7 @@ and all four first-code candidates without replacing Flash's keymaps.
 从仓库根目录运行：
 
 ```sh
-sh demos/record.sh       # s: 全拼、简拼、混输
+sh demos/record.sh       # s: Latin、中文、日文、图标、混输
 sh demos/record.sh char  # f: 首码与连跳
 ```
 
@@ -47,8 +66,9 @@ TOKYONIGHT_PATH=/path/to/tokyonight.nvim \
 sh demos/record.sh
 ```
 
-录制通过 `init.lua` 和 `sample.lua` 隔离个人配置。样式由 [common/style.tape](common/style.tape) 共用。
-[demo.tape](demo.tape) 录制三次 s 搜索；[char.tape](char.tape) 单独录制 f 模式，
+主 demo 和 table-demo 都通过 prepare-table.lua 生成样本、编译字典、推导实际标签和 tape，
+由 init.lua 回放；不再维护另一套固定的主 demo tape、样本或查询配置。
+样式由 [common/style.tape](common/style.tape) 共用。[char.tape](char.tape) 单独录制 f 模式，
 使用 `char-init.lua` 和 `char-sample.txt`。每段各启动一次 Neovim。
 本地产物、config/state/cache、日志、调色板及验证报告都保存在已忽略的 `demos/output/`，
 脚本不上传文件。内置两段分别生成 `demo.*` 与 `char.*`；
@@ -109,14 +129,18 @@ gh workflow run table-demo.yml --repo dirichy/flash-any.nvim --ref main \
   -f matcher=full_code
 ```
 
-模板通过 `workflow_call` 复用录制环境。固定工作流 uses 引用与 `flash-any-ref`
-到同一发布提交，并固定 `table-ref`，可以复现同一配置；main 为开发分支。
+模板通过 `workflow_call` 复用录制环境，两处核心引用默认跟随 main；需要复现时将
+工作流 uses 引用与 `flash-any-ref` 同时固定到本 source 已测试、包含所需功能的
+已发布核心提交。`table-ref` 固定为 source 提交；不能只因旧 SHA 可下载就认定它支持新接口。
 功能发布到相应远程 ref 后才能调用，本地修改不会改变 GitHub 上的工作流。
 核心可复用工作流只需 contents:read，只上传 `table-demo` artifact。调用模板另有
 contents:write 发布任务，验证成功后替换 `demos` prerelease 的 GIF、MP4、封面与报告，
 并用认证下载核对附件。README 引用固定 Release 地址，不提交生成媒体；
-旧提交的录制不会覆盖新 main。失败时保留本轮 artifact 和日志。可使用
-[中文](templates/README.zh-CN.md) / [English](templates/README.md) README 模板；
+旧提交的录制不会覆盖新 main。失败时保留本轮 artifact 和日志。
+默认引用跟随 main 不代表核心推送会自动重录 source；核心更新后请在 source main
+发起一次新运行。首次发布前可以用工作流入口作 README 占位；发布后所有语言 README
+须切换到固定 GIF、MP4、验证报告附件地址，不链接被忽略的 demos/output。
+可使用[中文](templates/README.zh-CN.md) / [English](templates/README.md) README 模板；
 将[维护模板](templates/maintenance.md)放到码表仓库的 `docs/maintenance.md`。
 
 Point `TABLE_FILE` at an unchanged repository, or supply the optional Lua template.
@@ -132,13 +156,18 @@ all group alternatives in the compiled dictionary without expanding their produc
 The reusable workflow accepts repository/ref, dictionary path, format, columns, optional converter, matcher ID
 and an optional Lua configuration path. Run it in a repository where you have Actions permissions,
 or copy the tiny caller workflow into the table project to record on main pushes
-or manual dispatches. Pin both the workflow ref
-and flash-any-ref to the same published commit. It uploads the table-demo artifact
-without writing to the caller repository. The caller template adds a contents:write
+or manual dispatches. Both core refs follow main by default; for reproduction,
+pin them to the same published commit tested with the source's required features.
+It uploads the table-demo artifact without writing to the caller repository.
+The caller template adds a contents:write
 job that replaces the dedicated demos prerelease assets after verification, then
 checks authenticated downloads. README links use stable release URLs; generated
 media is never committed. Outdated runs skip publication. Unpushed workflow changes cannot be called
-from GitHub. The README templates focus on installation and use. Copy the maintenance template
+from GitHub. Core pushes alone do not trigger the source workflow; start a new source
+main run after core updates instead of only retrying an old failed job. Before the
+first release, a workflow link can stand in for the README media. After publication,
+every language README must use stable release GIF/MP4/report URLs, not ignored local
+output links. The README templates focus on installation and use. Copy the maintenance template
 to docs/maintenance.md for table updates and recording instructions.
 
 ## 画质与验证 / Quality and verification
@@ -161,7 +190,7 @@ The recording produces `demo.mp4`, `demo.gif`, `demo.png`, `verification.json`,
 and `media.json`; character-mode files use the `char` prefix, including
 `char-verification.json` and `char-media.json`. `README.local.md` links locally
 recorded clips without release URLs. Live TUI assertions check intermediate matches, the selected label,
-all three final queries and cursor positions, and the unchanged fixture. Media checks verify
+all configured final queries and cursor positions, and the unchanged fixture. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
 Expected byte positions come from the original fixture; table recordings select
@@ -169,13 +198,13 @@ a target from real matcher results.
 
 ## CI 与发布 / CI and publishing
 
-[工作流](../.github/workflows/demos.yml) 在 `master` 的插件、录制素材、README 和相关测试变化时
+[工作流](../.github/workflows/demos.yml) 在 `main` 的插件、录制素材、README 和相关测试变化时
 自动运行，也可手动运行。工具与插件版本统一固定在 setup-demo composite action 中，字体包括 CJK 和 emoji fallback。
-分别录制 s、f 和第三方 Rime 模板三段，保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体附件，
+分别录制 s、f 和第三方 Rime 模板三段，保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体及验证报告附件，
 最后检查附件 URL。不提交生成媒体，不将 demo Release 标为 latest。
 验证失败时也保存已生成的媒体和 JSON，便于检查实际查询、落点及预期位置；失败不发布。
 
-README 引用 `releases/download/demos/demo.gif` 和 `demo.mp4`；
+README 引用 `releases/download/demos/demo.gif`、`demo.mp4` 和 `verification.json`；
 f 模式附件为 `char.gif` 和 `char.mp4`。本地录制不更新远端附件，提交后 CI 才会发布新版演示。
 
 The workflow records the continuous demo, verifies playback and media, saves artifacts,
@@ -187,15 +216,33 @@ Failed runs also save available media and verification JSON for diagnosis; they 
 
 ## 独立 source / Optional sources
 
-默认拼音和字符演示需要另行安装 pinyin/unicode source。开发环境可设置
-FLASH_ANY_SOURCE_PATH 为包含五个独立插件目录的路径；普通外部 file 录制不需要它们。
-默认演示 CI 在发布独立 source 仓库并设置仓库变量 FLASH_ANY_SOURCE_OWNER 后启用，
-从该所有者的 flash-any-NAME.nvim main 分支安装依赖；核心 CI 不依赖 source 仓库。
+主 demo 需要 pinyin、japanese、nerdfont 三个外部 source，latin 已内置；字符演示只需要
+pinyin。将 FLASH_ANY_SOURCE_PATH 设置为这些插件目录的父目录，例如它们都位于家目录时：
 
-Default pinyin/char recordings require separately installed sources. Set
-FLASH_ANY_SOURCE_PATH to their parent directory. External file recordings need no
-source plugins. Set repository variable FLASH_ANY_SOURCE_OWNER after publishing the
-separate source repositories to enable default demo CI. Core CI runs independently.
+```sh
+FLASH_ANY_SOURCE_PATH="$HOME" sh demos/record.sh
+```
+
+目录名应为 flash-any-pinyin.nvim、flash-any-japanese.nvim、flash-any-nerdfont.nvim。
+也可以使用 `.dev/source-packages` 或插件管理器的目录，录制入口不会加载个人 init.lua。
+只检查配置及匹配、不启动浏览器时，从核心仓库根目录运行：
+
+```sh
+FLASH_ANY_SOURCE_PATH="$HOME" nvim --clean -l demos/prepare-table.lua demos/demo.lua demo
+```
+
+默认演示 CI 在设置仓库变量 FLASH_ANY_SOURCE_OWNER 后启用，从该所有者的
+flash-any-NAME.nvim main 分支安装 source，包括 japanese；核心基础测试使用小型 fixture，
+不依赖这些 source 仓库。普通外部 file 录制无需安装上述插件。
+
+The main demo needs external pinyin, japanese and nerdfont sources; latin is built
+in. Character recordings need pinyin only. Set FLASH_ANY_SOURCE_PATH to the parent
+of the source checkouts (for example HOME), without loading personal configuration.
+The same preparation entry accepts demo.lua plus the demo output name; record.sh
+also accepts `demo /path/config.lua` for a different examples configuration.
+Set repository variable FLASH_ANY_SOURCE_OWNER to enable recording CI and install
+published source dependencies, including japanese. Core tests use small fixtures;
+ordinary file-based table recordings do not need the optional packages.
 
 
 ## Source 包模板 / Source package templates

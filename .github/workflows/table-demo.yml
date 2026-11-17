@@ -36,7 +36,7 @@ on:
         type: string
         default: ""
       flash-any-ref:
-        description: "flash-any revision; pin to the same commit as the reusable workflow"
+        description: "Core revision; main by default, or the same tested SHA as the reusable workflow"
         type: string
         default: "main"
   workflow_call:
@@ -74,7 +74,7 @@ on:
         type: string
         default: ""
       flash-any-ref:
-        description: "flash-any revision; pin to the same commit as the reusable workflow"
+        description: "Core revision; main by default, or the same tested SHA as the reusable workflow"
         type: string
         default: "main"
 

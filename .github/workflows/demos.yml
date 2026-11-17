@@ -12,6 +12,7 @@ on:
       - tests/**
       - README.md
       - README.zh-CN.md
+      - README.ja.md
       - lua/**
       - src/**
       - vendor/**
@@ -97,12 +98,19 @@ jobs:
               --title 'Demo recordings' --prerelease --latest=false \
               --notes-file "$RUNNER_TEMP/demo-notes.md"
           fi
-          gh release upload demos demos/*.gif demos/*.png demos/*.mp4 --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload demos demos/*.gif demos/*.png demos/*.mp4 \
+            demos/verification.json demos/media.json \
+            demos/char-verification.json demos/char-media.json \
+            demos/table-verification.json demos/table-media.json \
+            --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit demos --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/demo-notes.md"
 
       - name: Check published README media
         run: |
-          for media in demos/*.gif demos/*.mp4; do
+          for media in demos/*.gif demos/*.mp4 \
+            demos/verification.json demos/media.json \
+            demos/char-verification.json demos/char-media.json \
+            demos/table-verification.json demos/table-media.json; do
             curl --fail --silent --show-error --location --head --retry 3 \
               "https://github.com/$GITHUB_REPOSITORY/releases/download/demos/${media##*/}" >/dev/null
           done

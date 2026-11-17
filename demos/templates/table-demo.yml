@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   record:
-    # Pin both refs to the same released commit for reproducible recordings.
+    # Follow the latest published core by default. To reproduce a revision,
+    # pin BOTH refs to the same tested commit containing your source's features.
     uses: dirichy/flash-any.nvim/.github/workflows/table-demo.yml@main
     with:
       flash-any-ref: main

@@ -1,14 +1,16 @@
 # ⚡ flash-any.nvim
 
-[English](README.md)
+[English](README.md) · [日本語](README.ja.md)
 
 > **正在迁移，暂不稳定。** `main` 分支使用 C 匹配核心和新版配置 API。
 > 旧版请查看 [master 分支 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.zh-CN.old.md)。
 
-用拼音、双拼、形码、图标名或自定义编码进行 Flash 跳转。
+用拉丁字母变体、中文拼音、日语罗马音、图标名或自定义编码进行 Flash 跳转。
 基于 [flash.nvim](https://github.com/folke/flash.nvim)，运行时匹配核心全部使用 C。
 
-![全拼、简拼与连续混输](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![Latin、中文、日文、Nerd Font 和混输](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+
+[高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [回放验证](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
 
 ## 安装与配置
 
@@ -21,41 +23,34 @@
 
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
+- [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) —— 假名、汉字和词典词组的日语罗马音
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— Nerd Font 图标
 
-中文用户的 lazy.nvim 配置：
+下面的 lazy.nvim 配置可以运行 demo 中的全部五个例子：
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
-  dependencies = { "folke/flash.nvim","dirichy/flash-any-pinyin.nvim" }, -- 虎码用户把 pinyin 改为 tiger
+  dependencies = {
+    "folke/flash.nvim",
+    "dirichy/flash-any-pinyin.nvim",
+    "dirichy/flash-any-japanese.nvim",
+    "dirichy/flash-any-nerdfont.nvim",
+  },
   build = "make",
-  opts = { sources = {
-       "latin", -- 可选的拉丁字母变体扩展
-       "pinyin", -- 中文全拼，具体配置见对应 source 插件主页。虎码用户将 pinyin 改为 tiger，配置项同样见对应插件主页。
-    } },
+  opts = { sources = { "latin", "pinyin", "japanese", "nerdfont" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
   },
-  -- 以下配置用于开启字符模式（f mode）
-  -- config=function(_,opts) 
-  --   require("flash").setup({ 
-  --   modes = { 
-  --       char = { 
-  --       matcher = function(win, state, range) 
-  --           return require("flash-any").char(win, state, range) 
-  --       end, 
-  --       -- multi_line = false, 
-  --       }, 
-  --   }, 
-  --   }) 
-  --   require("flash-any").setup(opts)  
-  -- end 
 }
 ```
+
+按需保留外部 source，同时删去不用的依赖和 source 名称。虎码用户可添加
+`dirichy/flash-any-tiger.nvim` 并把 pinyin 换成 tiger；内置 latin 不需要另装插件。
+终端显示 Nerd Font 图标需要使用对应字体。
 
 其他管理器可配置安装/更新钩子，在插件目录执行 `make`：vim-plug 使用
 `{'do': 'make'}`，packer.nvim 使用 `run = "make"`。没有构建钩子时，安装及
@@ -73,9 +68,20 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 ## 用法
 
-按 `s`，输入原文或编码，再按标签跳转。可连续混用原文、全拼、简拼和其他已构建编码。
-例如全拼/简拼 `zhongguo` / `zg` 匹配“中国”；配置 Unicode 码表后，`grin` 匹配 😀。
-简拼取首字母，例如“输”是 `s`，不是 `sh`。如果发现对应位置没有出现标签，就接着输入。
+按 `s`，输入查询，再按标签跳转。同一份配置可以匹配以下全部例子，最后一行只开启
+一次搜索，连续混用四种 source 和字面 ASCII：
+
+| 例子 | 缓冲区文字 | 查询 |
+| --- | --- | --- |
+| 拉丁字母变体 | café | `cafe` |
+| 中文拼音 | 中文 | `zhongwen` |
+| 日语罗马音 | 食べる | `taberu` |
+| Nerd Font 图标 |  | `vim` |
+| 混输 | café 中文 食べる  | `cafe zw taberu vim` |
+
+混输中的 zw 是中文简拼，空格按 ASCII 原样输入。也可以混用完整拼音和首字母；
+简拼只取首字母，例如“输”是 s，不是 sh。双拼及其他码表选项见对应 source 文档。
+如果预期位置还没有标签，可以继续输入。
 
 操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
 返回原窗口；`dr` 用于删除。
@@ -113,13 +119,16 @@ F/t/T、计数、`;`/`,`、操作符和标签由 Flash 负责。删除 `modes.ch
 
 ## 配置码表
 
-在 setup 中选择 source；`latin` 已内置，拼音和虎码来自上面列出的 source 插件：
+在 setup 中选择 source；latin 已内置，中文、日文和图标 source 来自上面列出的插件，
+必须在 setup 前加载：
 
 ```lua
 require("flash-any").setup({
   sources = {
     "latin",
     "pinyin",
+    "japanese",
+    "nerdfont",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
   },
@@ -130,13 +139,15 @@ require("flash-any").setup({
 构建；仅提供 binary 则加载现有文件。构建失败保留旧输出，已有搜索继续使用原
 快照。首次编译在 setup 中同步完成。`require("flash-any.build").binary()` 仍可用于
 显式导出及开发工具。
-当前 v13 格式需要重新导出旧的显式 binary；自动缓存会重建。
+当前 v14 格式需要重新导出旧的显式 binary；自动缓存会重建。
 更新后运行 make，并重启 Neovim 加载新模块。
 
 | source | 内容 / 默认规则 |
 | --- | --- |
 | `latin` | 拉丁字母变体，`letter` |
 | `pinyin` | 全拼，接受完整编码及首字母；配置 scheme 后默认完整编码 |
+| `japanese` | 假名及词典中的汉字、词组读音，罗马音拼写组，`full_code` |
+| `nerdfont` | Nerd Font 图标名称，`prefix` |
 | `tiger` | 虎码，按权重分配可选选键，默认首选空格、次选分号 |
 
 双拼、模糊音和默认选键属于相应 source 的配置，说明随 source 发布。
@@ -171,7 +182,8 @@ sources = {
 只在构建时执行。[接入与 converter 说明](docs/sources.md) ·
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
-`data` 接受单编码字符串或编码数组；编码必须为不含 NUL 的非空 ASCII 字符串。
+`data` 接受单编码字符串或编码数组；编码可以是不含 NUL 的非空 ASCII，或有效的组引用/序列。
+组名可用 Unicode，组内实际拼写仍为 ASCII。
 可通过 Lua 工厂及构建时转换生成码表。首次编写扩展可按[分步 source 教程](docs/writing-sources.zh-CN.md)
 完成本地安装、验证和演示发布；完整选项见[码表开发说明](docs/sources.md)。
 

@@ -7,7 +7,7 @@ case "$scene" in
   demo) verification=verification.json ;;
   char) verification=char-verification.json ;;
   table) verification=table-verification.json ;;
-  *) printf 'Usage: %s [demo|char|table [config.lua]]\n' "$0" >&2; exit 1 ;;
+  *) printf 'Usage: %s [demo [config.lua]|char|table [config.lua]]\n' "$0" >&2; exit 1 ;;
 esac
 
 mkdir -p demos/output
@@ -30,15 +30,17 @@ done
 # Empty old evidence so an interrupted recording cannot reuse a previous success.
 : > "demos/output/$verification"
 make
-if test "$scene" = table; then
-  if test "$#" -ge 2; then
+if test "$scene" = char; then
+  vhs demos/char.tape
+else
+  if test "$scene" = demo; then
+    nvim --clean -l demos/prepare-table.lua "${2:-demos/demo.lua}" demo
+  elif test "$#" -ge 2; then
     nvim --clean -l demos/prepare-table.lua "$2"
   else
     nvim --clean -l demos/prepare-table.lua
   fi
-  vhs demos/output/table.tape
-else
-  vhs "demos/$scene.tape"
+  vhs "demos/output/$scene.tape"
 fi
 python3 - "$scene" "$verification" <<'PYTHON'
 import json
@@ -87,7 +89,7 @@ subprocess.run([
 ], check=True)
 # Keep local preview links usable without release assets.
 previews = ['# Local demos', '']
-for name, title in [('demo', 'Pinyin and mixed input'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
+for name, title in [('demo', 'Latin, Chinese, Japanese, icons and mixed input'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
     if (output / f'{name}.gif').exists():
         previews.extend([f'## {title}', '', f'![{title}]({name}.gif)', '', f'[MP4]({name}.mp4)', ''])
 (output / 'README.local.md').write_text('\n'.join(previews))

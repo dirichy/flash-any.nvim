@@ -1,7 +1,7 @@
 -- Source packages contain one complete TSV each; no common Lua or punctuation modules.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local tables, registry = require("flash-any.table"), require("flash-any.source")
-local names = { "pinyin", "tiger", "wubi86", "nerdfont", "unicode" }
+local names = { "pinyin", "japanese", "tiger", "wubi86", "nerdfont", "unicode" }
 for _, name in ipairs(names) do
 	assert(#vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false) == 1)
 	assert(#vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false) == 0)

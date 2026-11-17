@@ -21,27 +21,7 @@ vim.cmd.colorscheme("tokyonight-night")
 vim.cmd("filetype on")
 vim.cmd("syntax enable")
 
-local config
-if vim.env.FLASH_ANY_DEMO_CONFIG then
-	config = vim.json.decode(table.concat(vim.fn.readfile(vim.env.FLASH_ANY_DEMO_CONFIG), "\n"))
-else
-	config = {
-		sources = { "pinyin", "unicode" },
-		fixture = root .. "/demos/sample.lua",
-		verification = "verification.json",
-		title = "Full pinyin + initials + ascii + Unicode",
-		stages = {
-			{ title = "Full pinyin", pattern = "quanpin", text = "全拼", checkpoints = { "quan", "quanpin" } },
-			{ title = "Initials", pattern = "jp", text = "简拼", checkpoints = { "j", "jp" } },
-			{
-				title = "Mixed input",
-				pattern = "hunsasciigrin",
-				text = "混输ascii😀",
-				checkpoints = { "hun", "huns", "hunsascii", "hunsasciigrin" },
-			},
-		},
-	}
-end
+local config = vim.json.decode(table.concat(vim.fn.readfile(assert(vim.env.FLASH_ANY_DEMO_CONFIG)), "\n"))
 vim.opt.winbar = "  flash-any.nvim   /   " .. config.title:gsub("%%", "%%%%")
 local plugin = require("flash-any")
 plugin.setup({
