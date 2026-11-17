@@ -28,6 +28,7 @@ local tests = {
 	"text",
 	"native",
 	"phrases",
+	"overlap",
 	"letter",
 	"literal",
 	"latin",

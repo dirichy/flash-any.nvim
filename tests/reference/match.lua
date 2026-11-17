@@ -1,4 +1,4 @@
--- Frozen Lua reference for differential tests; never loaded by the plugin.
+-- Lua reference for differential tests; matcher rules remain independent of C.
 local M = {}
 local Cursor = require("reference.cursor")
 
@@ -52,7 +52,7 @@ local function match_text(text, stream, sources, emit)
 	end
 end
 
--- Buffer byte column -> input byte offset -> earliest match start column.
+-- Buffer byte column -> input byte offset -> latest match start column.
 ---@alias ReferenceRequests table<integer, table<integer, integer>>
 
 ---@param requests ReferenceRequests
@@ -65,7 +65,7 @@ local function add_request(requests, col, offset, start)
 		at = {}
 		requests[col] = at
 	end
-	at[offset] = math.min(at[offset] or start, start)
+	at[offset] = math.max(at[offset] or start, start)
 end
 
 ---@class ReferenceInternalMatch
@@ -140,7 +140,7 @@ local function scan_line(text, line, pattern, sources, stream, resume)
 				ends[last] = at_end
 				matches[#matches + 1] = at_end
 			else
-				at_end.start_col = math.min(at_end.start_col, start)
+				at_end.start_col = math.max(at_end.start_col, start)
 			end
 			if is_next then
 				for i = 1, #value do
@@ -191,10 +191,10 @@ local function scan_line(text, line, pattern, sources, stream, resume)
 	end
 	-- Branch enumeration must not change label order.
 	table.sort(matches, function(a, b)
-		if a.start_col == b.start_col then
-			return a.end_col < b.end_col
+		if a.end_col == b.end_col then
+			return a.start_col > b.start_col
 		end
-		return a.start_col < b.start_col
+		return a.end_col < b.end_col
 	end)
 	return matches, frontier
 end
@@ -253,23 +253,24 @@ function M.get(win, state, opts, sources)
 		cache.matches, cache.frontiers = matches, frontiers
 		cache.pattern, cache.sources = pattern, sources
 	end
-	local ret = {}
+	local ret, blocked = {}, {}
+	local previous_line, previous_end = 0, -1
 	for _, match in ipairs(cache.matches) do
-		ret[#ret + 1] = {
-			win = win,
-			pos = { match.line, match.start_col },
-			end_pos = { match.line, match.end_col },
-			next = match.next,
-		}
+		for value in pairs(match.next) do
+			blocked[value] = true
+		end
+		if match.line ~= previous_line or match.start_col > previous_end then
+			ret[#ret + 1] = {
+				win = win,
+				pos = { match.line, match.start_col },
+				end_pos = { match.line, match.end_col },
+				next = match.next,
+			}
+			previous_line, previous_end = match.line, match.end_col
+		end
 	end
 	if state.labels then
 		local labels = state:labels()
-		local blocked = {}
-		for _, item in ipairs(ret) do
-			for value in pairs(item.next) do
-				blocked[value] = true
-			end
-		end
 		local label_index = 1
 		for _, item in ipairs(ret) do
 			while label_index <= #labels and blocked[labels[label_index]] do

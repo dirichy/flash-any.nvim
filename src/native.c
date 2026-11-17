@@ -93,10 +93,10 @@ static int sort_matches(const void *left, const void *right) {
   if (a->row != b->row) {
     return (a->row > b->row) - (a->row < b->row);
   }
-  if (a->start != b->start) {
-    return (a->start > b->start) - (a->start < b->start);
+  if (a->end != b->end) {
+    return (a->end > b->end) - (a->end < b->end);
   }
-  return (a->end > b->end) - (a->end < b->end);
+  return (a->start < b->start) - (a->start > b->start);
 }
 
 static void integer_field(lua_State *L, const char *key, uint32_t value) {
@@ -154,8 +154,16 @@ static int push_results(lua_State *L, Result *result, int character, char motion
   lua_createtable(L, (int)result->count, 0);
   int output = lua_gettop(L);
   int written = 0;
+  uint32_t previous_row = 0, previous_end = 0;
   for (uint32_t i = 0; i < result->count; ++i) {
     Match *match = matches + i;
+    /* Reserve keys from all branches above, but display earliest-ending,
+     * disjoint ranges. Cached results retain the hidden branches' next keys. */
+    if (!character && match->row == previous_row && match->start <= previous_end) {
+      continue;
+    }
+    previous_row = match->row;
+    previous_end = match->end;
     uint32_t col = character && motion == 't'   ? match->before
                    : character && motion == 'T' ? match->after
                                                 : match->start;

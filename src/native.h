@@ -109,7 +109,7 @@ typedef struct {
 /* Retain starting positions until their longest possible word has finished. */
 typedef struct {
   uint32_t width, slots; /* Input byte length + 1; retained text-start positions. */
-  uint32_t *starts; /* [slot][input offset]: earliest text start, or NONE. */
+  uint32_t *starts; /* [slot][input offset]: latest text start, or NONE. */
   uint32_t *offsets; /* [slot][active index]: sparse list of input offsets. */
   uint32_t *counts; /* [slot]: number of active offsets. */
   uint32_t *lookahead; /* [slot]: completed result index+1. */

@@ -26,11 +26,12 @@ typedef struct {
 static void request(Requests *requests, uint32_t glyph, uint32_t offset, uint32_t start) {
   uint32_t slot = glyph % requests->slots;
   uint32_t *starts = requests->starts + (size_t)slot * requests->width;
-  /* Equal glyph/input positions have identical futures; retain the earliest start. */
+  /* Equal glyph/input positions have identical futures. A later start yields
+   * shorter ranges, leaving more room for preceding non-overlapping matches. */
   if (starts[offset] == NONE) {
     requests->offsets[(size_t)slot * requests->width + requests->counts[slot]++] = offset;
     starts[offset] = start;
-  } else if (start < starts[offset]) {
+  } else if (start > starts[offset]) {
     starts[offset] = start;
   }
 }
@@ -64,7 +65,7 @@ static void emit(MatchContext *context, EmitEvent event, uint32_t value) {
       match->valid = 1;
       match->start = context->match_start;
       match->end = context->glyph_end;
-    } else if (context->match_start < match->start) {
+    } else if (context->match_start > match->start) {
       match->start = context->match_start;
     }
     if (event == EMIT_NEXT) {

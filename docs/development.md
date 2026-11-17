@@ -195,7 +195,7 @@ states pin their snapshot; per-state line/result caches expire with their buffer
 加入根状态，字素内部不启动新前缀。预读的码点直接用于下一字素，不重复解码。
 单码点规则查页表，其他终点从DAT的0标签边读取编码，仅在完整字素边界匹配；转移校验父节点和商。
 
-请求按文字起点和输入字节偏移合并，保留最早起点。环形工作区为最长key码点数+1，
+请求按后续文字位置和输入字节偏移合并，保留最晚起点。环形工作区为最长key码点数+1，
 至少两槽；词条完成后把消费请求发往下一字素。完成输入的候选保留结果编号，后续
 单字或词组补充next键；结果扩容后通过编号重新取址。候选只在实际命中时增长。
 文字、字面输入、普通编码、initial/prefix、letter、共享编码组沿用同一匹配逻辑。
@@ -203,6 +203,12 @@ states pin their snapshot; per-state line/result caches expire with their buffer
 序列完成后才推进文本；未完成的组保留next。单组沿用直接匹配路径；多组使用
 本次scan持有的两份输入长度字节集合，跨词条和行复用，不保留跨查询状态。
 跨行状态不保留；f/F/t/T认可词组时使用第一个字素及其相邻位置。
+
+同一终止字素的候选合并next，保留最晚起点；后续行为相同的请求也保留最晚起点，
+使范围尽量短。普通跳转结果按行、终点排序，再从左到右保留互不重叠的范围；
+该贪心选择保留最多个独立匹配。同终点偏好短范围是确定性的取舍，不生成新的区间。
+标签排除键先从全部候选汇总，包括被隐藏范围的ASCII和Unicode字面续码；缓存保留
+完整候选，以便更换标签时重新应用排除规则。每轮查询重新匹配，被隐藏的分支仍可继续输入。
 
 相同输入复用结果；输入改变时重新扫描缓存原始行，不从旧候选筛选，不保留跨输入
 的前缀推进状态。临时活动状态、请求环与结果由本次扫描的Lua userdata管理。
@@ -216,6 +222,15 @@ results are referenced by index while following entries contribute next keys.
 Scratch state resets between lines. Character motions use the first grapheme and
 its native neighboring positions. Changed queries rescan saved lines; identical
 queries reuse results. There is no separate hash fast path or runtime index choice.
+
+Requests at the same successor/input offset retain the latest start; their futures
+are identical, and a shorter range leaves more room for preceding matches. Candidates
+ending at the same grapheme also retain the latest start and union their next keys.
+Full-search results are ordered by row and end, then greedily filtered into disjoint
+ranges. This maximizes the number of displayed matches, with shorter ranges winning
+end ties. Labels reserve next keys from all candidates before filtering, including
+Unicode literal continuations. Cached candidates retain hidden keys; changed queries
+rescan every branch rather than extending only the displayed ranges.
 
 Group sequences apply the matcher independently at each step and merge equal input
 offsets instead of expanding spelling products. Only a completed sequence advances

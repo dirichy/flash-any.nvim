@@ -62,14 +62,13 @@ found = run("🙂́x", "ex", { words({ { "🙂́", "e" }, { "x", "x" } }) })
 assert(#found == 1 and found[1].pos[2] == 0 and found[1].end_pos[2] == 6)
 print("ok - word branches consume text graphemes independently of input bytes")
 
--- Different spans may end at the same codepoint; merge ranges and next keys.
+-- Equal ends prefer the latest start while retaining every next key.
 found = run("甲乙丙", "x", { words({ { "甲乙", "x" }, { "乙", "xy" }, { "丙", "z" } }) })
-assert(#found == 1 and found[1].pos[2] == 0 and found[1].end_pos[2] == 3)
+assert(#found == 1 and found[1].pos[2] == 3 and found[1].end_pos[2] == 3)
 assert(found[1].next.y and found[1].next.z)
 -- A completion starting early can wait for a farther following position.
 found = run("甲乙丙丁", "x", { words({ { "甲乙丙", "x" }, { "乙", "x" }, { "丙", "y" }, { "丁", "z" } }) })
-assert(#found == 2 and found[1].end_pos[2] == 6 and found[1].next.z)
-assert(found[2].pos[2] == 3 and found[2].end_pos[2] == 3 and found[2].next.y)
+assert(#found == 1 and found[1].pos[2] == 3 and found[1].end_pos[2] == 3 and found[1].next.y)
 print("ok - ranges with different spans merge and query the correct following position")
 
 -- Grouped keys and repeated emissions are merged without source-side sets.

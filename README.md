@@ -88,6 +88,10 @@ pinyin and initials can mix too. Initials use the first letter: 输 is s, not sh
 Other code tables and double-pinyin schemes are documented by their source plugins.
 If no label appears at the expected position, keep typing.
 
+Jump searches display non-overlapping matches on each line so trailing labels have
+clear ranges. Earlier endings win; matches with the same end prefer the shorter
+range. Hidden alternatives still participate when you continue typing.
+
 In operator-pending mode, press `yr`, search for the target and select a label, then
 type `iw` to copy a remote word and return to the original window. Use `dr` to delete.
 

@@ -215,7 +215,7 @@ check("variable code continues and advances", function()
 	assert(#matches == 1 and matches[1].pos[2] == 0 and matches[1].end_pos[2] == 3)
 end)
 
-check("same end keeps longest start", function()
+check("same end keeps the shortest range", function()
 	local matches = run("甲甲", "aa", { ["甲"] = { "a", "aa" } })
 	assert(#matches == 2)
 	local seen = {}
@@ -223,7 +223,7 @@ check("same end keeps longest start", function()
 		local key = match.end_pos[2]
 		assert(not seen[key])
 		seen[key] = true
-		assert(match.pos[2] == 0)
+		assert(match.pos[2] == match.end_pos[2])
 	end
 end)
 
@@ -248,7 +248,7 @@ check("equal streams merge before invoking the following matcher", function()
 		end,
 	}, { from = { 1, 0 }, to = { 1, 0 } }, sources)
 	assert(calls == 1)
-	assert(#matches == 2 and matches[1].pos[2] == 0 and matches[2].pos[2] == 0)
+	assert(#matches == 1 and matches[1].pos[2] == 0)
 end)
 
 check("same endpoint merges next but preserves different continuation streams", function()
@@ -267,7 +267,7 @@ check("same endpoint merges next but preserves different continuation streams", 
 		}
 		local opts = { from = { 1, 0 }, to = { 1, 0 } }
 		local matches = matcher.get(0, state, opts, sources)
-		assert(#matches == 1 and matches[1].pos[2] == 0 and matches[1].end_pos[2] == 3)
+		assert(#matches == 1 and matches[1].pos[2] == 3 and matches[1].end_pos[2] == 3)
 		assert(matches[1].next.c and matches[1].next.x)
 		value = "abx"
 		matches = matcher.get(0, state, opts, sources)
@@ -458,7 +458,7 @@ check("custom matcher owns consumption without a code table", function()
 	assert(matches[1].pos[2] == 0 and matches[1].end_pos[2] == 3 and matches[1].next.u)
 end)
 
-check("custom consumption branches keep distinct ranges", function()
+check("custom consumption branches retain the earliest disjoint range", function()
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲乙丙" })
 	local sources = {
 		{
@@ -486,8 +486,7 @@ check("custom consumption branches keep distinct ranges", function()
 			return "abc"
 		end,
 	}, { from = { 1, 0 }, to = { 1, 0 } }, sources)
-	assert(#matches == 2 and matches[1].pos[2] == 0 and matches[2].pos[2] == 0)
-	assert(matches[1].end_pos[2] == 3 and matches[2].end_pos[2] == 6)
+	assert(#matches == 1 and matches[1].pos[2] == 0 and matches[1].end_pos[2] == 3)
 end)
 
 check("outer matcher never reads source data", function()
@@ -609,7 +608,7 @@ check("append keeps unfinished and completed alternatives", function()
 	assert(#matcher.get(0, state, opts, sources) == 1)
 	value = "ab"
 	local matches = matcher.get(0, state, opts, sources)
-	assert(#matches == 2 and matches[1].end_pos[2] == 0 and matches[2].end_pos[2] == 3)
+	assert(#matches == 1 and matches[1].end_pos[2] == 0)
 end)
 
 check("append can consume several following characters", function()

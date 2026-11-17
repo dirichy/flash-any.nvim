@@ -38,6 +38,27 @@ for _, pattern in ipairs({ "v", "vs", "vsg", "vsgo", "a", "ab", "q", "qq", "中"
 	end
 end
 state:hide()
+-- Adjacent scalar matches must keep distinct default after-labels even when a
+-- same-code phrase spans both. Exercise Flash's actual extmarks and jump target.
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "|甲乙|" })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+state = plugin.jump(fixture.config({ sources = { { data = { ["甲"] = "x", ["乙"] = "x", ["甲乙"] = "x" } } } }))
+state:update({ pattern = "x", check_jump = false, force = true })
+assert(#state.results == 2)
+local labels = {}
+for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(0, state.ns, 0, -1, { details = true })) do
+	if mark[4].virt_text then
+		labels[mark[3]] = mark[4].virt_text[1][1]
+	end
+end
+for index, col in ipairs({ 1, 4 }) do
+	local match = state.results[index]
+	assert(match.pos[2] == col and match.end_pos[2] == col)
+	assert(labels[col + 3] == match.label, "each scalar must have its own trailing label")
+end
+state:jump(state.results[2])
+assert(vim.api.nvim_win_get_cursor(0)[2] == 4, "the second label must jump to 乙")
+state:hide()
 -- New Flash searches read current options even when the query is unchanged.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "v V 中" })
 for _, case in ipairs({
@@ -71,7 +92,7 @@ vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国人民 中国" })
 state = plugin.jump(fixture.config({
 	sources = { { data = { ["中国"] = "zg", ["中国人民"] = "zgrm", ["人民"] = "rm" } } },
 }))
-for _, case in ipairs({ { "zg", 3, 3 }, { "zgrm", 1, 9 } }) do
+for _, case in ipairs({ { "zg", 2, 3 }, { "zgrm", 1, 9 } }) do
 	state:update({ pattern = case[1], check_jump = false, force = true })
 	assert(#state.results == case[2], vim.inspect(state.results))
 	assert(state.results[1].pos[2] == 0 and state.results[1].end_pos[2] == case[3])
