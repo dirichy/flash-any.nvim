@@ -145,6 +145,9 @@ require("flash-any").setup({
 普通 source 均参与匹配；`fallback = true` 的 source 只为之前尚未识别的字素提供编码。
 空编码数组也算已识别，会屏蔽后面的 fallback。
 
+source 可以共享拼写组并组合成音节序列。每个音节独立按所选 matcher 接受完整编码、
+首字母或前缀，详见[组序列与 converter](docs/sources.md#内部编码组--internal-spelling-groups)。
+
 ### 自定义码表
 
 `data` 用于标点和少量自定义符号，码表建议使用 `file`。自动缓存检查发现显式 `data`

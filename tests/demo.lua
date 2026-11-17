@@ -84,6 +84,24 @@ check(config)
 assert(config.text_name == "Chinese" and #config.samples == 0)
 assert(config.stages[2].pattern == "zhongguo with flash")
 assert(vim.fn.readfile(config.fixture)[3] == "-- custom sample")
+write("kana.tsv", { "本\tほん", "ほ\tほ", "ん\tん" })
+write("kana-converter.lua", {
+	'return function(codes) for i, code in ipairs(codes) do if code == "ほん" then codes[i] = "ほ ん" end end return codes end',
+})
+local kana_demo = {
+	file = "kana.tsv",
+	converter = "kana-converter.lua",
+	groups = { ["ほ"] = { "ho" }, ["ん"] = { "n", "nn" } },
+	text = "本",
+	mixed_text = "ほん with flash",
+}
+local grouped = assert(prepare(kana_demo))
+check(grouped)
+assert(grouped.stages[1].pattern == "hon" and grouped.stages[2].pattern == "hon with flash")
+assert(vim.deep_equal(grouped.sources[1].groups, kana_demo.groups))
+local empty_group = vim.deepcopy(kana_demo)
+empty_group.groups["ん"] = {}
+assert(not prepare(empty_group), "empty groups cannot supply demo spellings")
 assert(not prepare({ file = "table.tsv", text = "中", mixed_text = "国" }))
 assert(not prepare({ file = "table.tsv", text = "中", mixed_text = "国x with flash", sample = "sample.lua" }))
 assert(not prepare({ file = "table.tsv", text = "中", mixed_text = "国 with flash", sample = "missing.lua" }))

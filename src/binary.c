@@ -28,7 +28,7 @@ static void write_groups(lua_State *L, int index) {
   }
   luaL_checktype(L, index, LUA_TTABLE);
   size_t count = lua_objlen(L, index);
-  if (count > 65535) {
+  if (count > GROUP_LIMIT) {
     luaL_error(L, "too many code groups");
   }
   write_u16(&buffer, (unsigned)count);
@@ -69,6 +69,9 @@ static CodeGroups *load_groups(lua_State *L, const unsigned char *data, uint32_t
     luaL_error(L, "invalid binary group header");
   }
   unsigned count = read_u16(data);
+  if (count > GROUP_LIMIT) {
+    luaL_error(L, "too many binary code groups");
+  }
   CodeGroups *groups =
       (CodeGroups *)lua_newuserdata(L, sizeof(CodeGroups) + count * sizeof(CodeGroup));
   groups->count = count;
@@ -134,8 +137,8 @@ static void pack_u32(uint32_t *values, uint32_t count) {
   }
 }
 
-/* Validate a terminated list using its grammar: zero bytes inside a u16 group
- * ID are payload, not terminators. literal_scalar is -1 for the text-key table. */
+/* Zero/matcher bytes inside group IDs are payload. Only 0xFF at an ID boundary
+ * ends a group sequence. literal_scalar is -1 for the text-key table. */
 static int validate_codes(lua_State *L, const Dictionary *dictionary, uint32_t offset,
                           uint32_t pool_size, const CodeGroups *groups, int32_t literal_scalar) {
   if (offset >= pool_size) {
@@ -147,11 +150,18 @@ static int validate_codes(lua_State *L, const Dictionary *dictionary, uint32_t o
   while (p < end && *p) {
     unsigned tag = *p++;
     if (tag >= MATCHER_TAG && is_group_mode(tag - MATCHER_TAG)) {
-      if (end - p < 2 || !groups || read_u16(p) >= groups->count) {
-        return luaL_error(L, "invalid binary group reference");
+      const unsigned char *sequence = p;
+      while (p < end && *p != GROUP_END) {
+        if (end - p < 2 || !groups || read_group_id(p) >= groups->count) {
+          return luaL_error(L, "invalid binary group reference");
+        }
+        p += 2;
       }
+      if (p == sequence || p == end) {
+        return luaL_error(L, "invalid binary group sequence");
+      }
+      ++p;
       letters |= tag == MATCHER_TAG + GROUP_FLAG + MATCH_LETTER;
-      p += 2;
       continue;
     }
     if (tag < MATCHER_TAG || tag > MATCHER_TAG + MATCH_LETTER) {
@@ -392,7 +402,7 @@ static uint32_t intern_string(lua_State *L, int pool, int value, uint32_t *size)
   return offset;
 }
 
-/* write(keys, codes, path, groups?): rows contain mode, ASCII code or group ID, optional suffix. */
+/* Rows contain mode, ASCII code or group-ID array, optional suffix. */
 int write_binary(lua_State *L) {
   lua_settop(L, 4);
   write_groups(L, 4);
@@ -465,14 +475,28 @@ int write_binary(lua_State *L) {
       lua_pop(L, 1);
       if (mode >= 0 && is_group_mode((unsigned)mode)) {
         lua_rawgeti(L, -1, 2);
-        lua_Number value = luaL_checknumber(L, -1);
-        if (!(value >= 0 && value < group_count) || value != (unsigned)value) {
-          return luaL_error(L, "invalid group reference");
+        luaL_checktype(L, -1, LUA_TTABLE);
+        size_t count = lua_objlen(L, -1);
+        if (!count) {
+          return luaL_error(L, "empty group sequence");
         }
-        unsigned id = (unsigned)value;
         lua_pop(L, 2);
         luaL_addchar(&buffer, (char)(MATCHER_TAG + mode));
-        write_u16(&buffer, id);
+        for (size_t k = 0; k < count; ++k) {
+          lua_rawgeti(L, codes, (int)j + 1);
+          lua_rawgeti(L, -1, 2);
+          lua_rawgeti(L, -1, (int)k + 1);
+          lua_Number value = luaL_checknumber(L, -1);
+          if (!(value >= 0 && value < group_count) || value != (unsigned)value) {
+            return luaL_error(L, "invalid group reference");
+          }
+          unsigned id = (unsigned)value;
+          /* Leave only the buffer's chunks above codes before adding bytes. */
+          lua_pop(L, 3);
+          luaL_addchar(&buffer, (char)(id >> 8));
+          luaL_addchar(&buffer, (char)(id & 255));
+        }
+        luaL_addchar(&buffer, (char)GROUP_END);
         continue;
       }
       if (mode < MATCH_LITERAL || mode > MATCH_LETTER) {

@@ -71,6 +71,12 @@ end
 这里先用 `full_code`。自定义选项或构建时转换可在工厂中处理；
 运行时 Lua matcher 不受支持。更多配置见[工厂参考](sources.md#工厂--factory)。
 
+若多个文字共享音节拼写，可由工厂提供 `groups`，码表保存组名或以单个空格分隔的
+组名序列。例如 `寿司<Tab>す し` 搭配 `groups = { ["す"] = { "su" },
+["し"] = { "shi", "si" } }`，即可输入 `sushi` 或 `susi`。组名可以用假名；
+拼写仍为 ASCII。matcher 逐组生效，`initial` 还允许 `ss` 等逐音节简拼。
+词典只有连写假名时，可用构建时 converter 分音；详见[组序列和 converter](sources.md#内部编码组--internal-spelling-groups)。
+
 ## 4. 在本地安装
 
 在 lazy.nvim 中把本地包作为依赖，并启用 `mycodes`：
@@ -154,6 +160,8 @@ return {
 可用 `sample` 指向自己的短样本文件，路径相对 `demo.lua`。
 省略 `text` 时会随机抽取字体覆盖的条目；演示第一段单字多标签，第二段混输，允许多个标签。
 若修改匹配模式，记得同步工厂和 `demo.lua`。
+若工厂提供 `groups`，录制配置也应提供同一份组数据；可在 `demo.lua` 中加载本地
+source 工厂并复用返回值，避免重复维护 converter、groups 和 matcher。
 
 工作流只传 `config: demo.lua`。将 `uses` 引用和 `flash-any-ref` 固定到同一个
 已发布到核心 `main` 的测试提交，然后把 source 仓库推送到自己的 GitHub `main` 分支。

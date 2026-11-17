@@ -19,6 +19,7 @@ local tests = {
 	"formats",
 	"demo",
 	"groups",
+	"group_sequences",
 	"selection",
 	"table",
 	"build",

@@ -12,14 +12,17 @@
 /* Header: magic[8], Unicode version, file bytes, text keys, Trie units,
  * scalar pages, pool bytes, code-group bytes, scalar count. Header fields are LE u32; Trie units
  * are LE u64. Layout: scalar directory/pages, Trie units, shared byte pool, code groups. */
-#define BINARY_MAGIC "FANYBIN\x0D"
+#define BINARY_MAGIC "FANYBIN\x0E"
 #define BINARY_HEADER 40u
 #define UNICODE_VERSION 17u
 #define ENGINE_MT "flash-any.native-engine"
 #define NONE UINT32_MAX
-/* High-bit tags delimit inline ASCII codes; group references use fixed-width IDs. */
+/* High-bit tags delimit inline ASCII codes. Group sequences use big-endian u16
+ * IDs, terminated by 0xFF at an ID boundary; all other binary fields remain LE. */
 #define MATCHER_TAG 0x80u
 #define GROUP_FLAG 0x08u
+#define GROUP_END 0xFFu
+#define GROUP_LIMIT 0xFF00u
 
 /* 0x80..0x9F identify matchers. 0xA0..0xBF are reserved for future pattern operators.
  * Optional-suffix metadata: suffix byte count and ASCII suffix, before the base code.
@@ -110,6 +113,7 @@ typedef struct {
   uint32_t *offsets; /* [slot][active index]: sparse list of input offsets. */
   uint32_t *counts; /* [slot]: number of active offsets. */
   uint32_t *lookahead; /* [slot]: completed result index+1. */
+  unsigned char *group_offsets; /* Two input-width sets, reused by group sequences. */
 } Requests;
 
 /* Fixed little-endian records permit zero-copy lookup from the immutable blob.
@@ -182,6 +186,10 @@ static inline const unsigned char *scalar_codes(const Dictionary *dictionary, ui
 
 static inline unsigned read_u16(const unsigned char *p) {
   return p[0] | (unsigned)p[1] << 8;
+}
+
+static inline unsigned read_group_id(const unsigned char *p) {
+  return (unsigned)p[0] << 8 | p[1];
 }
 
 /* Lua entry points: loading pins binary bytes/groups in the returned engine. */

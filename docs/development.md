@@ -115,7 +115,7 @@ namespace, require explicit rebuilding.
 仍可为ASCII附加编码。非 ASCII 或多码点字素不依赖码表，直接比较原文；
 fallback 的码表合并规则不因原文字面匹配而改变。运行时不保留source身份或fallback状态。
 
-当前格式为`FANYBIN\x0D`（v13）。单码点页表和按节点取模的码点DAT共享编码池：
+当前格式为`FANYBIN\x0E`（v14）。单码点页表和按节点取模的码点DAT共享编码池：
 
 - 单码点：4352个u32页目录，每个实际页256个u32槽。页目录存页序号+1，
   槽存编码列表offset+1；0表示不存在，不保存key或条目记录。
@@ -139,17 +139,19 @@ DAT单元数、码点页数、编码池字节数、编码组区字节数、单�
 
 编码列表为`[标记][编码或参数]...[NUL]`。0x80 literal、0x81 full_code、
 0x82 initial、0x83 prefix、0x84 suffix、0x85 letter；0x89/0x8A/0x8B/0x8D
-是对应模式的u16组引用。普通编码标记兼作模式与分隔，不保存逐编码长度。
-编码、后缀和组内拼写禁止NUL；组内拼写保留u8长度，组ID按固定两字节读取。
+是对应模式的组ID序列。每个ID为高字节在前的u16，ID边界上的单字节0xFF结束
+序列；低字节允许0xFF。有效ID为0..65279，每包最多65280组。其他字段仍为小端。
+普通编码标记兼作模式与分隔，不保存逐编码长度。编码、后缀和组内拼写禁止NUL；
+组内拼写保留u8长度。单组同样存为一个ID加0xFF，不保留旧格式分支。
 文本或查询含NUL时，匹配行为不作保证，不增加专门的扫描分支。
 
 加载时校验页表归属与占用、DAT父节点及标签、终点数、环引用、终点不能有子节点，
 并校验编码偏移、列表语法及组引用。父链深度用临时数组记忆，每个单元最多遍历
 两次；同时求最长key码点数。加载后只保留原始只读字节，不重建索引或保留校验数组。
-输出前复用完整加载校验，之后原子替换文件。自动缓存因v13版本变化重建；显式
+输出前复用完整加载校验，之后原子替换文件。自动缓存因v14版本变化重建；显式
 binary需要重新导出，make后重启Nvim。
 
-Version 13 stores scalar offsets in a two-level page table and text keys in a
+Version 14 retains v13's scalar offsets in a two-level page table and text keys in a
 codepoint DAT with per-node power-of-two moduli. Each LE u64 packs signed base24,
 incoming quotient13, parent-plus-one23 and an outgoing exponent tag4, low to high.
 Normal tags 0..13 encode exponents 8..21; tag14 is reserved and tag15 denotes a
@@ -162,7 +164,13 @@ The 40-byte header and section order remain scalar pages, DAT, code pool and gro
 There are no text strings, hash slots, merged roots, vacancy reuse or region flags.
 The 23-bit parent limit supports up to 8,388,607 units. Bounds, labels, chains,
 terminals and groups are validated before use. Explicit binaries need regeneration
-for v13; automatic caches rebuild and Nvim must restart after make.
+for v14; automatic caches rebuild and Nvim must restart after make.
+
+Group-tagged records contain a nonempty sequence of big-endian u16 IDs, terminated
+by one 0xFF byte at an ID boundary. A low byte of 0xFF remains valid. IDs range from
+0 to 65279; other fields remain little-endian. Single groups use the same sequence
+format. C validates every ID and the terminator, rejecting empty, truncated and
+out-of-range sequences. Lua supplies ID arrays rather than binary bytes.
 
 Lua仅传递排序后的文字key及`{模式, 编码}`列表，C负责标记编码、共享池、偏移、索引、
 文件头和写入；二进制规则不在Lua重复实现。完整输出先复用读取端校验，再在目标
@@ -191,6 +199,9 @@ states pin their snapshot; per-state line/result caches expire with their buffer
 至少两槽；词条完成后把消费请求发往下一字素。完成输入的候选保留结果编号，后续
 单字或词组补充next键；结果扩容后通过编号重新取址。候选只在实际命中时增长。
 文字、字面输入、普通编码、initial/prefix、letter、共享编码组沿用同一匹配逻辑。
+组序列逐组应用matcher，每步合并相同输入偏移，不展开拼写笛卡尔积。只有整条
+序列完成后才推进文本；未完成的组保留next。单组沿用直接匹配路径；多组使用
+本次scan持有的两份输入长度字节集合，跨词条和行复用，不保留跨查询状态。
 跨行状态不保留；f/F/t/T认可词组时使用第一个字素及其相邻位置。
 
 相同输入复用结果；输入改变时重新扫描缓存原始行，不从旧候选筛选，不保留跨输入
@@ -205,6 +216,12 @@ results are referenced by index while following entries contribute next keys.
 Scratch state resets between lines. Character motions use the first grapheme and
 its native neighboring positions. Changed queries rescan saved lines; identical
 queries reuse results. There is no separate hash fast path or runtime index choice.
+
+Group sequences apply the matcher independently at each step and merge equal input
+offsets instead of expanding spelling products. Only a completed sequence advances
+the text entry; partial spellings still contribute next keys. Single groups retain
+direct matching. Multi-group matching reuses two input-width byte sets owned by the
+current scan across entries and rows, without cross-query state.
 
 v11的hash、排序区间、全局取模DAT、页表根和平行数组/空位复用方案均保留为历史实验。
 `bench_phrases.py`要求通过`--source-root`指定v11 C源码快照，避免旧格式实验误用
@@ -289,8 +306,8 @@ The optional upstream corpus suite compares every text/code pair using an indepe
 Python reader and samples C matches. Python/iconv are developer-test dependencies only.
 Downloaded data and reports stay in .dev; normal tests and plugin setup require no network.
 
-以下版本小节记录各功能引入时的格式；当前布局以上文v13为准。
-The versioned sections below describe historical introductions; v13 above defines the current layout.
+以下版本小节记录各功能引入时的格式；当前布局以上文v14为准。
+The versioned sections below describe historical introductions; v14 above defines the current layout.
 
 ## 可选后缀与二进制 v7 / Optional suffixes and binary v7
 

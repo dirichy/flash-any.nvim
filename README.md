@@ -155,6 +155,10 @@ Each source's `matcher` can use one of four built-in modes: `full_code`, `initia
 `fallback = true` only provides codes for graphemes not recognized by earlier sources.
 An empty code array also counts as recognized and blocks later fallbacks.
 
+Sources can share spelling groups and combine them into syllable sequences. Each
+syllable independently accepts full codes, initials or prefixes according to the
+chosen matcher; see [group sequences and converters](docs/sources.md#内部编码组--internal-spelling-groups).
+
 ### Custom tables
 
 Use `data` for punctuation and a few custom symbols; use `file` for dictionaries.

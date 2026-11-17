@@ -100,14 +100,14 @@ local forms = {}
 for i = 1, 300 do
 	forms[i] = { string.rep("x", 255), "a;", "\ta", "ab", "a" }
 end
-native.write(root .. "/large.bin", { "甲" }, { { { native.modes.initial + native.modes.group, 299 } } }, forms)
+native.write(root .. "/large.bin", { "甲" }, { { { native.modes.initial + native.modes.group, { 299 } } } }, forms)
 local large = native.load(root .. "/large.bin")
 assert(#large:scan(0, 0, 1, 1, 1, { "甲" }, "a;", nil) == 1)
 assert(#large:scan(0, 0, 1, 1, 1, nil, "\ta", nil) == 1)
 -- A zero byte inside a fixed-width ID must not terminate the list.
 native.write(root .. "/zero-id.bin", { "甲", "乙" }, {
-	{ { native.modes.full_code + native.modes.group, 0 }, { native.modes.full_code, "tail" } },
-	{ { native.modes.full_code + native.modes.group, 256 }, { native.modes.full_code, "tail" } },
+	{ { native.modes.full_code + native.modes.group, { 0 } }, { native.modes.full_code, "tail" } },
+	{ { native.modes.full_code + native.modes.group, { 256 } }, { native.modes.full_code, "tail" } },
 }, forms)
 local zero_id = native.load(root .. "/zero-id.bin")
 assert(found(zero_id, "甲乙", "a;tail") and found(zero_id, "甲乙", "taila;"))
@@ -117,7 +117,7 @@ for _, mode in ipairs({ 8, 12, 14, 31 }) do
 	assert(read(root .. "/large.bin") == bytes)
 end
 for _, id in ipairs({ -1, 300, 0.5, math.huge, 0 / 0 }) do
-	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, id } } }, forms))
+	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, { id } } } }, forms))
 end
 local function change(value, offset, replacement)
 	return value:sub(1, offset) .. replacement .. value:sub(offset + #replacement + 1)
@@ -145,10 +145,10 @@ for _, invalid in ipairs({
 	assert(not pcall(native.load, root .. "/bad.bin"), "corrupt syllable profile must fail")
 end
 for _, invalid in ipairs({ { { "" } }, { { "中" } }, { { "a\0" } }, { { string.rep("a", 256) } }, { false } }) do
-	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, 0 } } }, invalid))
+	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, { 0 } } } }, invalid))
 	assert(read(root .. "/large.bin") == bytes)
 end
-native.write(root .. "/empty.bin", { "甲" }, { { { 10, 0 } } }, { {} })
+native.write(root .. "/empty.bin", { "甲" }, { { { 10, { 0 } } } }, { {} })
 assert(#native.load(root .. "/empty.bin"):scan(0, 0, 1, 1, 1, { "甲" }, "a", nil) == 0)
 
 vim.fn.delete(root, "rf")

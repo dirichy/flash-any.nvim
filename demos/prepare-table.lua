@@ -28,15 +28,39 @@ local source = {
 	encoding = config.encoding,
 	header = config.header,
 	converter = config.converter,
+	groups = config.groups,
 	matcher = config.matcher or "full_code",
 }
 local data = assert(require("flash-any.source").resolve({ source })[2].data)
 local fonts = dofile(assert(vim.api.nvim_get_runtime_file("demos/fonts.lua", false)[1]))
 local grapheme = require("flash-any.grapheme")
+local tables = require("flash-any.table")
+local function printable(code)
+	return code ~= "" and code:find("%S") and not code:find("[%c\128-\255]")
+end
 local function code_for(text)
 	local codes = {}
 	for _, code in ipairs(data[text] or {}) do
-		if code ~= "" and code:find("%S") and not code:find("[%c\128-\255]") then
+		local sequence = tables.group_sequence(code, source.groups)
+		if sequence then
+			local parts = {}
+			for _, name in ipairs(sequence) do
+				local spelling
+				for _, variant in ipairs(source.groups[name]) do
+					if printable(variant) then
+						spelling = variant
+						break
+					end
+				end
+				if not spelling then
+					parts = nil
+					break
+				end
+				parts[#parts + 1] = spelling
+			end
+			code = parts and table.concat(parts) or ""
+		end
+		if printable(code) then
 			codes[#codes + 1] = code
 		end
 	end
@@ -167,7 +191,10 @@ local extension = config.sample and vim.fn.fnamemodify(config.sample, ":e") or "
 local fixture = root .. "/demos/output/table-sample." .. (extension ~= "" and extension or "txt")
 assert(vim.fn.writefile(lines, fixture) == 0)
 local binary = root .. "/demos/output/table.bin"
-require("flash-any.build").binary({ sources = { { data = data, matcher = source.matcher } }, output = binary })
+require("flash-any.build").binary({
+	sources = { { data = data, groups = source.groups, matcher = source.matcher } },
+	output = binary,
+})
 local engine = require("flash-any.native").load(binary)
 local labels = "asdfghjklqwertyuiopzxcvbnmASDFGHJKLQWERTYUIOPZXCVBNM"
 for _, stage in ipairs(stages) do

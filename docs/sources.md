@@ -42,7 +42,8 @@ require("flash-any").setup({
 | `ibus` | BEGIN_TABLE / END_TABLE 段中的编码、文本、词频 |
 
 **每行一个编码，多编码重复写行。逗号是编码本身的一部分。**
-最终写入二进制的编码必须是非空 ASCII，编码、选键后缀和组内拼写均不能含 NUL。
+最终写入二进制的直接编码必须是非空 ASCII；组名可以是 Unicode，编译后替换为 ID。
+编码、组名、选键后缀和组内拼写均不能含 NUL。
 
 ```text
 中<TAB>zhong<TAB>100
@@ -70,7 +71,8 @@ Headerless files default to text/code order; use columns to specify code/text/we
 Extra fields such as frequency are ignored. There is **one encoding per row**;
 repeat text rows for multiple encodings. Commas in codes are literal; CSV codes
 containing commas must be quoted. No sorting or Lua companion is required.
-Compiled codes must be nonempty ASCII; codes, optional suffixes and group spellings must exclude NUL.
+Compiled inline codes must be nonempty ASCII; Unicode group names become numeric
+references. Codes, group names, optional suffixes and group spellings must exclude NUL.
 
 The reader handles BOM, CRLF and blank lines. Ordinary tables/Rime skip # comments;
 Fcitx data preserves # and ; codes, while IBus skips only ### comments. Fcitx supports
@@ -174,28 +176,43 @@ this same path, with scheme conversion performed once per syllable.
 
 ```lua
 {
-  data = { ["か"] = "ka", ["が"] = "ga" },
-  groups = { ka = { "ka", "ca" }, ga = { "ga", "gha" } },
+  data = { ["寿司"] = "す し", ["し"] = "し", ["シ"] = "し" },
+  groups = { ["す"] = { "su" }, ["し"] = { "shi", "si" } },
   matcher = "initial",
 }
 ```
 
-source 工厂可返回 file/groups，无需自行读表；也可提供 data/groups。码表中
-出现在 groups 的编码是组名，
-未出现的编码按普通 ASCII 字符串匹配；每组可以有零个或多个拼写。
-每个拼写先取最长公共前缀，再按 full_code、initial 或 prefix 产生匹配和 next，
-所有分支均保留。拼写必须是 1..255 字节 ASCII，组名也必须是非空 ASCII。
+source 工厂可返回 file/groups，无需自行读表；也可提供 data/groups。编码先按完整
+组名查找；若未找到，且以单个 ASCII 空格分隔的各段都是已有组名，则作为组序列。
+其他编码仍按普通 ASCII 字符串匹配；空段不构成序列。组名可以是非空 Unicode
+字符串，但不能含 NUL；含空格的完整组名优先于序列拆分。
+
+每组可以有零个或多个 1..255 字节 ASCII 拼写。序列逐组应用 full_code、initial、
+prefix 或 letter，保留所有分支和 next；任意一组为空则整个序列不匹配，也不预览。
+上例 full_code 接受 sushi/susi，initial 也接受 ss、sus、sshi 等逐组简拼组合。
+prefix 允许每组任意非空前缀；letter 仍遵循大小写选项。只有整条序列完成消费后，
+才继续匹配下一个文本条目，不按音节切开词条的文字范围。每包最多 65280 个去重组。
 
 组名只在所属 source 内有意义。构建时按排序、去重后的拼写内容共享，跨 source
 同名但不同内容的组互不覆盖；同内容不同名字的组可以共用。append_space_below
-只改变实际匹配的拼写，保留组名。不能为引用附加可选后缀。
+逐组改变实际匹配的拼写，保留组名和序列。不能为引用附加可选后缀。
 这是通用编码集合，不要求是音节；如何产生拼写是各 source 的构建策略。
 
-Factories and direct configurations may supply groups, mapping local code names to
-ASCII spelling arrays. Names are local to each source; the builder interns groups by
-normalized contents across sources. Unlisted codes stay inline. All alternatives
-retain their full/initial/prefix matches and next bytes. Empty groups match nothing.
+Factories and direct configurations may supply groups, mapping local Unicode names
+to ASCII spelling arrays. Exact whole-code names win; otherwise a code separated by
+single ASCII spaces is a sequence only when every token names a group. Empty tokens
+do not form sequences. Other codes stay inline and must be ASCII. Names are nonempty
+and exclude NUL. The builder interns normalized spelling contents across sources,
+up to 65280 distinct groups per package.
+
+Each group independently applies full_code, initial, prefix or letter, preserving
+all consumption branches and next bytes. The example accepts sushi/susi with
+full_code, and ss or mixed initial/full spellings with initial. Prefix accepts each
+group's nonempty prefixes; letter retains case options. A sequence containing any
+empty group produces neither matches nor previews. Only a completed sequence can
+continue into the next text entry; syllables do not split a phrase's text range.
 Spellings are 1..255 ASCII bytes; suffix metadata on a group reference is unsupported.
+Padding changes each group's spellings, leaving names and sequences intact.
 This is independent of pinyin or any particular writing system.
 
 ## 可选 converter / Optional converter
@@ -204,7 +221,7 @@ This is independent of pinyin or any particular writing system.
 { file = "/path/table.dict.yaml", converter = "/path/converter.lua", matcher = "full_code" }
 ```
 
-converter 文件返回函数，接收一个字素合并去重后的全部编码，返回新的编码数组：
+converter 文件返回函数，接收一个文本条目合并去重后的全部编码，返回新的编码数组：
 
 ```lua
 return function(codes)
@@ -216,8 +233,9 @@ return function(codes)
 end
 ```
 
-返回 nil 或空数组略过该字素。converter 仅在构建时执行，转换结果必须为非空 ASCII
-编码；输入编码可以是 Unicode。它不解析文件格式，也不转换运行时查询。
+返回 nil 或空数组略过该条目。converter 仅在构建时执行，转换结果须为非空 ASCII
+编码或有效组引用/序列；输入编码可以是 Unicode。例如配合上述 groups，可将
+词典中的 `すし` 转成 `す し`。它不解析文件格式，也不转换运行时查询。
 
 自动缓存按路径、大小和修改时间（含纳秒）跟踪根词典、Rime 导入、lua/tsv 和 converter；
 修改后下次 setup 使用新快照。缓存命中时不执行 converter。lua/flash-any 下安装的
@@ -225,8 +243,10 @@ Lua/TSV 每进程检查一次，更新后需重启 Nvim。大小和修改时间�
 自行加载的 Lua 依赖需手动重建。显式 binary 存在时直接加载，缺失时才构建。
 
 The optional converter file returns a function accepting all deduplicated encodings
-for one grapheme. Return an ASCII code array, or nil/empty array to omit that grapheme.
-It runs only during compilation; raw input encodings may be Unicode. Automatic cache
+for one text entry. Return an array of ASCII codes or valid group references/sequences,
+or nil/empty to omit that entry. For example, with the groups above it can convert
+すし to す し. It runs only during compilation; raw input encodings may be Unicode.
+It does not parse file formats or transform runtime queries. Automatic cache
 keys include paths, sizes and nanosecond mtimes of dictionaries, recursive Rime
 imports, Lua/TSV companions and converters. Cached startup never executes the converter.
 Installed Lua/TSV files under lua/flash-any are checked once per process; restart
@@ -293,16 +313,19 @@ require("flash-any").setup({
 
 ## 数据与规则 / Data and rules
 
-- 每个 key 须为一个完整 Unicode17 字素；`á`、`👩‍💻` 合法，`中国` 是两个字素，
-  当前会报错。非法 UTF8 字节分别作为独立单元处理。不做 Unicode 归一化。
-- 编码为非空 ASCII 字符串或数组。空数组表示已认识但没有匹配，可屏蔽 fallback。
+- 每个 key 须为非空文字，可以是单个 Unicode17 字素或词组；`á`、`👩‍💻`、`中国`
+  均合法。非法 UTF8 字节分别作为独立单元处理。不做 Unicode 归一化。
+- 编码为非空 ASCII 编码或组引用/序列字符串，也可提供其数组。组名可以用 Unicode；
+  空数组表示已认识但没有匹配，可屏蔽 fallback。
 - `matcher` 只能是 `full_code`、`initial`、`prefix`、`letter`。前者接受完整编码，initial
   同时接受首字母和完整编码，prefix 接受任意非空前缀。
 - 普通源都贡献编码；fallback 仅在此前源未认识时贡献。码表内容决定覆盖范围。
 - 相同 matcher 模式和编码自动去重，不保留 source 归属。
 
-Each key is exactly one complete Unicode17 grapheme. Codes are nonempty ASCII strings
-or arrays; an empty array recognizes without matching. Modes cover full codes,
+Each key is nonempty text containing one or more complete Unicode17 graphemes.
+Codes are nonempty ASCII encodings or group-reference/sequence strings (Unicode
+names are allowed), or arrays of those strings. An empty array recognizes without
+matching. Modes cover full codes,
 initial/full codes, arbitrary nonempty code prefixes, and letter head-codepoint
 matching with case options. Dictionary contents
 define coverage. Ordinary sources contribute independently; fallbacks contribute only

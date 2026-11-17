@@ -79,6 +79,14 @@ Keep `full_code` for this tutorial. A factory can process source-specific option
 and build-time conversions; runtime Lua matchers are unsupported. See the
 [factory reference](sources.md#工厂--factory) for further options.
 
+For shared syllable spellings, factories can provide `groups` and dictionary codes
+can name one group or a sequence separated by single ASCII spaces. For example,
+`寿司<Tab>す し` with `groups = { ["す"] = { "su" }, ["し"] = { "shi", "si" } }`
+accepts `sushi` and `susi`. Names may use kana; spellings remain ASCII. The matcher
+applies independently to each group, so `initial` also accepts `ss`. A build-time
+converter can segment unseparated kana readings; see
+[sequences and converters](sources.md#内部编码组--internal-spelling-groups).
+
 ## 4. Install locally
 
 Add your local package as a lazy.nvim dependency and enable `mycodes`:
@@ -171,6 +179,9 @@ Use `sample` for your own short sample file; paths are relative to `demo.lua`.
 Omitting `text` chooses a font-covered random entry. The first scene demonstrates
 multiple labels for one grapheme; the second mixes codes and ASCII and may also
 have several labels. Keep the factory and demo modes consistent if you change them.
+If the factory supplies groups, pass the same groups in the recording config.
+A demo.lua can load its local source factory and reuse the returned fields to
+avoid maintaining a second converter, groups and matcher configuration.
 
 The workflow passes only `config: demo.lua`. Pin its `uses` reference and
 `flash-any-ref` to the same tested commit published on the core's `main`, then push

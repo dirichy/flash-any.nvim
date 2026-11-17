@@ -8,6 +8,7 @@ local tables = require("flash-any.table")
 ---@field format? string
 ---@field columns? string[]
 ---@field encoding? string
+---@field converter? string Build-time converter file path.
 ---@field selection? FlashAnySelection|false
 ---@field matcher? "full_code"|"initial"|"prefix"|"letter"
 ---@field fallback? boolean
@@ -35,6 +36,9 @@ function M.load(name, opts)
 	assert(type(factory) == "function", "source module must return a factory: " .. name)
 	local source = factory(opts or {})
 	assert(type(source) == "table", "source factory must return a table: " .. name)
+	if opts and opts.groups ~= nil then
+		source.groups = opts.groups
+	end
 	assert(
 		not source.file or (type(source.file) == "string" and not source.data and not source.codetable),
 		"file must be a path and cannot be combined with codetable or data: " .. name
@@ -42,7 +46,7 @@ function M.load(name, opts)
 	if source.codetable ~= nil then
 		assert(type(source.codetable) == "string", "codetable must be a table name: " .. name)
 		assert(source.data == nil, "codetable and data are mutually exclusive: " .. name)
-		source.data = tables.load(source.codetable)
+		source.data = tables.load(source.codetable, { groups = source.groups })
 		source.codetable = nil
 	end
 	assert(
@@ -53,9 +57,6 @@ function M.load(name, opts)
 			or source.matcher == "letter",
 		"Lua matcher functions are not supported"
 	)
-	if opts and opts.groups ~= nil then
-		source.groups = opts.groups
-	end
 	assert(source.groups == nil or type(source.groups) == "table", "groups must map codes to spelling lists")
 	if source.data and not source.prepared then
 		source.data, source.groups = tables.append_space(source.data, opts and opts.append_space_below, source.groups)
@@ -192,8 +193,11 @@ function M.resolve(values)
 			end
 			if not defaults.prepared then
 				if value.lua then
-					data, groups =
-						tables.append_space(tables.from_files(value.lua, value.tsv), value.append_space_below, groups)
+					data, groups = tables.append_space(
+						tables.from_files(value.lua, value.tsv, groups),
+						value.append_space_below,
+						groups
+					)
 				elseif value.file then
 					assert(not value.data and not value.tsv, "file cannot be combined with data or tsv")
 					if value.selection then
@@ -217,7 +221,8 @@ function M.resolve(values)
 							tables.append_space(tables.from_file(value.file, value), value.append_space_below, groups)
 					end
 				elseif value.data then
-					data, groups = tables.append_space(tables.normalize(value.data), value.append_space_below, groups)
+					data, groups =
+						tables.append_space(tables.normalize(value.data, groups), value.append_space_below, groups)
 				end
 			end
 			if value.selection and not defaults.prepared then

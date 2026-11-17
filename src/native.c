@@ -277,6 +277,9 @@ static int scan(lua_State *L) {
   int result_index = lua_gettop(L);
   Requests requests = {0};
   requests.slots = instance->depth + 1;
+  if (length) {
+    requests.group_offsets = lua_newuserdata(L, (length + 1) * 2);
+  }
   if (!character && length) {
     requests.width = (uint32_t)length + 1;
     if (requests.slots > INT_MAX / 8 ||

@@ -10,7 +10,7 @@ vim.fn.mkdir(root, "p")
 local names = vim.tbl_keys(parts.initial)
 table.sort(names)
 local comparisons = 0
-local labels = { "a", "z", ",", "\0" }
+local labels = { "a", "z", ",", "\t" }
 for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st" }) do
 	for _, fuzzy in ipairs({ false, true }) do
 		local expanded =
@@ -45,7 +45,7 @@ for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st"
 		end
 		for _, mode in ipairs({ "full_code", "initial", "prefix" }) do
 			local keys, shared, inline = {}, {}, {}
-			for byte = 0, 127 do
+			for byte = 1, 127 do
 				keys[#keys + 1] = string.char(byte)
 			end
 			for i in ipairs(names) do
@@ -59,7 +59,7 @@ for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st"
 				else
 					local id = vim.fn.char2nr(key) - 0x4E00
 					glyphs[id] = key
-					shared[i] = { { native.modes[mode] + native.modes.group, id - 1 } }
+					shared[i] = { { native.modes[mode] + native.modes.group, { id - 1 } } }
 					inline[i] = {}
 					for _, spelling in ipairs(forms[id]) do
 						inline[i][#inline[i] + 1] = { native.modes[mode], spelling }
@@ -78,7 +78,7 @@ for _, scheme in ipairs({ false, "flypy", "pyjj", "natural", "abc", "mspy", "st"
 			collectgarbage("collect") -- Session owners must retain the shared profile and bytes.
 			for id, spellings in ipairs(forms) do
 				local glyph = glyphs[id]
-				local queries = { [","] = true, ["\255"] = true, ["\0"] = true }
+				local queries = { [","] = true, ["\255"] = true, ["\t"] = true }
 				for _, spelling in ipairs(spellings) do
 					for n = 1, #spelling do
 						queries[spelling:sub(1, n)] = true
@@ -125,12 +125,12 @@ end
 -- Exercise buffer chunk boundaries, arbitrary ASCII spellings and IDs above 255.
 local forms = {}
 for i = 1, 300 do
-	forms[i] = { string.rep("x", 255), "a;", "\0a", "ab", "a" }
+	forms[i] = { string.rep("x", 255), "a;", "\ta", "ab", "a" }
 end
-native.write(root .. "/large.bin", { "甲" }, { { { native.modes.initial + native.modes.group, 299 } } }, forms)
+native.write(root .. "/large.bin", { "甲" }, { { { native.modes.initial + native.modes.group, { 299 } } } }, forms)
 local large = native.load(root .. "/large.bin")
 assert(#large:scan(0, 0, 1, 1, 1, { "甲" }, "a;", nil) == 1)
-assert(#large:scan(0, 0, 1, 1, 1, nil, "\0a", nil) == 1)
+assert(#large:scan(0, 0, 1, 1, 1, nil, "\ta", nil) == 1)
 local function read(path)
 	local file = assert(io.open(path, "rb"))
 	local bytes = file:read("*a")
@@ -143,7 +143,7 @@ for _, mode in ipairs({ 8, 12, 14, 31 }) do
 	assert(read(root .. "/large.bin") == bytes)
 end
 for _, id in ipairs({ -1, 300, 0.5, math.huge, 0 / 0 }) do
-	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, id } } }, forms))
+	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, { id } } } }, forms))
 end
 local function u32(value, offset)
 	local a, b, c, d = value:byte(offset + 1, offset + 4)
@@ -153,18 +153,19 @@ local function change(value, offset, replacement)
 	return value:sub(1, offset) .. replacement .. value:sub(offset + #replacement + 1)
 end
 local profile_at = #bytes - u32(bytes, 32)
-local pool_at = 40
-	+ u32(bytes, 16) * 16
-	+ u32(bytes, 20) * 4
-	+ (u32(bytes, 24) > 0 and (0x1100 + u32(bytes, 24) * 256) * 4 or 0)
-local code_at = pool_at + u32(bytes, 48)
+local pages_at = 40 + 0x1100 * 4
+local pool_at = #bytes - u32(bytes, 32) - u32(bytes, 28)
+local cp = vim.fn.char2nr("甲")
+local page = u32(bytes, 40 + math.floor(cp / 256) * 4)
+local code_slot = pages_at + (page - 1) * 256 * 4 + cp % 256 * 4
+local code_at = pool_at + u32(bytes, code_slot) - 1
 for _, invalid in ipairs({
 	change(bytes, profile_at, "\0\0"), -- Count cannot hide trailing spelling records.
 	change(bytes, profile_at + 4, "\0"), -- Empty spelling.
 	change(bytes, profile_at + 5, "\255"), -- Non-ASCII spelling.
 	change(bytes, code_at + 1, "\255\255"), -- Out-of-range reference.
 	change(bytes, code_at, "\136"), -- Literal + syllable is invalid.
-	change(bytes, 52, "\2\0\0\0"), -- Truncated u16 reference.
+	change(bytes, code_at + 3, "x"), -- Missing group-sequence terminator.
 }) do
 	local file = assert(io.open(root .. "/bad.bin", "wb"))
 	file:write(invalid)
@@ -172,10 +173,10 @@ for _, invalid in ipairs({
 	assert(not pcall(native.load, root .. "/bad.bin"), "corrupt syllable profile must fail")
 end
 for _, invalid in ipairs({ { { "" } }, { { "中" } }, { { string.rep("a", 256) } }, { false } }) do
-	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, 0 } } }, invalid))
+	assert(not pcall(native.write, root .. "/large.bin", { "甲" }, { { { 10, { 0 } } } }, invalid))
 	assert(read(root .. "/large.bin") == bytes)
 end
-native.write(root .. "/empty.bin", { "甲" }, { { { 10, 0 } } }, { {} })
+native.write(root .. "/empty.bin", { "甲" }, { { { 10, { 0 } } } }, { {} })
 assert(#native.load(root .. "/empty.bin"):scan(0, 0, 1, 1, 1, { "甲" }, "a", nil) == 0)
 
 -- Custom source overrides are already encoded and must not inherit pinyin references.

@@ -477,8 +477,8 @@ function M.binary(opts)
 			local names = vim.tbl_keys(source.groups)
 			for _, name in ipairs(names) do
 				assert(
-					type(name) == "string" and name ~= "" and not name:find("[%z\128-\255]"),
-					"group names must be nonempty ASCII strings without NUL"
+					type(name) == "string" and name ~= "" and not name:find("%z"),
+					"group names must be nonempty strings without NUL"
 				)
 			end
 			table.sort(names)
@@ -522,23 +522,30 @@ function M.binary(opts)
 				local set = merged[key] or {}
 				merged[key] = set
 				for _, code in ipairs(codes) do
-					assert(
-						type(code) == "string" and code ~= "" and not code:find("[%z\128-\255]"),
-						"binary codes must be nonempty ASCII strings without NUL"
-					)
-					local kind, parameters, value = mode, "", code
-					if aliases[code] ~= nil then
-						kind, value = mode + modes.group, aliases[code]
+					assert(type(code) == "string" and code ~= "" and not code:find("%z"), "invalid binary code")
+					local kind, parameters = mode, ""
+					---@type string|integer[]
+					local value = code
+					local sequence = tables.group_sequence(code, source.groups)
+					if sequence then
+						local ids = {}
+						for _, name in ipairs(sequence) do
+							ids[#ids + 1] = assert(aliases[name])
+						end
+						kind, value = mode + modes.group, ids
+					else
+						assert(not code:find("[\128-\255]"), "inline binary codes must be ASCII")
 					end
 					local selectors = source.selectors and source.selectors[key]
 					if mode == modes.full_code and selectors and selectors[code] then
-						assert(aliases[code] == nil, "shared groups cannot carry optional suffixes")
+						assert(not sequence, "shared groups cannot carry optional suffixes")
 						kind = modes.suffix
 						parameters = selectors[code]
 					end
 					local group = tostring(kind) .. ":" .. parameters
 					set[group] = set[group] or { mode = kind, parameters = parameters, codes = {} }
-					set[group].codes[value] = true
+					local identity = type(value) == "table" and table.concat(value, ",") or value
+					set[group].codes[identity] = value
 				end
 			end
 		end
@@ -554,13 +561,16 @@ function M.binary(opts)
 	for i, key in ipairs(keys) do
 		local codes = {}
 		for _, group in pairs(merged[key]) do
-			for code in pairs(group.codes) do
-				codes[#codes + 1] = { group.mode, code, group.parameters }
+			for identity, code in pairs(group.codes) do
+				codes[#codes + 1] = { group.mode, code, group.parameters, identity }
 			end
 		end
 		table.sort(codes, function(a, b)
-			return a[1] < b[1] or (a[1] == b[1] and (a[2] < b[2] or (a[2] == b[2] and a[3] < b[3])))
+			return a[1] < b[1] or (a[1] == b[1] and (a[4] < b[4] or (a[4] == b[4] and a[3] < b[3])))
 		end)
+		for _, code in ipairs(codes) do
+			code[4] = nil
+		end
 		lists[i] = codes
 	end
 	native.write(vim.fn.expand(opts.output), keys, lists, #groups > 0 and groups or nil)

@@ -157,6 +157,7 @@ if task == "build" then
 							for _, record in ipairs(row) do
 								if record[1] == prototype.modes.pinyin then
 									record[1] = native.modes[matcher] + native.modes.group
+									record[2] = { record[2] }
 								elseif record[1] == prototype.modes.initial then
 									record[1] = native.modes[matcher]
 								end

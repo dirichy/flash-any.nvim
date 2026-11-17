@@ -1,7 +1,7 @@
 local M = {}
 local grapheme = require("flash-any.grapheme")
 
--- Nonempty UTF-8 text -> ASCII encodings. Prefix metadata belongs to the map.
+-- Nonempty UTF-8 text -> ASCII encodings or group references. Metadata belongs to the map.
 ---@alias FlashAnyTable table<string, string[]>
 ---@alias FlashAnyTableMap table<string, string|string[]>
 ---@class FlashAnyTableDefinition
@@ -74,6 +74,32 @@ function M.lazy(data, loader)
 	})
 end
 
+---Resolve an exact group name first, then a space-separated sequence of known groups.
+---@param code string
+---@param groups? table<string, string[]>
+---@return string[]?
+function M.group_sequence(code, groups)
+	if not groups then
+		return nil
+	end
+	if groups[code] ~= nil then
+		return { code }
+	end
+	if not code:find(" ", 1, true) then
+		return nil
+	end
+	local parts = vim.split(code, " ", { plain = true })
+	if #parts < 2 then
+		return nil
+	end
+	for _, part in ipairs(parts) do
+		if part == "" or groups[part] == nil then
+			return nil
+		end
+	end
+	return parts
+end
+
 ---为短于 below 的编码追加一个空格；返回新数组。
 ---@param codes string[]?
 ---@param below integer
@@ -85,7 +111,7 @@ local function space_codes(codes, below, groups)
 	end
 	local ret = {}
 	for _, code in ipairs(codes) do
-		ret[#ret + 1] = not (groups and groups[code]) and #code < below and code .. " " or code
+		ret[#ret + 1] = not M.group_sequence(code, groups) and #code < below and code .. " " or code
 	end
 	return ret
 end
@@ -144,8 +170,9 @@ end
 
 ---把单编码字符串转为数组，并复制 map 和数组，避免修改调用方或 require 缓存。
 ---@param map FlashAnyTableInput
+---@param groups? table<string, string[]>
 ---@return FlashAnyTable
-function M.normalize(map)
+function M.normalize(map, groups)
 	local prefixes, maximum
 	local values = map
 	local structured = type(map.codes) == "table"
@@ -180,8 +207,11 @@ function M.normalize(map)
 		end
 		for _, code in ipairs(ret[char]) do
 			assert(
-				type(code) == "string" and #code > 0 and not code:find("[\128-\255]"),
-				"codes must be nonempty ASCII strings: " .. char
+				type(code) == "string"
+					and #code > 0
+					and not code:find("%z")
+					and (not code:find("[\128-\255]") or M.group_sequence(code, groups) ~= nil),
+				"codes must be nonempty ASCII strings or known group references without NUL: " .. char
 			)
 		end
 	end
@@ -226,12 +256,13 @@ function M.from_file(path, opts)
 			rows[char] = converted and #converted > 0 and converted or nil
 		end
 	end
-	return M.normalize(rows), ranks
+	return M.normalize(rows, opts.groups), ranks
 end
 
 ---@class FlashAnyTableOptions
 ---@field convert? fun(codes: string[]?): string[]?
 ---@field extra? FlashAnyTableMap Added after conversion; overrides existing entries.
+---@field groups? table<string, string[]> Group names recognized while loading codes.
 
 ---加载命名码表：完整 TSV，或 Lua 表及其可选 TSV 伴随文件。
 ---@param name string 码表文件名，不含扩展名
@@ -242,15 +273,16 @@ function M.load(name, opts)
 	local lua_files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false)
 	local files = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)
 	assert(lua_files[1] or files[1], "code table not found: " .. name)
-	local data = lua_files[1] and M.normalize(require("flash-any.tables." .. name))
-		or M.from_file(assert(files[1]), { format = "tsv" })
+	local groups = opts and opts.groups
+	local data = lua_files[1] and M.normalize(require("flash-any.tables." .. name), groups)
+		or M.from_file(assert(files[1]), { format = "tsv", groups = groups })
 	if convert then
 		for char, codes in pairs(data) do
 			data[char] = convert(codes) or (not lua_files[1] and {} or nil)
 		end
 	end
 	if opts and opts.extra then
-		for char, codes in pairs(M.normalize(opts.extra)) do
+		for char, codes in pairs(M.normalize(opts.extra, groups)) do
 			data[char] = codes
 		end
 	end
@@ -276,9 +308,10 @@ end
 ---加载用户指定的 Lua 码表，复制后按需挂接 TSV；不复用内置方案缓存。
 ---@param lua_path string
 ---@param tsv_path string?
+---@param groups? table<string, string[]>
 ---@return FlashAnyTable
-function M.from_files(lua_path, tsv_path)
-	local common = M.normalize(dofile(vim.fn.expand(lua_path)))
+function M.from_files(lua_path, tsv_path, groups)
+	local common = M.normalize(dofile(vim.fn.expand(lua_path)), groups)
 	if not tsv_path then
 		return common
 	end

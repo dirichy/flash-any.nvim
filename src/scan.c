@@ -111,7 +111,25 @@ static void match_literal(MatchContext *context) {
 typedef struct {
   uint32_t longest_prefix; /* All shorter positive lengths are valid consumption branches. */
   int has_initial;
+  unsigned char *offsets; /* Non-NULL collects intermediate sequence positions. */
 } SpellingMatches;
+
+static void consume_spelling(MatchContext *context, SpellingMatches *matches, uint32_t length) {
+  if (matches->offsets) {
+    matches->offsets[context->input_offset + length] = 1;
+  } else {
+    emit(context, EMIT_CONSUMED, length);
+  }
+}
+
+static void finish_spellings(MatchContext *context, SpellingMatches *matches) {
+  if (matches->has_initial) {
+    consume_spelling(context, matches, 1);
+  }
+  for (uint32_t bytes = 1; bytes <= matches->longest_prefix; ++bytes) {
+    consume_spelling(context, matches, bytes);
+  }
+}
 
 static uint32_t match_spelling(MatchContext *context, unsigned mode, const unsigned char *code,
                                uint32_t length, SpellingMatches *matches) {
@@ -126,7 +144,7 @@ static uint32_t match_spelling(MatchContext *context, unsigned mode, const unsig
   }
   if (common == length && (mode == MATCH_FULL || mode == MATCH_SUFFIX || mode == MATCH_LETTER ||
                            (mode == MATCH_INITIAL && length > 1))) {
-    emit(context, EMIT_CONSUMED, length);
+    consume_spelling(context, matches, length);
   }
   if (mode == MATCH_INITIAL && common) {
     matches->has_initial = 1;
@@ -159,6 +177,42 @@ static void match_group(MatchContext *context, unsigned mode, unsigned id,
   }
 }
 
+/* Each group consumes independently. Merge equal input offsets after each group,
+ * rather than expanding the Cartesian product or retaining recursive branches. */
+static void match_sequence(MatchContext *context, unsigned mode, const unsigned char *begin,
+                           const unsigned char *end) {
+  uint32_t origin = context->input_offset, width = context->input_size + 1;
+  unsigned char *current = context->requests->group_offsets, *next = current + width;
+  memset(current, 0, width);
+  current[origin] = 1;
+  for (const unsigned char *p = begin; p < end; p += 2) {
+    memset(next, 0, width);
+    int reached = 0;
+    for (uint32_t offset = origin; offset < width; ++offset) {
+      if (current[offset]) {
+        context->input_offset = offset;
+        SpellingMatches matches = {.offsets = next};
+        match_group(context, mode, read_group_id(p), &matches);
+        finish_spellings(context, &matches);
+      }
+      reached |= next[offset];
+    }
+    unsigned char *swap = current;
+    current = next;
+    next = swap;
+    if (!reached) {
+      context->input_offset = origin;
+      return;
+    }
+  }
+  context->input_offset = origin;
+  for (uint32_t offset = origin + 1; offset < width; ++offset) {
+    if (current[offset]) {
+      emit(context, EMIT_CONSUMED, offset - origin);
+    }
+  }
+}
+
 static void match_code_list(MatchContext *context, const unsigned char *codes, int letter_only) {
   if (!codes) {
     return;
@@ -169,10 +223,21 @@ static void match_code_list(MatchContext *context, const unsigned char *codes, i
   while (*p) {
     unsigned mode = *p++ - MATCHER_TAG;
     if (mode & GROUP_FLAG) {
-      if (!letter_only || (mode & ~GROUP_FLAG) == MATCH_LETTER) {
-        match_group(context, mode & ~GROUP_FLAG, read_u16(p), &matches);
+      const unsigned char *begin = p;
+      int empty = 0;
+      while (*p != GROUP_END) {
+        const CodeGroup *group = &context->groups->groups[read_group_id(p)];
+        empty |= group->begin == group->end;
+        p += 2;
       }
-      p += 2;
+      if (!empty && (!letter_only || (mode & ~GROUP_FLAG) == MATCH_LETTER)) {
+        if (p - begin == 2) {
+          match_group(context, mode & ~GROUP_FLAG, read_group_id(begin), &matches);
+        } else {
+          match_sequence(context, mode & ~GROUP_FLAG, begin, p);
+        }
+      }
+      ++p;
       continue;
     }
     unsigned suffix_size = 0;
@@ -215,12 +280,7 @@ static void match_code_list(MatchContext *context, const unsigned char *codes, i
     }
   }
   /* Emit shared initial/prefix lengths once, even when several spellings agree. */
-  if (matches.has_initial) {
-    emit(context, EMIT_CONSUMED, 1);
-  }
-  for (uint32_t bytes = 1; bytes <= matches.longest_prefix; ++bytes) {
-    emit(context, EMIT_CONSUMED, bytes);
-  }
+  finish_spellings(context, &matches);
 }
 
 static void match_codes(MatchContext *context) {

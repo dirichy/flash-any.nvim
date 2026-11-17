@@ -15,6 +15,7 @@ return {
 	-- encoding = "UTF-8", -- Input encoding / 原码表编码。
 	-- header = true, -- Skip a CSV header / 是否有标题行。
 	-- converter = "converter.lua", -- Build-time code converter / 构建时编码转换。
+	-- groups = { shi = { "shi", "si" } }, -- Shared spellings / 共享拼写组。
 
 	-- Name shown in the title and default narration / 标题、默认旁白中的文本名称。
 	-- Omit for "any text" / 省略时使用 "any text"。

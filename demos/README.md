@@ -84,6 +84,8 @@ sh demos/record.sh table demos/templates/table-demo.lua
 
 CSV 标题行可在 Lua 中设置 `header = true`。所有相对路径以 Lua 配置所在目录为基准；
 环境变量可覆盖对应的码表选项。目标编码自动推导，原码表文件不会被写入。
+使用组引用或组序列时，在 Lua 配置中提供 `groups`。录制器从每组选择一个可打印
+拼写并连接成演示查询；编译时保留全部组拼写，不预先展开所有组合。
 具体演示字段见下方“自动码表场景”。
 
 本地文件为 `table.gif`、`table.mp4`、`table.png`、`table-verification.json`、
@@ -122,6 +124,10 @@ The recorder chooses a converted single-grapheme example automatically; set
 the optional Lua fields described below to demonstrate familiar text. Dictionary,
 converter and sample paths in Lua are relative to that Lua file. The same live candidate, label, cursor and
 fixture assertions used by the built-in demo apply to third-party recordings.
+
+Lua configurations may supply groups for shared names and sequences. The recorder
+joins one printable spelling from each group to derive a query, while retaining
+all group alternatives in the compiled dictionary without expanding their product.
 
 The reusable workflow accepts repository/ref, dictionary path, format, columns, optional converter, matcher ID
 and an optional Lua configuration path. Run it in a repository where you have Actions permissions,
