@@ -41,7 +41,13 @@ if config.examples then
 			)
 		end
 		local stage = vim.deepcopy(example)
+		stage.mode = stage.mode or "jump"
+		assert(vim.tbl_contains({ "jump", "char", "remote", "search" }, stage.mode), "unknown example mode")
 		local first = grapheme.split(stage.pattern)[1]
+		assert(
+			stage.mode ~= "char" or (index == 1 and first == stage.pattern),
+			"char must be first with one query grapheme"
+		)
 		stage.checkpoints = stage.checkpoints
 			or (#first < #stage.pattern and { first, stage.pattern } or { stage.pattern })
 		assert(
@@ -61,14 +67,66 @@ if config.examples then
 		assert(previous == stage.pattern, "the final checkpoint must equal the example pattern")
 		local comment = stage.comment or stage.title
 		assert(type(comment) == "string" and not comment:find("%c"), "example comments must be single-line")
+		if stage.decoys then
+			assert(
+				stage.mode == "search" and index == #config.examples and vim.islist(stage.decoys),
+				"decoys require a final search example"
+			)
+			stage.previews = {}
+			for decoy_index, text in ipairs(stage.decoys) do
+				assert(type(text) == "string" and not text:find("%c"), "decoys must be single-line text")
+				lines[#lines + 1] = "-- Keep typing: the next prefix skips this near match."
+				local prefix = "local near_" .. decoy_index .. " = "
+				lines[#lines + 1] = prefix .. vim.json.encode(text)
+				stage.previews[#stage.previews + 1] = { #lines, #prefix + 1 }
+				-- More than one recording viewport between each near match.
+				vim.list_extend(lines, {
+					"",
+					"local notes_" .. decoy_index .. " = {",
+					'  title = "Daily notes",',
+					'  owner = "team",',
+					'  status = "draft",',
+					'  topic = "Release review",',
+					"",
+					"  tasks = {",
+					'    "Read the guide",',
+					'    "Review the examples",',
+					'    "Try each motion",',
+					"  },",
+					"",
+					'  tags = { "demo", "notes" },',
+					"  published = false,",
+					"}",
+					"",
+					"-- Review the notes before sharing.",
+					"-- Each section has its own nearby search result.",
+					"-- Continue typing to find a more specific phrase.",
+					"",
+					"",
+				})
+			end
+		end
 		local prefix = "local example_" .. index .. " = "
-		local line = prefix .. vim.json.encode(stage.text) .. " -- " .. comment
+		local text = stage.text
+		if stage.alternatives then
+			assert(
+				stage.mode == "char" and type(stage.alternatives) == "string" and not stage.alternatives:find("%c"),
+				"alternatives require single-line char text"
+			)
+			text = text .. " " .. stage.alternatives
+		end
+		-- Native iW needs whitespace around a Japanese word inside a quoted string.
+		local padding = stage.mode == "remote" and " " or ""
+		local line = prefix .. vim.json.encode(padding .. text .. padding)
+		local col = #prefix + 1 + #padding
+		lines[#lines + 1] = "-- " .. comment
 		lines[#lines + 1] = line
-		assert(
-			line:sub(#prefix + 2, #prefix + 1 + #stage.text) == stage.text,
-			"example text cannot be escaped in the sample"
-		)
-		stage.target = { #lines, #prefix + 1 }
+		assert(line:sub(col + 1, col + #stage.text) == stage.text, "example text cannot be escaped in the sample")
+		stage.target = { #lines, col }
+		if stage.previews then
+			stage.previews[#stage.previews + 1] = stage.target
+			assert(#stage.previews == #stage.checkpoints, "search needs one preview per checkpoint")
+		end
 		stage.minimum = 1
 		stages[#stages + 1] = stage
 		if index < #config.examples then
@@ -261,26 +319,52 @@ require("flash-any.build").binary({
 })
 local engine = require("flash-any.native").load(binary)
 local labels = "asdfghjklqwertyuiopzxcvbnmASDFGHJKLQWERTYUIOPZXCVBNM"
+local jump_end = #lines
 for _, stage in ipairs(stages) do
+	if stage.previews then
+		jump_end = stage.previews[1][1]
+		break
+	end
+end
+for _, stage in ipairs(stages) do
+	stage.mode = stage.mode or "jump"
 	local target = stage.target
-	local matches = engine:scan(0, 0, 1, 1, #lines, lines, stage.pattern, vim.split(labels, ""))
-	assert(#matches >= stage.minimum, "not enough live candidates for " .. stage.title)
-	stage.matches = #matches
-	-- Keep an example's dedicated row; table scenes choose the last real occurrence.
-	-- Labels and result order come directly from the matcher.
-	for _, match in ipairs(matches) do
-		local row, col = unpack(match.pos)
-		if
-			lines[row]:sub(col + 1, col + #stage.text) == stage.text
-			and (not target or vim.deep_equal(target, { row, col }))
-		then
-			stage.label = assert(match.label, "demo target has no label")
-			stage.target = { row, col }
+	if stage.mode == "char" then
+		stage.positions = vim.tbl_map(function(match)
+			return match.pos
+		end, engine:scan(0, 0, 1, target[1], target[1], { lines[target[1]] }, stage.pattern, nil, "f"))
+		assert(
+			#stage.positions > 1 and vim.deep_equal(stage.positions[1], target),
+			"char needs multiple first-code matches"
+		)
+	else
+		local last = stage.mode == "search" and #lines or jump_end
+		local matches =
+			engine:scan(0, 0, 1, 1, last, vim.list_slice(lines, 1, last), stage.pattern, vim.split(labels, ""))
+		assert(#matches >= stage.minimum, "not enough live candidates for " .. stage.title)
+		stage.matches = #matches
+		-- Keep an example's dedicated row; table scenes choose the last real occurrence.
+		-- Labels and result order come directly from the matcher.
+		for _, match in ipairs(matches) do
+			local row, col = unpack(match.pos)
+			if
+				lines[row]:sub(col + 1, col + #stage.text) == stage.text
+				and (not target or vim.deep_equal(target, { row, col }))
+			then
+				stage.label = assert(match.label, "demo target has no label")
+				stage.target = { row, col }
+			end
+		end
+		assert(stage.label, "query does not match the demo target: " .. stage.text)
+		local first = engine:scan(0, 0, 1, 1, last, nil, stage.checkpoints[1], nil)
+		stage.narrow = stage.mode ~= "search" and #first > #matches
+		if stage.previews then
+			for index, pattern in ipairs(stage.checkpoints) do
+				local candidates = engine:scan(0, 0, 1, 1, #lines, lines, pattern, nil)
+				assert(vim.deep_equal(candidates[1].pos, stage.previews[index]), "unexpected nearest search preview")
+			end
 		end
 	end
-	assert(stage.label, "query does not match the demo target: " .. stage.text)
-	local first = engine:scan(0, 0, 1, 1, #lines, nil, stage.checkpoints[1], nil)
-	stage.narrow = #first > #matches
 end
 local output = {
 	title = config.title or (name .. " + ASCII"),
@@ -316,13 +400,29 @@ local tape = {
 	"Sleep 1.5s",
 }
 for _, stage in ipairs(stages) do
-	vim.list_extend(tape, { 'Type "s"', "Sleep 300ms" })
-	for index, checkpoint in ipairs(stage.checkpoints) do
-		local previous = stage.checkpoints[index - 1] or ""
-		tape[#tape + 1] = "Type " .. vim.json.encode(checkpoint:sub(#previous + 1))
-		tape[#tape + 1] = "Sleep 800ms"
+	if stage.mode == "char" then
+		vim.list_extend(tape, { 'Type "f"', "Sleep 300ms", "Type " .. vim.json.encode(stage.pattern), "Sleep 1.5s" })
+		for _ = 2, #stage.positions do
+			vim.list_extend(tape, { 'Type "f"', "Sleep 900ms" })
+		end
+		vim.list_extend(tape, { "Escape", "Sleep 300ms" })
+	else
+		local key = ({ jump = "s", remote = "yr", search = " /" })[stage.mode]
+		vim.list_extend(tape, { "Type " .. vim.json.encode(key), "Sleep 300ms" })
+		for index, checkpoint in ipairs(stage.checkpoints) do
+			local previous = stage.checkpoints[index - 1] or ""
+			tape[#tape + 1] = "Type " .. vim.json.encode(checkpoint:sub(#previous + 1))
+			tape[#tape + 1] = "Sleep 800ms"
+		end
+		if stage.mode == "search" then
+			vim.list_extend(tape, { "Enter", "Sleep 1.8s" })
+		else
+			vim.list_extend(tape, { "Type " .. vim.json.encode(stage.label), "Sleep 1s" })
+			if stage.mode == "remote" then
+				vim.list_extend(tape, { 'Type "iW"', "Sleep 1.8s" })
+			end
+		end
 	end
-	vim.list_extend(tape, { "Type " .. vim.json.encode(stage.label), "Sleep 1.8s" })
 end
 vim.list_extend(tape, {
 	"Hide",

@@ -1,34 +1,46 @@
 # Demo recordings / 演示录制
 
 主 demo 由 [demo.lua](demo.lua) 配置，同一份 `sources = { "latin", "pinyin", "japanese", "nerdfont" }`
-依次演示五个例子。每次都真实输入查询，再选择匹配器返回的标签跳转：
+依次展示字符连跳、标签跳转、远程操作和屏幕外搜索：
 
-| 场景 / Scene | 查询 / Query | 目标 / Target |
+| 场景 / Scene | 操作 / Input | 效果 / Result |
 | --- | --- | --- |
-| Latin | `cafe` | café |
-| 中文 / Chinese | `zhongwen` | 中文 |
-| 日文 / Japanese | `taberu` | 食べる |
-| Nerd Font | `vim` |  |
-| 混输 / Mixed | `cafe zw taberu vim` | café 中文 食べる  |
+| 多 source 首码 / Shared first code | `fz`，再连续按 `f` | 在有间隔的词组中依次跳到 ź、中、字、ず、zsh 图标和字面 z |
+| 中文 / Chinese | `s` → `zhongwen` → 标签 / label | 跳到中文 |
+| 远程复制 / Remote yank | `yr` → `taberu` → 标签 / label → `iW` | 复制食べる，返回起点 |
+| Nerd Font | `s` → `vim` → 标签 / label | 跳到  |
+| 屏幕外混输 / Offscreen mixed search | `<Space>/` → `cafe zw taberu vim` → Enter | 一边输入，一边越过干扰项并滚到最终目标 |
 
-混输只开启一次搜索：cafe 匹配带重音的 Latin，zw 是中文简拼，taberu 是日语罗马音，
-vim 是图标名，空格按 ASCII 字面匹配。停顿仅用于阅读，不切换输入模式。
+`fz` 的六个候选来自 Latin、拼音、日语、图标和字面匹配，首码都是 z；后续 `f` 使用
+Flash 原生连跳，不重输查询。远程操作用 `iW` 选择完整词组，避免原生 `iw` 将汉字与假名分开。
+search 段不选标签，只开启一次搜索；依次在 `cafe`、`cafe zw`、`cafe zw taberu`、
+`cafe zw taberu vim` 停顿，预览从三处相似文本移到初始屏幕之外的最终目标。
+空格按 ASCII 字面匹配，zw 是中文简拼。状态栏实时回显实际按键。
 
-The main clip uses one source configuration for Latin accents, Chinese pinyin,
-Japanese romaji, Nerd Font names and one continuous mixed query. It uses the same
-native dictionary, label planning, generated tape and playback verification as table demos.
+The main clip shares one dictionary across native repeated `f` motions, `s` label jumps,
+`yr` remote yank and label-free incremental search. Six spaced first-code candidates
+share z across all four sources and literal text. Remote yank uses `iW` to select the
+whole Japanese word, then returns to the origin. The continuous mixed search skips
+three near matches as the query grows and scrolls to a target outside the initial viewport.
+The status line echoes actual keys.
 
 修改 demo.lua 的 sources 和 examples 即可更换例子。每个例子包含 title、text 和 pattern；
+mode 默认为 `jump`，可选 `char`、`remote` 或 `search`。`char` 放在首段，pattern 为单字素，
+alternatives 在同一行追加有间隔的词组；候选和连跳次数从真实首码匹配推导。
+`remote` 使用 `yr` 和 `iW`。屏幕外 `search` 放在末段，decoys 按查询前缀排列；
+checkpoints 每项对应一个干扰项，最后一项对应目标。
 可选 checkpoints 是逐步增长的查询前缀，最后一项必须等于 pattern，用来安排输入停顿。
 不指定时按第一个完整字素和完整查询停顿。可选 comment 控制单行旁白，默认用 title。
 查询显式填写以固定多音字及图标别名，候选、标签和落点均从真实匹配计算。
-每个例子跳到自己的样本行，最后的混输另有一行，不会因同样文字重复出现而提前跳到混输。
 
 Edit sources and examples in demo.lua. Each example supplies title, text and pattern;
-optional checkpoints must be increasing prefixes ending at the full pattern. Optional
-comment provides one-line narration. Explicit queries select the intended readings
-and icon aliases; labels and targets always come from the actual matcher. Empty
-sources enable literal-only examples. Samples and tapes are generated in demos/output.
+mode defaults to jump. A char scene must come first, uses a single-grapheme pattern,
+and appends spaced alternatives to its row; real first-code matches determine the repeat count.
+Remote scenes use yr plus iW. An offscreen search scene comes last, with decoys ordered
+by query prefix and one checkpoint per decoy plus the final target.
+Optional checkpoints must be increasing prefixes ending at the full pattern; comment supplies
+one-line narration. Explicit queries select the intended readings and icon aliases.
+Empty sources enable literal-only examples. Samples and tapes are generated in demos/output.
 
 `f` 模式单独录制，使用 `sources = { "pinyin" }` 和 Flash 原生字符按键：
 
@@ -50,7 +62,7 @@ and all four first-code candidates without replacing Flash's keymaps.
 从仓库根目录运行：
 
 ```sh
-sh demos/record.sh       # s: Latin、中文、日文、图标、混输
+sh demos/record.sh       # f、s、r、屏幕外 search 混输
 sh demos/record.sh char  # f: 首码与连跳
 ```
 
@@ -190,7 +202,8 @@ The recording produces `demo.mp4`, `demo.gif`, `demo.png`, `verification.json`,
 and `media.json`; character-mode files use the `char` prefix, including
 `char-verification.json` and `char-media.json`. `README.local.md` links locally
 recorded clips without release URLs. Live TUI assertions check intermediate matches, the selected label,
-all configured final queries and cursor positions, and the unchanged fixture. Media checks verify
+all configured final queries and cursor positions, native f repeats, remote yank/return,
+per-prefix search cursors and viewports, and the unchanged fixture. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
 Expected byte positions come from the original fixture; table recordings select
@@ -200,7 +213,7 @@ a target from real matcher results.
 
 [工作流](../.github/workflows/demos.yml) 在 `main` 的插件、录制素材、README 和相关测试变化时
 自动运行，也可手动运行。工具与插件版本统一固定在 setup-demo composite action 中，字体包括 CJK 和 emoji fallback。
-分别录制 s、f 和第三方 Rime 模板三段，保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体及验证报告附件，
+分别录制主 demo（f / s / r / search）、独立 f 和第三方 Rime 模板三段，保存 GIF、MP4、PNG 和 JSON artifact。验证成功后才更新独立 `demos` prerelease 的同名媒体及验证报告附件，
 最后检查附件 URL。不提交生成媒体，不将 demo Release 标为 latest。
 验证失败时也保存已生成的媒体和 JSON，便于检查实际查询、落点及预期位置；失败不发布。
 

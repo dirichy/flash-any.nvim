@@ -8,9 +8,12 @@
 Jump with Latin variants, Chinese pinyin, Japanese romaji, icon names or custom encodings.
 Built on [flash.nvim](https://github.com/folke/flash.nvim), with runtime matching handled entirely in C.
 
-![Latin, Chinese, Japanese, Nerd Font and mixed input](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![Shared-code f repeats, s jumps, remote yank and offscreen mixed search](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [Playback verification](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
+
+The demo shows `fz` across multiple sources and repeated `f` jumps, `s` label jumps,
+`yr` remote yank, and incremental mixed search beyond the screen. Continue typing to skip near matches.
 
 ## Installation and setup
 
@@ -27,7 +30,7 @@ and the optional `latin` source. `sources = {}` enables literal matching alone;
 - [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) — Japanese romaji for kana, kanji and dictionary words
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font icons
 
-A lazy.nvim configuration for all five demo examples:
+A lazy.nvim configuration for the demo sources (add the character-mode setup below for `f`):
 
 ```lua
 {

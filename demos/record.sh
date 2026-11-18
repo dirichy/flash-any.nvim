@@ -89,7 +89,7 @@ subprocess.run([
 ], check=True)
 # Keep local preview links usable without release assets.
 previews = ['# Local demos', '']
-for name, title in [('demo', 'Latin, Chinese, Japanese, icons and mixed input'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
+for name, title in [('demo', 'f repeats, s jumps, remote yank and offscreen mixed search'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
     if (output / f'{name}.gif').exists():
         previews.extend([f'## {title}', '', f'![{title}]({name}.gif)', '', f'[MP4]({name}.mp4)', ''])
 (output / 'README.local.md').write_text('\n'.join(previews))

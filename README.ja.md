@@ -8,9 +8,12 @@
 ラテン文字の変種、中国語の拼音、日本語のローマ字、アイコン名などで検索してジャンプします。
 [flash.nvim](https://github.com/folke/flash.nvim) を使い、実行時のマッチングはすべて C で処理します。
 
-![ラテン文字・中国語・日本語・Nerd Font・混在検索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![共通先頭コードの f 連続移動・s・r・画面外の混在検索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [高画質 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [検証結果](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
+
+デモでは複数 source に共通する先頭コードで `fz` と `f` の連続移動、`s` のラベル移動、
+`yr` のリモートコピー、画面外までの混在検索を紹介します。入力を続けると似た候補を順に飛ばします。
 
 ## インストールと設定
 
@@ -27,7 +30,7 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
 - [dirichy/flash-any-nerdfont.nvim](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font のアイコン名
 - [dirichy/flash-any-tiger.nvim](https://github.com/dirichy/flash-any-tiger.nvim) — 中国語の虎碼
 
-デモの五つの例をすべて使う lazy.nvim 設定です。
+デモの source を有効にする lazy.nvim 設定です。`f` には後述の文字モード設定も追加します。
 
 ```lua
 {

@@ -8,9 +8,12 @@
 用拉丁字母变体、中文拼音、日语罗马音、图标名或自定义编码进行 Flash 跳转。
 基于 [flash.nvim](https://github.com/folke/flash.nvim)，运行时匹配核心全部使用 C。
 
-![Latin、中文、日文、Nerd Font 和混输](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![多 source 首码 f 连跳、s 跳转、r 远程复制及屏幕外混输搜索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [回放验证](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
+
+Demo 展示多 source 共享首码的 `fz` 与 `f` 连跳、`s` 标签跳转、`yr` 远程复制，
+以及屏幕外混输搜索；继续输入会逐步跳过相似干扰项。
 
 ## 安装与配置
 
@@ -26,7 +29,7 @@
 - [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) —— 假名、汉字和词典词组的日语罗马音
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— Nerd Font 图标
 
-下面的 lazy.nvim 配置可以运行 demo 中的全部五个例子：
+下面的 lazy.nvim 配置启用 demo 使用的 source；`f` 还需添加下文的字符模式配置：
 
 ```lua
 {
