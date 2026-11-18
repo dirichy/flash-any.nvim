@@ -5,7 +5,7 @@
 
 | 场景 / Scene | 操作 / Input | 效果 / Result |
 | --- | --- | --- |
-| 多 source 首码 / Shared first code | `fz`，再连续按 `f` | 在有间隔的词组中依次跳到 ź、中、字、ず、zsh 图标和字面 z |
+| 多 source 首码 / Shared first code | `fz`，再连续按 `f` | 在有间隔的词组中依次跳到 ź、中、字、ず、zip 图标和字面 z |
 | 中文 / Chinese | `s` → `zhongwen` → 标签 / label | 跳到中文 |
 | 远程复制 / Remote yank | `yr` → `taberu` → 标签 / label → `iW` | 复制食べる，返回起点 |
 | Nerd Font | `s` → `vim` → 标签 / label | 跳到  |

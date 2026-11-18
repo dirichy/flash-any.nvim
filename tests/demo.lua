@@ -182,7 +182,7 @@ main.sources = {
 		data = { ["食べる"] = "た べ る", ["ず"] = "zu" },
 		groups = { ["た"] = { "ta" }, ["べ"] = { "be" }, ["る"] = { "ru" } },
 	},
-	{ data = { [""] = "vim", [""] = "zsh" }, matcher = "prefix" },
+	{ data = { [""] = "vim", [""] = "zip" }, matcher = "prefix" },
 }
 local prepared = assert(prepare(main, { TABLE_FILE = "must-not-override-main.tsv" }, "demo"))
 assert(#prepared.stages == 5 and prepared.verification == "verification.json")

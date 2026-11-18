@@ -8,7 +8,7 @@ return {
 			title = "f: shared first code across sources",
 			mode = "char",
 			text = "źebra",
-			alternatives = "中途停留    字里行间    ずっと     shell    z",
+			alternatives = "中途停留    字里行间    ずっと     file    z",
 			pattern = "z",
 		},
 		{
