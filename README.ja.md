@@ -45,6 +45,7 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
+    { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
   },
 }
 ```
@@ -104,6 +105,28 @@ smartcase に従います。ignorecase は大文字小文字を無視し、smart
 latin では `e → é / é`、`o → ø`、`ae → æ`、`ss → ß` などを検索できます。
 大文字の元のコード（É → E、Æ → AE）は保持し、上記の大小文字設定を適用します。
 結合文字を含む文字全体を消費します。[ラテン文字の範囲と出典](docs/latin.md)も参照してください。
+
+### 検索モード
+
+`search()` は同じ sources を使い、現在のバッファで次の一致へ移動します。
+画面外も対象とし、末尾で先頭へ戻ります。入力中に位置をプレビューし、Enter で確定、
+Esc で元の位置へ戻り、Backspace で入力を削除します。ラベルや単一結果の自動確定はありません。
+プレビューとハイライトは非同期で分割処理し、入力変更で古い処理を中止します。
+Enter は未完了の検索を同期的に完了します。約 2 ms ごとに処理を譲りますが、
+非常に長い一行の照合中は中断できず、入力が一時的に止まる場合があります。
+
+プラグインは `search()` API のみを提供し、標準のキーマッピングは登録しません。
+上記の lazy.nvim 設定例は `<leader>/` を検索に割り当てています。必要に応じて変更・削除してください。
+ほかのプラグインマネージャーでは setup 後に設定できます。
+
+```lua
+vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, { desc = "Flash Any search" })
+```
+
+拼音設定なら `zhongwen` で「中文」を検索できます。ASCII 記号は文字どおりに扱い、
+正規表現は解釈しません。`search(opts)` は `jump(opts)` と同じ完全な単発設定を受け付けます。
+方向と折り返しは `search.forward`、`search.wrap` で変更できます。
+標準の `/`、検索レジスター、`n`/`N` は変更しません。
 
 ### f/F/t/T の文字移動
 

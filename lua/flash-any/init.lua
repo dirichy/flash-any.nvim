@@ -18,13 +18,13 @@ end, {
 })
 ---@type table?
 local default_opts = nil
----@type FlashAnyCharScan?
+---@type FlashAnyScan?
 local default_char = nil
 
 ---完整配置在此校验、构建；运行层不合并默认配置或解释简写。
 ---@param opts table? sources 自动编译，或 binary 加载现有码表；其余字段交给 Flash。
 ---@return table
----@return FlashAnyCharScan
+---@return FlashAnyScan
 local function build_opts(opts)
 	assert(type(opts) == "table", "provide complete opts or call setup before jump()")
 	opts = vim.deepcopy(opts)
@@ -69,6 +69,40 @@ function M.remote(opts)
 	return flash.remote(config)
 end
 
+---Incrementally search the current buffer without jump labels.
+---@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
+---@return Flash.State
+function M.search(opts)
+	local config = opts == nil and default_opts or build_opts(opts)
+	assert(config, "call setup before search()")
+	config = vim.deepcopy(config)
+	local get, finish = require("flash-any.search").new(config.matcher)
+	config = vim.tbl_deep_extend("force", config, {
+		labels = "",
+		multi_line = true,
+		search = { mode = "search", incremental = true, multi_window = false, trigger = "", max_length = false },
+		jump = { autojump = false, history = false, register = false },
+		highlight = { backdrop = false },
+	}) --[[@as table]]
+	config.matcher = get
+	local state = require("flash.state").new(config)
+	state:loop({
+		actions = {
+			["<CR>"] = function(current)
+				-- Commit from the original position so the jumplist and operators
+				-- use the search origin; an empty/failed query restores it too.
+				local target = finish(current)
+				current:restore()
+				if target then
+					current:jump(target)
+				end
+				return false
+			end,
+		},
+	})
+	return state
+end
+
 ---Use as flash.nvim's modes.char.matcher; Flash owns keys, repeats and labels.
 ---@param win integer
 ---@param state Flash.State
@@ -76,20 +110,7 @@ end
 ---@return Flash.Match[]
 function M.char(win, state, range)
 	assert(default_char, "call setup before using the char matcher")
-	local matcher = state:get_matcher(win)
-	-- HACK: Flash wraps callbacks with Matcher.from(), whose find() only searches
-	-- the last visible list. Replace this instance's find() to scan on demand.
-	-- Depends on State:get_matcher() and the get/find protocol in flash.search.matcher.
-	---@class FlashAnyCharMatcher: Flash.Matcher
-	---@field _flash_any_char? Flash.Matcher
-	---@cast matcher FlashAnyCharMatcher
-	local char = matcher._flash_any_char
-	if not char then
-		char = require("flash-any.char").new(win, state, default_char)
-		matcher._flash_any_char = char
-		matcher.find = char.find
-	end
-	return char:get(range)
+	return require("flash-any.matcher").get(win, state, range, default_char, require("flash.plugins.char").motion)
 end
 
 return M

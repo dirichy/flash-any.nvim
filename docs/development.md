@@ -29,7 +29,7 @@ Fallback merges by exact text key; empty lists also block later fallback codes f
 - `src/native.c`：Lua入口、窗口行/结果缓存、标签分配与f/F/t/T位置转换。
   状态/临时存储由Lua userdata拥有，避免额外malloc生命周期。
 - `src/native.h`：内部共享类型、格式常量与内联字典查询；匹配上下文只在`scan.c`内定义。
-- `native.lua`、`init.lua`、`char.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
+- `native.lua`、`init.lua`、`matcher.lua`、`search.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
   操作符、窗口、remote恢复和绘制。Flash要求的Lua matcher回调只是C入口。
 
 已有二进制时不加载source或字素模块；外部file的依赖检查只加载构建器的文件读取部分。
@@ -262,6 +262,37 @@ policy to C. Only literal and `letter` rules fold ASCII case; other rules stay e
 The result cache includes that policy; changing it rescans saved lines. Next-key sets
 reserve both cases only for insensitive rules so labels cannot consume valid input.
 
+## 异步搜索 / Asynchronous search
+
+`search.lua` owns the pending preview coroutine, its snapshot and published results.
+Both visible highlighting and directional lookup reuse `matcher.lua`, yielding between
+lines once a 2 ms batch budget expires. A 1 ms timer resumes work so input can run
+between batches. Query, buffer identity, changedtick and case options invalidate old
+work; hidden states cannot publish results. Harmless previous highlights remain until
+replacement results arrive. Enter refreshes the snapshot and drains the same coroutine
+without yielding, then restores the origin before committing the target.
+
+`search.lua` 统一管理预览任务、快照和已发布结果。可见高亮和目标查找都分批执行；
+查询、缓冲区、changedtick 或大小写选项变化时旧任务失效，隐藏后不再发布结果。
+新结果就绪前保留无害旧高亮。Enter 刷新快照，同步完成当前协程，再从原位置提交跳转。
+这是主线程协作式异步，单行 C 匹配不能中断；不提供线程并行或严格的延迟上限。
+
+Local measurement (2026-11-18, separate clean Neovim processes per mode/scenario):
+100,000 ASCII lines, roughly 4 MB, built-in literal matching, one run per case.
+The synchronous baseline uses the same shared matcher and native scanner.
+Times below are wall time for `state:update()` / first preview completion, excluding
+buffer construction and dictionary setup. They are local observations, not a latency guarantee.
+
+| Case | Synchronous update | Async update return | Async preview completion |
+| --- | --- | --- | --- |
+| Match on line 2 | 0.18 ms | 0.03 ms | 1.3 ms |
+| Match on line 100,000 | 303 ms | 0.04 ms | 306 ms |
+| No match | 591 ms | 0.04 ms | 653 ms |
+| One 5 MB target line | 74 ms | 0.05 ms | 75 ms |
+
+分批改善输入响应，不减少总扫描工作；无匹配场景的调度会增加总耗时。
+5 MB 单行案例中的约 74 ms C 扫描仍会阻塞一个批次，需另行支持行内中断才能消除。
+
 ## 测试与 LSP / Tests and LSP
 
 ```sh
@@ -269,6 +300,9 @@ make -B
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/run.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_async.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/search_input.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
 make -B CFLAGS='-O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined'
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/text.lua

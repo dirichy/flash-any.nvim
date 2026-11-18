@@ -27,4 +27,7 @@ jobs:
           nvim --clean -l tests/run.lua
           nvim --clean -l tests/flash.lua .dev/flash.nvim
           nvim --clean -l tests/char.lua .dev/flash.nvim
+          nvim --clean -l tests/search.lua .dev/flash.nvim
+          nvim --clean -l tests/search_async.lua .dev/flash.nvim
+          nvim --clean --headless -u tests/search_input.lua
           nvim --clean --headless -u tests/remote.lua

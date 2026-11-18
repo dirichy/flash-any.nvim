@@ -44,6 +44,7 @@
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
+    { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
   },
 }
 ```
@@ -98,6 +99,26 @@ ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartc
 `æ`，`ss` 匹配 `ß`。大写字母保留大写编码（`É` → `E`、`Æ` → `AE`），遵循上述
 `ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消耗。
 收录范围和数据来源见 [Latin 说明](docs/latin.md)。
+
+### 搜索模式
+
+`search()` 使用相同的 sources，在当前缓冲区向前寻找最近匹配，末尾回绕，
+包含屏幕外结果。输入时预览，Enter 确认，Esc 恢复原位置；Backspace 删除输入。
+没有标签，也不会在只剩一个结果时提前结束。
+预览和高亮分批异步计算，输入变化会取消旧任务；Enter 会同步完成尚未结束的当前查询。
+每批约 2 毫秒后让出事件循环，但单个超长行的匹配无法中断，仍可能造成短暂停顿。
+
+插件只提供 `search()` API，不注册默认键位。上面的 lazy.nvim 示例将 `<leader>/`
+映射到搜索；可自行修改或删除该项。其他插件管理器可在 setup 后映射：
+
+```lua
+vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, { desc = "Flash Any search" })
+```
+
+例如拼音配置下输入 `zhongwen` 可定位“中文”。ASCII 标点按字面匹配，不解释正则。
+`search(opts)` 与 `jump(opts)` 一样接受包含 `sources` 或 `binary` 的完整单次配置。
+方向和回绕可用 `search.forward`、`search.wrap` 调整。
+这是独立搜索入口，不替换原生 `/`，也不更新 `/` 寄存器或原生 `n`/`N`。
 
 ### 字符模式 f/F/t/T
 

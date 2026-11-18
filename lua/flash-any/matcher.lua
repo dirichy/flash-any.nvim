@@ -4,20 +4,20 @@ local M = {}
 
 ---@param win integer
 ---@param state Flash.State
----@alias FlashAnyCharScan fun(win: integer, state: table, range: table, motion?: string): FlashAnyDisplayMatch[]
----@param scan FlashAnyCharScan
+---@alias FlashAnyScan fun(win: integer, state: table, range: table, motion?: string): FlashAnyDisplayMatch[]
+---@param scan FlashAnyScan
+---@param motion? string
 ---@return Flash.Matcher
-function M.new(win, state, scan)
+function M.new(win, state, scan, motion)
 	local matcher = Matcher.new(win)
-	local motion = require("flash.plugins.char").motion
 	local origin = vim.api.nvim_win_get_cursor(win)[1]
-	---@type {multi_line: boolean}
-	local char_opts = state.opts
+	---@type {multi_line?: boolean}
+	local scan_opts = state.opts
+	local multi_line = scan_opts.multi_line ~= false
 
 	local function bounds()
 		local last = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
-		return char_opts.multi_line and 1 or math.min(origin, last),
-			char_opts.multi_line and last or math.min(origin, last)
+		return multi_line and 1 or math.min(origin, last), multi_line and last or math.min(origin, last)
 	end
 
 	local function get_line(row, filter)
@@ -103,6 +103,26 @@ function M.new(win, state, scan)
 	end
 
 	return matcher
+end
+
+---@param win integer
+---@param state Flash.State
+---@param range table
+---@param scan FlashAnyScan
+---@param motion? string
+---@return Flash.Match[]
+function M.get(win, state, range, scan, motion)
+	local matcher = state:get_matcher(win)
+	-- HACK: Flash's callback adapter only finds matches in its last visible list.
+	-- Install an on-demand find() on that instance for offscreen targets too.
+	---@class FlashAnyMatcher: Flash.Matcher
+	---@field _flash_any? Flash.Matcher
+	---@cast matcher FlashAnyMatcher
+	if not matcher._flash_any then
+		matcher._flash_any = M.new(win, state, scan, motion)
+		matcher.find = matcher._flash_any.find
+	end
+	return matcher._flash_any:get(range)
 end
 
 return M

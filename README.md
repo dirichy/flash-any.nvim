@@ -45,6 +45,7 @@ A lazy.nvim configuration for all five demo examples:
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
+    { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
   },
 }
 ```
@@ -104,6 +105,30 @@ With `sources = { "latin" }`, `e` matches `é` and `é`, `o` matches `ø`, `ae`
 `æ`, and `ss` matches `ß`. Capital letters retain capital codes (`É` → `E`, `Æ` → `AE`),
 following the `ignorecase` / `smartcase` settings above. Combining suffixes after a
 letter are consumed with the entire grapheme. See [Latin coverage and data sources](docs/latin.md).
+
+### Search mode
+
+`search()` uses the same sources to find the next match in the current buffer,
+wrapping at the end and including offscreen results. Typing previews the target;
+Enter confirms, Esc restores the original position, and Backspace edits the query.
+There are no labels or automatic confirmation when only one match remains.
+Preview and highlighting run asynchronously in batches; editing cancels the old query.
+Enter finishes any pending work synchronously. Batches yield after about 2 ms, but
+matching a single very long line cannot be interrupted and may still pause input.
+
+The plugin provides the `search()` API without registering default mappings.
+The lazy.nvim example above maps `<leader>/` to search; change or remove that entry
+as needed. With other plugin managers, add a mapping after setup:
+
+```lua
+vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, { desc = "Flash Any search" })
+```
+
+For example, with pinyin configured, `zhongwen` finds 中文. ASCII punctuation is
+literal, with no regex syntax. Like `jump(opts)`, `search(opts)` accepts a complete
+one-shot configuration containing `sources` or `binary`. Set `search.forward` and
+`search.wrap` to change direction or wrapping. This separate entry point leaves
+native `/`, its search register, and native `n`/`N` unchanged.
 
 ### Character motions f/F/t/T
 
