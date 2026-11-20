@@ -21,8 +21,8 @@ vim.opt.statusline = "  fz: 中 / 这 / 字 / z   |   f and ; next   |   , previ
 vim.cmd.colorscheme("tokyonight-night")
 
 local plugin = require("flash-any")
-plugin.setup({ sources = { "pinyin" } })
-require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false } } })
+require("flash").setup({ modes = { char = { multi_line = false } } })
+plugin.setup({ sources = { "pinyin" }, char = true })
 
 local original = vim.fn.readfile(root .. "/demos/char-sample.txt")
 local row, cols

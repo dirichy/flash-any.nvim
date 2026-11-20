@@ -31,13 +31,14 @@ and the optional `latin` source. `sources = {}` enables literal matching alone;
 - [`dirichy/flash-any-korean.nvim`](https://github.com/dirichy/flash-any-korean.nvim) — Korean Dubeolsik keyboard strokes
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font icons
 
-A lazy.nvim configuration for the demo sources (add the character-mode setup below for `f`):
+A lazy.nvim configuration for the demo sources, including `f/F/t/T`:
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
+  lazy = false,
   dependencies = {
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
@@ -46,7 +47,7 @@ A lazy.nvim configuration for the demo sources (add the character-mode setup bel
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -143,25 +144,23 @@ native `/`, its search register, and native `n`/`N` unchanged.
 
 ### Character motions f/F/t/T
 
-After this plugin's setup, add this to **Flash's configuration**:
+Set `char = true` in flash-any's setup to connect all `f/F/t/T` motions automatically:
 
 ```lua
-require("flash").setup({
-  modes = {
-    char = {
-      matcher = function(win, state, range)
-        return require("flash-any").char(win, state, range)
-      end,
-      -- multi_line = false,
-    },
-  },
-})
+require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`fz` matches characters whose codes begin with `z` and literal `z`; with flypy double
-pinyin, `fv` matches 中 and `v`. Flash handles F/t/T, counts, `;`/`,` repeats, operators
-and labels. Remove `modes.char.matcher` to restore Flash's native character matching.
-This callback only bridges to Flash; it is not a custom code matcher.
+`char` is a boolean, default `false`, and only setup changes this global integration;
+one-shot jump/remote/search options do not change it. Character motions use setup's sources.
+`fz` matches codes beginning with z and literal z. Flash owns keys, labels, counts,
+`;`/`,` repeats and operators. Existing Flash options such as `multi_line`, `jump_labels`
+and custom keys are preserved; `modes.char.enabled = false` still disables Flash's character mode.
+Configure Flash before flash-any: a later `require("flash").setup()` can replace the matcher.
+Calling flash-any setup again with `char = false` (or omitting it) restores the previous matcher
+if this plugin still owns it. The low-level `require("flash-any").char` callback remains available
+for manual integration. In lazy.nvim, enabling `char` also requires loading the plugin at startup
+(`lazy = false`), so f works before the first s jump.
+
 
 ## Configure tables
 

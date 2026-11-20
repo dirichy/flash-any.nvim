@@ -32,13 +32,14 @@ Linux와 macOS에서 검증했으며 Windows는 현재 지원하지 않습니다
 - [dirichy/flash-any-nerdfont.nvim](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font 아이콘 이름
 - [dirichy/flash-any-tiger.nvim](https://github.com/dirichy/flash-any-tiger.nvim) — 중국어 Tiger 자형 코드
 
-데모의 source를 사용하는 lazy.nvim 설정입니다. `f`에는 아래의 문자 이동 설정도 추가하세요.
+데모의 source와 f/F/t/T를 사용하는 lazy.nvim 설정입니다.
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
+  lazy = false,
   dependencies = {
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
@@ -47,7 +48,7 @@ Linux와 macOS에서 검증했으며 Windows는 현재 지원하지 않습니다
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -146,25 +147,22 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 
 ### 문자 이동 f/F/t/T
 
-이 플러그인의 setup 뒤에 **Flash 설정**을 추가합니다.
+flash-any의 setup에서 `char = true`를 설정하면 `f/F/t/T`가 자동으로 연결됩니다.
 
 ```lua
-require("flash").setup({
-  modes = {
-    char = {
-      matcher = function(win, state, range)
-        return require("flash-any").char(win, state, range)
-      end,
-      -- multi_line = false,
-    },
-  },
-})
+require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`fz`는 코드의 첫 키가 z인 글자와 문자 z를 찾습니다. flypy 솽핀에서는 `fv`로 中과 v를 찾습니다.
-Flash가 F/t/T, 횟수, `;`/`,` 반복, 연산자와 레이블을 처리합니다.
-기본 문자 매칭으로 돌아가려면 modes.char.matcher를 제거하세요.
-이 콜백은 Flash에 연결하는 역할만 하며 사용자 정의 코드 matcher가 아닙니다.
+char는 boolean이며 기본값은 false입니다. 전역 연결은 setup만 변경하며,
+일회성 jump/remote/search 옵션으로는 바뀌지 않습니다. 문자 이동은 setup의 sources를 사용합니다.
+fz는 첫 코드가 z인 문자와 문자 z를 찾습니다. 키, 레이블, 횟수, `;`/`,` 반복 및 연산자는
+Flash가 관리합니다. 기존 multi_line, jump_labels 및 사용자 키 설정을 유지하고,
+Flash의 `modes.char.enabled = false`도 존중합니다. Flash를 먼저 설정하세요.
+나중에 Flash의 setup을 다시 실행하면 matcher가 바뀔 수 있습니다.
+flash-any setup에서 char를 false로 설정하거나 생략하면, 여전히 이 플러그인의 matcher가
+설정된 경우 이전 matcher로 복원합니다. 수동 연결을 위한 char 콜백도 유지합니다.
+lazy.nvim에서는 `lazy = false`를 설정해 첫 s 이전에도 f를 사용할 수 있게 하세요.
+
 
 ## 사전 설정
 

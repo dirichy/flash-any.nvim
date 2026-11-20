@@ -24,14 +24,15 @@ vim.cmd("syntax enable")
 local config = vim.json.decode(table.concat(vim.fn.readfile(assert(vim.env.FLASH_ANY_DEMO_CONFIG)), "\n"))
 vim.opt.winbar = "  flash-any.nvim   /   " .. config.title:gsub("%%", "%%%%")
 local plugin = require("flash-any")
+require("flash").setup({ modes = { char = { multi_line = false } } })
 plugin.setup({
+	char = true,
 	sources = config.sources,
 	binary = config.binary,
 	labels = config.labels,
 	label = { style = "inline", uppercase = config.labels == nil },
 })
 vim.g.mapleader = " "
-require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false } } })
 local demo = { seen = {}, jumps = {}, active = 0, char_cursors = {} }
 local stages = config.stages
 -- Resolve expected byte positions from the original fixture, before any interaction.

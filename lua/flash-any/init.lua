@@ -20,6 +20,13 @@ end, {
 local default_opts = nil
 ---@type FlashAnyScan?
 local default_char = nil
+local char_attached = false
+---@type (fun(win: integer, state: Flash.State, range: {from: Pos, to: Pos}): Flash.Match[])|nil
+local previous_char_matcher
+
+---@class FlashAnyCharOptions: Flash.State.Config
+---@field multi_line? boolean
+---@field jump_labels? boolean
 
 ---完整配置在此校验、构建；运行层不合并默认配置或解释简写。
 ---@param opts table? sources 自动编译，或 binary 加载现有码表；其余字段交给 Flash。
@@ -28,6 +35,7 @@ local default_char = nil
 local function build_opts(opts)
 	assert(type(opts) == "table", "provide complete opts or call setup before jump()")
 	opts = vim.deepcopy(opts)
+	assert(opts.char == nil or type(opts.char) == "boolean", "char must be a boolean")
 	assert(
 		opts.sources == nil or (type(opts.sources) == "table" and vim.islist(opts.sources)),
 		"sources must be a list"
@@ -43,7 +51,7 @@ local function build_opts(opts)
 	local char = function(win, state, range, motion)
 		return native.char(win, state, range, engine, motion)
 	end
-	opts.sources, opts.binary = nil, nil
+	opts.sources, opts.binary, opts.char = nil, nil, nil
 	opts.labeler = function() end
 	opts.matcher = get
 	return opts, char
@@ -52,6 +60,24 @@ end
 ---@param opts table
 function M.setup(opts)
 	default_opts, default_char = build_opts(opts)
+	if opts.char or char_attached then
+		-- Reuse Flash's public setup with its current options, preserving user settings.
+		local config = require("flash.config").get()
+		local char = config.modes.char --[[@as FlashAnyCharOptions]]
+		if opts.char then
+			if char.matcher ~= M.char then
+				previous_char_matcher = char.matcher
+			end
+			char.matcher = M.char
+		elseif char.matcher == M.char then
+			char.matcher = previous_char_matcher
+		end
+		flash.setup(config)
+		char_attached = opts.char == true
+		if not char_attached then
+			previous_char_matcher = nil
+		end
+	end
 end
 
 ---@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。

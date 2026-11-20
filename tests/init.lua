@@ -17,10 +17,11 @@ build.binary({ sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matc
 build.binary({ sources = { { data = { ["中"] = "x" } } }, output = other })
 assert(not pcall(plugin.jump) and not pcall(plugin.remote))
 assert(not pcall(plugin.setup, {}))
+assert(not pcall(plugin.setup, { binary = path, char = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, sources = "pinyin" }))
 plugin.setup({ binary = path, labels = "abc", search = { wrap = false } })
 plugin.jump()
-assert(jump.labels == "abc" and jump.binary == nil and jump.sources == nil)
+assert(jump.labels == "abc" and jump.binary == nil and jump.sources == nil and jump.char == nil)
 local matcher = jump.matcher
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })
 local state = {
@@ -31,8 +32,8 @@ local state = {
 assert(#matcher(0, state, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
 plugin.remote()
 assert(remote.matcher == matcher)
-plugin.jump({ binary = other, labels = "xyz" })
-assert(jump.labels == "xyz" and jump.search == nil and jump.matcher ~= matcher)
+plugin.jump({ binary = other, labels = "xyz", char = true })
+assert(jump.labels == "xyz" and jump.search == nil and jump.matcher ~= matcher and jump.char == nil)
 assert(#jump.matcher(0, {
 	pattern = function()
 		return "x"

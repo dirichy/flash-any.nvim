@@ -11,8 +11,39 @@ local fixture = require("fixture")
 local plugin = require("flash-any")
 local Char = require("flash.plugins.char")
 local Pos = require("flash.search.pos")
-require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false } } })
-fixture.setup({ sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } } })
+require("flash").setup({ modes = { char = { multi_line = false } } })
+fixture.setup({
+	char = true,
+	sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } },
+})
+
+local config = require("flash.config")
+---@cast config { modes: { char: FlashAnyCharOptions } }
+assert(config.modes.char.matcher == plugin.char and config.modes.char.multi_line == false)
+fixture.setup({ sources = {}, char = true })
+fixture.setup({ sources = {}, char = false })
+assert(config.modes.char.matcher == nil, "repeated setup must restore Flash's original matcher")
+local custom = function()
+	return {}
+end
+require("flash").setup({ modes = { char = { matcher = custom, multi_line = false, jump_labels = false } } })
+fixture.setup({ sources = {}, char = true })
+assert(config.modes.char.matcher == plugin.char and config.modes.char.jump_labels == false)
+fixture.setup({ sources = {}, char = false })
+assert(config.modes.char.matcher == custom, "restore the original custom matcher")
+fixture.setup({ sources = {}, char = true })
+require("flash").setup({ modes = { char = { matcher = custom, multi_line = false } } })
+fixture.setup({ sources = {} })
+assert(config.modes.char.matcher == custom, "do not overwrite a newer external matcher")
+require("flash").setup({ modes = { char = { enabled = false, multi_line = false } } })
+fixture.setup({ sources = {}, char = true })
+assert(config.modes.char.enabled == false, "respect Flash's disabled character mode")
+fixture.setup({ sources = {}, char = false })
+require("flash").setup({ modes = { char = { multi_line = false } } })
+fixture.setup({
+	char = true,
+	sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } },
+})
 
 local function reset(lines, pos)
 	if Char.state then

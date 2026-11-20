@@ -31,13 +31,14 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
 - [dirichy/flash-any-nerdfont.nvim](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font のアイコン名
 - [dirichy/flash-any-tiger.nvim](https://github.com/dirichy/flash-any-tiger.nvim) — 中国語の虎碼
 
-デモの source を有効にする lazy.nvim 設定です。`f` には後述の文字モード設定も追加します。
+デモの source と f/F/t/T を有効にする lazy.nvim 設定です。
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
+  lazy = false,
   dependencies = {
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
@@ -46,7 +47,7 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -141,25 +142,22 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 
 ### f/F/t/T の文字移動
 
-このプラグインの setup 後、Flash の設定に次を追加します。
+flash-any の setup に `char = true` を指定すると、`f/F/t/T` を自動で接続します。
 
 ```lua
-require("flash").setup({
-  modes = {
-    char = {
-      matcher = function(win, state, range)
-        return require("flash-any").char(win, state, range)
-      end,
-      -- multi_line = false,
-    },
-  },
-})
+require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-例えば拼音の fz は z で始まるコードと文字 z を検索します。
-小鶴双拼では fv が「中」と v を検索します。F/t/T、回数、`;` と `,` の反復、
-オペレーターとラベルは Flash が処理します。標準の文字検索に戻すには
-modes.char.matcher を外します。このコールバックは Flash への接続で、独自コード matcher ではありません。
+`char` は boolean、既定値は `false` です。全体の接続を変更するのは setup だけで、
+単発の jump/remote/search 設定では変更しません。文字移動は setup の sources を使います。
+`fz` は z で始まるコードと文字 z を検索します。キー、ラベル、回数、`;`/`,`、
+オペレーターは Flash が管理します。既存の multi_line、jump_labels、キー設定を保持し、
+Flash の `modes.char.enabled = false` も尊重します。Flash を先に設定してください。
+後から Flash の setup を実行すると matcher が置き換わる場合があります。
+flash-any を再設定して char を false にするか省略すると、本プラグインの matcher が
+残っている場合に以前の matcher を復元します。手動接続用の char コールバックも利用できます。
+lazy.nvim では `lazy = false` を設定し、最初の s より前に f を使えるようにしてください。
+
 
 ## 辞書の設定
 

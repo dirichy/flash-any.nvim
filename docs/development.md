@@ -262,6 +262,20 @@ policy to C. Only literal and `letter` rules fold ASCII case; other rules stay e
 The result cache includes that policy; changing it rescans saved lines. Next-key sets
 reserve both cases only for insensitive rules so labels cannot consume valid input.
 
+## 字符模式接入 / Character-mode integration
+
+`setup({ char = true, ... })` 用 `flash.config.get()` 取得当前完整配置，再通过 Flash 的
+公开 setup 接入 `M.char`，不直接改内部配置或接管按键。setup 拥有接入前 matcher 的保存与恢复；
+重复启用不保存自己的回调，关闭时只恢复仍由本插件接管的 matcher。默认关闭，
+单次 jump/remote/search 配置不改变全局接入。Flash 的 enabled、multi_line、keys 等设置保留。
+
+Setup's boolean `char` option defaults to false. Enabling it passes Flash's current
+configuration from `flash.config.get()` back through its public setup with `M.char`
+as the character matcher. Setup owns the previous matcher and restores it only while
+the installed callback is still ours. Repeated enabling never snapshots our own callback.
+One-shot calls do not change the integration. Existing Flash options, including
+enabled, multi_line and keys, remain in place; Flash still owns all mappings.
+
 ## 异步搜索 / Asynchronous search
 
 `search.lua` owns the pending preview coroutine, its snapshot and published results.

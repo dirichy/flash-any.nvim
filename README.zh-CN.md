@@ -30,13 +30,14 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
 - [`dirichy/flash-any-korean.nvim`](https://github.com/dirichy/flash-any-korean.nvim) —— 韩文 두벌식（两套式）键位
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— Nerd Font 图标
 
-下面的 lazy.nvim 配置启用 demo 使用的 source；`f` 还需添加下文的字符模式配置：
+下面的 lazy.nvim 配置启用 demo 的 source 和 `f/F/t/T`：
 
 ```lua
 {
   "dirichy/flash-any.nvim",
   branch = "main",
   version = false,
+  lazy = false,
   dependencies = {
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
@@ -45,7 +46,7 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -133,24 +134,22 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 
 ### 字符模式 f/F/t/T
 
-先 setup 本插件，再在 **Flash 的配置**中添加：
+在 flash-any 的 setup 中设置 `char = true`，自动接入全部 `f/F/t/T`：
 
 ```lua
-require("flash").setup({
-  modes = {
-    char = {
-      matcher = function(win, state, range)
-        return require("flash-any").char(win, state, range)
-      end,
-      -- multi_line = false,
-    },
-  },
-})
+require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`fz` 匹配编码以 `z` 开头的字符及字面 `z`；小鹤双拼下 `fv` 匹配“中”及 `v`。
-F/t/T、计数、`;`/`,`、操作符和标签由 Flash 负责。删除 `modes.char.matcher`
-即可恢复 Flash 原生字符匹配。该回调只是 Flash 桥接，不是自定义编码 matcher。
+`char` 是布尔值，默认 `false`；只有 setup 会改变全局接入，单次 jump/remote/search
+配置中的开关不改变它。字符模式使用 setup 中的 sources。
+`fz` 匹配编码以 z 开头的字符及字面 z。按键、标签、计数、`;`/`,` 连跳和操作符仍由 Flash 管理。
+保留 Flash 已有的 `multi_line`、`jump_labels` 和自定义按键；Flash 的
+`modes.char.enabled = false` 仍会禁用字符模式。先配置 Flash，再 setup flash-any；
+之后重新执行 `require("flash").setup()` 可能覆盖 matcher。
+再次 setup flash-any 时设 `char = false` 或省略开关，若 matcher 仍由本插件接管，便恢复之前的 matcher。
+底层 `require("flash-any").char` 回调仍保留，供手动接入使用。
+lazy.nvim 中启用 char 时还需 `lazy = false`，确保第一次按 s 前 f 就已可用。
+
 
 ## 配置码表
 
