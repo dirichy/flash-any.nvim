@@ -13,7 +13,8 @@
 
 [高清 MP4](https://github.com/OWNER/TABLE/releases/download/demos/table.mp4) · [验证报告](https://github.com/OWNER/TABLE/releases/download/demos/table-verification.json)
 
-<!-- 首次 demos 发布成功前，用 Actions 工作流链接代替上面的媒体块。
+<!-- 各语言 README 都将演示紧接简介、放在安装说明之前。
+     首次 demos 发布成功前，在同一位置用 Actions 工作流链接代替上面的媒体块。
      发布后恢复 GIF、MP4、验证报告链接；公开 README 不链接被忽略的 demos/output。 -->
 
 ## 安装

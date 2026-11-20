@@ -54,16 +54,6 @@ for _, stage in ipairs(stages) do
 	end
 	assert(stage.target, "missing target: " .. stage.text)
 end
-local keys = ""
-vim.on_key(function(_, typed)
-	if typed and typed ~= "" then
-		keys = (keys .. vim.fn.keytrans(typed)):sub(-32)
-		vim.g.flash_any_demo_keys = keys
-		vim.schedule(function()
-			vim.cmd.redrawstatus()
-		end)
-	end
-end, vim.api.nvim_create_namespace("flash-any-demo-keys"))
 
 local function begin(index)
 	local stage = assert(stages[index], "unexpected extra search")
@@ -74,6 +64,21 @@ local function begin(index)
 	vim.opt.statusline = "  " .. stage.title:gsub("%%", "%%%%") .. "%=%{get(g:, 'flash_any_demo_keys', '')}  %l:%c  "
 	return stage
 end
+
+local keys = ""
+vim.on_key(function(_, typed)
+	if typed and typed ~= "" then
+		local next_index = #demo.jumps + 1
+		if typed == "f" and stages[next_index] and stages[next_index].mode == "char" and demo.active ~= next_index then
+			begin(next_index)
+		end
+		keys = (keys .. vim.fn.keytrans(typed)):sub(-32)
+		vim.g.flash_any_demo_keys = keys
+		vim.schedule(function()
+			vim.cmd.redrawstatus()
+		end)
+	end
+end, vim.api.nvim_create_namespace("flash-any-demo-keys"))
 
 for key, mode in pairs({ s = "jump", r = "remote", ["<leader>/"] = "search" }) do
 	vim.keymap.set(mode == "remote" and "o" or "n", key, function()
@@ -90,24 +95,15 @@ for key, mode in pairs({ s = "jump", r = "remote", ["<leader>/"] = "search" }) d
 	end)
 end
 
-vim.api.nvim_create_autocmd("VimEnter", {
-	once = true,
-	callback = function()
-		if stages[1].mode == "char" then
-			vim.api.nvim_win_set_cursor(0, { stages[1].target[1], 0 })
-			begin(1)
-		end
-	end,
-})
 vim.api.nvim_create_autocmd("TextYankPost", {
 	callback = function()
 		local index = demo.active
 		local jump = demo.jumps[index]
 		if jump and stages[index].mode == "remote" then
-			vim.hl.on_yank({ timeout = 1000 })
 			local contents = vim.v.event.regcontents
-			assert(type(contents) == "table", "yank contents must be lines")
-			jump.yanked = table.concat(contents, "\n")
+			assert(type(contents) == "table", "operator register contents must be lines")
+			jump.contents = table.concat(contents, "\n")
+			jump.operator = vim.v.event.operator
 			jump.landing = vim.api.nvim_win_get_cursor(0)
 			vim.defer_fn(function()
 				jump.restored = vim.api.nvim_win_get_cursor(0)
@@ -233,7 +229,8 @@ function demo.verify()
 					assert(selected.label == (stage.label or "a"), "the displayed label must select the target")
 				end
 				if stage.mode == "remote" then
-					assert(demo.jumps[i].yanked == stage.text, "remote must yank the Japanese word")
+					assert(demo.jumps[i].operator == "d", "remote must use the delete operator")
+					assert(demo.jumps[i].contents == stage.text, "remote must delete exactly the target word")
 					assert(
 						vim.deep_equal(demo.jumps[i].restored, demo.jumps[i].origin),
 						"remote must restore the origin"
@@ -247,8 +244,18 @@ function demo.verify()
 				end
 			end
 		end
-		assert(vim.deep_equal(vim.api.nvim_buf_get_lines(0, 0, -1, false), lines), "fixture changed")
-		assert(not vim.bo.modified, "demo must leave the fixture unchanged")
+		local expected = vim.deepcopy(lines)
+		local deleted = false
+		for _, stage in ipairs(stages) do
+			if stage.mode == "remote" then
+				local row, col = unpack(stage.target)
+				expected[row] = expected[row]:sub(1, col) .. expected[row]:sub(col + #stage.text + 1)
+				deleted = true
+			end
+		end
+		assert(vim.deep_equal(vim.api.nvim_buf_get_lines(0, 0, -1, false), expected), "unexpected buffer edits")
+		assert(vim.bo.modified == deleted, "only the remote deletion may modify the buffer")
+		assert(vim.deep_equal(vim.fn.readfile(config.fixture), lines), "demo must not write the fixture to disk")
 		assert(vim.v.errmsg == "", vim.v.errmsg)
 	end)
 	vim.fn.writefile({
@@ -258,6 +265,8 @@ function demo.verify()
 			seen = demo.seen,
 			jumps = demo.jumps,
 			char_cursors = demo.char_cursors,
+			buffer = vim.api.nvim_buf_get_lines(0, 0, -1, false),
+			modified = vim.bo.modified,
 			expected = stages,
 			seed = config.seed,
 			samples = config.samples,

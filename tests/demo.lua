@@ -171,10 +171,10 @@ assert(#engine:scan(0, 0, 1, 1, 1, lines, "zhong", {}) == 3)
 assert(#engine:scan(0, 0, 1, 1, 1, nil, "zhongwen with flash", nil) == 1)
 local workflow = table.concat(vim.fn.readfile(project .. "/demos/templates/table-demo.yml"), "\n")
 assert(workflow:find("config: demo.lua", 1, true) and not workflow:find("      file:", 1, true))
--- The main clip plans real f repeats, labelled jumps, remote yank and offscreen search.
+-- The main clip plans labelled jumps, real f repeats, remote delete and offscreen search.
 -- Small dictionaries keep core tests independent of optional source downloads.
 local main = assert(loadfile(project .. "/demos/demo.lua"))()
-assert(vim.deep_equal(main.sources, { "latin", "pinyin", "japanese", "nerdfont" }))
+assert(vim.deep_equal(main.sources, { "latin", "pinyin", "japanese", "korean", "nerdfont" }))
 main.sources = {
 	"latin",
 	{ data = { ["中"] = "zhong", ["文"] = "wen", ["字"] = "zi" }, matcher = "initial" },
@@ -182,35 +182,42 @@ main.sources = {
 		data = { ["食べる"] = "た べ る", ["ず"] = "zu" },
 		groups = { ["た"] = { "ta" }, ["べ"] = { "be" }, ["る"] = { "ru" } },
 	},
+	{ data = { ["한"] = "gks", ["글"] = "rmf", ["코"] = "zh", ["드"] = "em" } },
 	{ data = { [""] = "vim", [""] = "zip" }, matcher = "prefix" },
 }
 local prepared = assert(prepare(main, { TABLE_FILE = "must-not-override-main.tsv" }, "demo"))
-assert(#prepared.stages == 5 and prepared.verification == "verification.json")
+assert(#prepared.stages == 6 and prepared.verification == "verification.json")
 local fixture = vim.fn.readfile(prepared.fixture)
 for index, stage in ipairs(prepared.stages) do
 	assert(stage.pattern == main.examples[index].pattern)
-	if index < 5 then
+	if index < 6 then
 		assert(stage.target[1] == index * 3 - 1, "dedicated examples must not jump into the mixed example")
 	end
 	assert(fixture[stage.target[1]]:sub(stage.target[2] + 1, stage.target[2] + #stage.text) == stage.text)
 	if stage.mode == "char" then
-		assert(#stage.positions == 6 and vim.deep_equal(stage.positions[1], stage.target))
+		assert(#stage.positions == 7 and vim.deep_equal(stage.positions[1], stage.target))
 	else
 		assert(stage.matches >= 1 and stage.label)
 	end
 end
-assert(prepared.stages[3].mode == "remote")
-assert(prepared.stages[5].mode == "search" and prepared.stages[5].matches == 1)
-assert(#prepared.stages[5].previews == 4)
-for index, pos in ipairs(prepared.stages[5].previews) do
+assert(prepared.stages[4].mode == "char" and prepared.stages[5].mode == "remote")
+assert(prepared.stages[6].mode == "search" and prepared.stages[6].matches == 1)
+assert(#prepared.stages[6].previews == 5)
+for index, pos in ipairs(prepared.stages[6].previews) do
 	if index > 1 then
-		assert(pos[1] - prepared.stages[5].previews[index - 1][1] > 20, "search previews must cross viewports")
+		assert(pos[1] - prepared.stages[6].previews[index - 1][1] > 20, "search previews must cross viewports")
 	end
 end
 local generated = table.concat(vim.fn.readfile(root .. "/demos/output/demo.tape"), "\n")
 assert(generated:find("demo-config.json", 1, true) and generated:find("demo.mp4", 1, true))
-assert(generated:find('Type "f"', 1, true) and generated:find('Type "yr"', 1, true))
+assert(generated:find('Type "f"', 1, true) and generated:find('Type "dr"', 1, true))
 assert(generated:find('Type " /"', 1, true) and generated:find('Type "iW"', 1, true))
+local jump_pos = assert(generated:find('Type "s"', 1, true))
+local char_pos = assert(generated:find('Type "f"', 1, true))
+local remote_pos = assert(generated:find('Type "dr"', 1, true))
+local search_pos = assert(generated:find('Type " /"', 1, true))
+assert(jump_pos < char_pos and char_pos < remote_pos and remote_pos < search_pos)
+assert(generated:find('Type "11G0"', 1, true), "f must start on its own example row")
 local invalid = vim.deepcopy(main)
 invalid.examples[2].checkpoints = { "zh", "z" }
 assert(not prepare(invalid, nil, "demo"))
@@ -222,7 +229,7 @@ invalid = vim.deepcopy(main)
 invalid.examples[1].mode = "unknown"
 assert(not prepare(invalid, nil, "demo"))
 invalid = vim.deepcopy(main)
-invalid.examples[5].decoys = { "café noir" }
+invalid.examples[6].decoys = { "café noir" }
 assert(not prepare(invalid, nil, "demo"))
 invalid = vim.deepcopy(main)
 invalid.examples[1].pattern = "not-in-the-sample"

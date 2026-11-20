@@ -1,19 +1,19 @@
 # ⚡ flash-any.nvim
 
-[English](README.md) · [简体中文](README.zh-CN.md)
+[English](README.md) · [简体中文](README.zh-CN.md) · [한국어](README.ko.md)
 
 > **移行中のため、現在は不安定です。** `main` は C のマッチングコアと新しい設定 API を使います。
 > 以前の版については [master の英語 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md) を参照してください。
 
-ラテン文字の変種、中国語の拼音、日本語のローマ字、アイコン名などで検索してジャンプします。
+ラテン文字の変種、中国語の拼音、日本語のローマ字、韓国語のキー配列、アイコン名などで検索してジャンプします。
 [flash.nvim](https://github.com/folke/flash.nvim) を使い、実行時のマッチングはすべて C で処理します。
 
-![共通先頭コードの f 連続移動・s・r・画面外の混在検索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![s・共通先頭コードの f 連続移動・dr 削除・画面外の混在検索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [高画質 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [検証結果](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
 
-デモでは複数 source に共通する先頭コードで `fz` と `f` の連続移動、`s` のラベル移動、
-`yr` のリモートコピー、画面外までの混在検索を紹介します。入力を続けると似た候補を順に飛ばします。
+デモは中国語・韓国語・アイコンへの `s` ジャンプから始まり、`fz` と `f` の連続移動、
+`dr` のリモート削除、画面外までの混在検索と続きます。入力を続けると似た候補を順に飛ばします。
 
 ## インストールと設定
 
@@ -27,6 +27,7 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
 
 - [dirichy/flash-any-japanese.nvim](https://github.com/dirichy/flash-any-japanese.nvim) — かな・漢字・辞書収録語のローマ字検索
 - [dirichy/flash-any-pinyin.nvim](https://github.com/dirichy/flash-any-pinyin.nvim) — 中国語の拼音と双拼
+- [dirichy/flash-any-korean.nvim](https://github.com/dirichy/flash-any-korean.nvim) — 韓国語の 두벌식 キー配列
 - [dirichy/flash-any-nerdfont.nvim](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font のアイコン名
 - [dirichy/flash-any-tiger.nvim](https://github.com/dirichy/flash-any-tiger.nvim) — 中国語の虎碼
 
@@ -41,10 +42,11 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
     "dirichy/flash-any-japanese.nvim",
+    "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -82,8 +84,9 @@ setup のフィールドを継承しません。
 | ラテン文字のアクセント | café | `cafe` |
 | 中国語の拼音 | 中文 | `zhongwen` |
 | 日本語のローマ字 | 食べる | `taberu` |
+| 韓国語のキー配列 | 한글 | `gksrmf` |
 | Nerd Font アイコン |  | `vim` |
-| 混在検索 | café 中文 食べる  | `cafe zw taberu vim` |
+| 混在検索 | café 中文 한글 食べる  | `cafe zw gksrmf taberu vim` |
 
 混在検索の zw は中国語の各文字の頭文字です。スペースは ASCII のまま入力します。
 拼音の完全な綴りと頭文字も組み合わせられます。頭文字は最初の一文字なので、
@@ -98,8 +101,9 @@ setup のフィールドを継承しません。
 `taberu → 食べる` などを検索できます。かなの各綴りは音節ごとに組み合わせられます。
 詳しい範囲と設定は [日本語 source](https://github.com/dirichy/flash-any-japanese.nvim) にあります。
 
-オペレーター待機モードで `yr` を押し、検索してラベルを選んでから iw と入力すると、
-離れた単語をコピーして元のウィンドウに戻ります。削除には dr を使います。
+オペレーター待機モードで `dr` を押し、検索してラベルを選んでから `iW` と入力すると、
+離れた単語を削除して元の位置に戻ります。コピーには `yr` を使います。
+`iW` は空白で区切られた語全体を選び、漢字とかなが混在する日本語にも使えます。
 
 ASCII の文字そのものによる検索と latin は、f/F/t/T でも Neovim の ignorecase と
 smartcase に従います。ignorecase は大文字小文字を無視し、smartcase も有効なら
@@ -108,6 +112,10 @@ smartcase に従います。ignorecase は大文字小文字を無視し、smart
 latin では `e → é / é`、`o → ø`、`ae → æ`、`ss → ß` などを検索できます。
 大文字の元のコード（É → E、Æ → AE）は保持し、上記の大小文字設定を適用します。
 結合文字を含む文字全体を消費します。[ラテン文字の範囲と出典](docs/latin.md)も参照してください。
+
+韓国語はローマ字ではなくキー配列で検索します。`gksrmf → 한글`、`rk → 가`、`Rk → 까`。
+英語入力のまま使え、`ignorecase` / `smartcase` に関係なく区別します。
+詳しくは[韓国語 source](https://github.com/dirichy/flash-any-korean.nvim)を参照してください。
 
 ### 検索モード
 
@@ -163,6 +171,7 @@ require("flash-any").setup({
     "latin",
     "pinyin",
     "japanese",
+    "korean",
     "nerdfont",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
@@ -175,6 +184,7 @@ require("flash-any").setup({
 | latin | ラテン文字の変種、letter |
 | pinyin | 完全な拼音と頭文字。scheme 指定時は既定で完全コード |
 | japanese | かな・漢字・辞書収録語のローマ字グループ、full_code |
+| korean | 現代ハングルの 두벌식 キー配列、大文字小文字を区別する full_code |
 | nerdfont | Nerd Font のアイコン名、prefix |
 | tiger | 重みに応じた任意の選択キー。既定で第一候補はスペース、第二候補はセミコロン |
 

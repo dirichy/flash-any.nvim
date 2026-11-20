@@ -48,6 +48,13 @@ runs:
         ref: main
         path: .dev/source-packages/flash-any-nerdfont.nvim
         persist-credentials: false
+    - uses: actions/checkout@v4
+      if: inputs.source-owner != ''
+      with:
+        repository: ${{ inputs.source-owner }}/flash-any-korean.nvim
+        ref: main
+        path: .dev/source-packages/flash-any-korean.nvim
+        persist-credentials: false
     - uses: rhysd/action-setup-vim@v1
       with:
         neovim: true

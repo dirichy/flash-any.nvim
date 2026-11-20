@@ -52,7 +52,7 @@ output = Path('demos/output')
 scene, verification = sys.argv[1:]
 report = json.loads((output / verification).read_text())
 assert report['verified'], report.get('error', 'demo verification failed')
-print(f'Verified {scene} live playback and unchanged fixture.')
+print(f'Verified {scene} live playback and expected buffer edits.')
 
 # Two passes bound memory and keep the static gradient stable between frames.
 video = str(output / f'{scene}.mp4')
@@ -89,7 +89,7 @@ subprocess.run([
 ], check=True)
 # Keep local preview links usable without release assets.
 previews = ['# Local demos', '']
-for name, title in [('demo', 'f repeats, s jumps, remote yank and offscreen mixed search'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
+for name, title in [('demo', 's jumps, f repeats, remote delete and offscreen mixed search'), ('char', 'First-code f jumps'), ('table', 'Third-party code table')]:
     if (output / f'{name}.gif').exists():
         previews.extend([f'## {title}', '', f'![{title}]({name}.gif)', '', f'[MP4]({name}.mp4)', ''])
 (output / 'README.local.md').write_text('\n'.join(previews))

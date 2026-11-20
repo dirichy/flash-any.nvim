@@ -44,10 +44,7 @@ if config.examples then
 		stage.mode = stage.mode or "jump"
 		assert(vim.tbl_contains({ "jump", "char", "remote", "search" }, stage.mode), "unknown example mode")
 		local first = grapheme.split(stage.pattern)[1]
-		assert(
-			stage.mode ~= "char" or (index == 1 and first == stage.pattern),
-			"char must be first with one query grapheme"
-		)
+		assert(stage.mode ~= "char" or first == stage.pattern, "char needs one query grapheme")
 		stage.checkpoints = stage.checkpoints
 			or (#first < #stage.pattern and { first, stage.pattern } or { stage.pattern })
 		assert(
@@ -401,13 +398,15 @@ local tape = {
 }
 for _, stage in ipairs(stages) do
 	if stage.mode == "char" then
+		-- Move to the example row with native motions before starting f.
+		vim.list_extend(tape, { "Type " .. vim.json.encode(stage.target[1] .. "G0"), "Sleep 300ms" })
 		vim.list_extend(tape, { 'Type "f"', "Sleep 300ms", "Type " .. vim.json.encode(stage.pattern), "Sleep 1.5s" })
 		for _ = 2, #stage.positions do
 			vim.list_extend(tape, { 'Type "f"', "Sleep 900ms" })
 		end
 		vim.list_extend(tape, { "Escape", "Sleep 300ms" })
 	else
-		local key = ({ jump = "s", remote = "yr", search = " /" })[stage.mode]
+		local key = ({ jump = "s", remote = "dr", search = " /" })[stage.mode]
 		vim.list_extend(tape, { "Type " .. vim.json.encode(key), "Sleep 300ms" })
 		for index, checkpoint in ipairs(stage.checkpoints) do
 			local previous = stage.checkpoints[index - 1] or ""

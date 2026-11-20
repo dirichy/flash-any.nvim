@@ -1,19 +1,19 @@
 # ⚡ flash-any.nvim
 
-[简体中文](README.zh-CN.md) · [日本語](README.ja.md)
+[简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 > **Migration in progress — currently unstable.** `main` uses the C matching core and a new configuration API.
 > For the previous version, see the [master branch README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md).
 
-Jump with Latin variants, Chinese pinyin, Japanese romaji, icon names or custom encodings.
+Jump with Latin variants, Chinese pinyin, Japanese romaji, Korean keyboard strokes, icon names or custom encodings.
 Built on [flash.nvim](https://github.com/folke/flash.nvim), with runtime matching handled entirely in C.
 
-![Shared-code f repeats, s jumps, remote yank and offscreen mixed search](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![s jumps, shared-code f repeats, remote delete and offscreen mixed search](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [HD MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [Playback verification](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
 
-The demo shows `fz` across multiple sources and repeated `f` jumps, `s` label jumps,
-`yr` remote yank, and incremental mixed search beyond the screen. Continue typing to skip near matches.
+The demo starts with `s` label jumps for Chinese, Korean and icons, then `fz` and repeated `f` jumps,
+`dr` remote deletion, and incremental mixed search beyond the screen. Continue typing to skip near matches.
 
 ## Installation and setup
 
@@ -28,6 +28,7 @@ and the optional `latin` source. `sources = {}` enables literal matching alone;
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) — Chinese pinyin and double pinyin
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) — Chinese Tiger shape codes
 - [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) — Japanese romaji for kana, kanji and dictionary words
+- [`dirichy/flash-any-korean.nvim`](https://github.com/dirichy/flash-any-korean.nvim) — Korean Dubeolsik keyboard strokes
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) — Nerd Font icons
 
 A lazy.nvim configuration for the demo sources (add the character-mode setup below for `f`):
@@ -41,10 +42,11 @@ A lazy.nvim configuration for the demo sources (add the character-mode setup bel
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
     "dirichy/flash-any-japanese.nvim",
+    "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -84,8 +86,9 @@ accepts all of these examples, including the final query as one continuous searc
 | Latin accents | café | `cafe` |
 | Chinese pinyin | 中文 | `zhongwen` |
 | Japanese romaji | 食べる | `taberu` |
+| Korean Dubeolsik | 한글 | `gksrmf` |
 | Nerd Font icon |  | `vim` |
-| Mixed input | café 中文 食べる  | `cafe zw taberu vim` |
+| Mixed input | café 中文 한글 食べる  | `cafe zw gksrmf taberu vim` |
 
 In the mixed query, zw uses Chinese initials; the spaces are literal ASCII. Full
 pinyin and initials can mix too. Initials use the first letter: 输 is s, not sh.
@@ -96,8 +99,9 @@ Jump searches display non-overlapping matches on each line so trailing labels ha
 clear ranges. Earlier endings win; matches with the same end prefer the shorter
 range. Hidden alternatives still participate when you continue typing.
 
-In operator-pending mode, press `yr`, search for the target and select a label, then
-type `iw` to copy a remote word and return to the original window. Use `dr` to delete.
+In operator-pending mode, press `dr`, search for the target and select a label, then
+type `iW` to delete the remote word and return to the original position, as shown in the demo.
+Use `yr` to copy instead. `iW` selects the whole nonblank word, including mixed kanji/kana.
 
 ASCII literal text and the built-in latin table follow Neovim's `ignorecase` and
 `smartcase` settings, including in `f/F/t/T`. Enabling `ignorecase` ignores letter
@@ -108,6 +112,10 @@ With `sources = { "latin" }`, `e` matches `é` and `é`, `o` matches `ø`, `ae`
 `æ`, and `ss` matches `ß`. Capital letters retain capital codes (`É` → `E`, `Æ` → `AE`),
 following the `ignorecase` / `smartcase` settings above. Combining suffixes after a
 letter are consumed with the entire grapheme. See [Latin coverage and data sources](docs/latin.md).
+
+Korean matching uses keyboard positions rather than romanization: `gksrmf → 한글`.
+Keep English input active; `rk → 가` and `Rk → 까` stay distinct regardless of
+`ignorecase` / `smartcase`. See the [Korean source](https://github.com/dirichy/flash-any-korean.nvim).
 
 ### Search mode
 
@@ -157,7 +165,7 @@ This callback only bridges to Flash; it is not a custom code matcher.
 
 ## Configure tables
 
-Select sources in setup. Latin is built in; Chinese, Japanese and icon sources
+Select sources in setup. Latin is built in; Chinese, Japanese, Korean and icon sources
 come from the plugins listed above and must load before setup:
 
 ```lua
@@ -166,6 +174,7 @@ require("flash-any").setup({
     "latin",
     "pinyin",
     "japanese",
+    "korean",
     "nerdfont",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
@@ -186,6 +195,7 @@ Run make after updating and restart Neovim to load the new native module.
 | `latin` | Latin letter variants, `letter` |
 | `pinyin` | Full pinyin, accepting full codes and initials; defaults to full codes when a scheme is configured |
 | `japanese` | Kana and dictionary kanji/word readings, romaji spelling groups, `full_code` |
+| `korean` | Modern Hangul via Dubeolsik keyboard strokes, case-sensitive `full_code` |
 | `nerdfont` | Nerd Font icon names, `prefix` |
 | `tiger` | Tiger codes, with optional selection keys assigned by weight: space for the first candidate and semicolon for the second by default |
 

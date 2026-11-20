@@ -1,19 +1,19 @@
 # ⚡ flash-any.nvim
 
-[English](README.md) · [日本語](README.ja.md)
+[English](README.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
 > **正在迁移，暂不稳定。** `main` 分支使用 C 匹配核心和新版配置 API。
 > 旧版请查看 [master 分支 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.zh-CN.old.md)。
 
-用拉丁字母变体、中文拼音、日语罗马音、图标名或自定义编码进行 Flash 跳转。
+用拉丁字母变体、中文拼音、日语罗马音、韩文键位、图标名或自定义编码进行 Flash 跳转。
 基于 [flash.nvim](https://github.com/folke/flash.nvim)，运行时匹配核心全部使用 C。
 
-![多 source 首码 f 连跳、s 跳转、r 远程复制及屏幕外混输搜索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
+![s 跳转、多 source 首码 f 连跳、dr 远程删除及屏幕外混输搜索](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.gif)
 
 [高清 MP4](https://github.com/dirichy/flash-any.nvim/releases/download/demos/demo.mp4) · [回放验证](https://github.com/dirichy/flash-any.nvim/releases/download/demos/verification.json)
 
-Demo 展示多 source 共享首码的 `fz` 与 `f` 连跳、`s` 标签跳转、`yr` 远程复制，
-以及屏幕外混输搜索；继续输入会逐步跳过相似干扰项。
+Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首码的 `fz` 与 `f` 连跳，
+接着用 `dr` 远程删除，最后演示屏幕外混输搜索；继续输入会逐步跳过相似干扰项。
 
 ## 安装与配置
 
@@ -27,6 +27,7 @@ Demo 展示多 source 共享首码的 `fz` 与 `f` 连跳、`s` 标签跳转、`
 - [`dirichy/flash-any-pinyin.nvim`](https://github.com/dirichy/flash-any-pinyin.nvim) —— 中文拼音和双拼
 - [`dirichy/flash-any-tiger.nvim`](https://github.com/dirichy/flash-any-tiger.nvim) —— 中文虎码
 - [`dirichy/flash-any-japanese.nvim`](https://github.com/dirichy/flash-any-japanese.nvim) —— 假名、汉字和词典词组的日语罗马音
+- [`dirichy/flash-any-korean.nvim`](https://github.com/dirichy/flash-any-korean.nvim) —— 韩文 두벌식（两套式）键位
 - [`dirichy/flash-any-nerdfont.nvim`](https://github.com/dirichy/flash-any-nerdfont.nvim) —— Nerd Font 图标
 
 下面的 lazy.nvim 配置启用 demo 使用的 source；`f` 还需添加下文的字符模式配置：
@@ -40,10 +41,11 @@ Demo 展示多 source 共享首码的 `fz` 与 `f` 连跳、`s` 标签跳转、`
     "folke/flash.nvim",
     "dirichy/flash-any-pinyin.nvim",
     "dirichy/flash-any-japanese.nvim",
+    "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
   build = "make",
-  opts = { sources = { "latin", "pinyin", "japanese", "nerdfont" } },
+  opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
@@ -73,15 +75,16 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 ## 用法
 
 按 `s`，输入查询，再按标签跳转。同一份配置可以匹配以下全部例子，最后一行只开启
-一次搜索，连续混用四种 source 和字面 ASCII：
+一次搜索，连续混用五种 source 和字面 ASCII：
 
 | 例子 | 缓冲区文字 | 查询 |
 | --- | --- | --- |
 | 拉丁字母变体 | café | `cafe` |
 | 中文拼音 | 中文 | `zhongwen` |
 | 日语罗马音 | 食べる | `taberu` |
+| 韩文键位 | 한글 | `gksrmf` |
 | Nerd Font 图标 |  | `vim` |
-| 混输 | café 中文 食べる  | `cafe zw taberu vim` |
+| 混输 | café 中文 한글 食べる  | `cafe zw gksrmf taberu vim` |
 
 混输中的 zw 是中文简拼，空格按 ASCII 原样输入。也可以混用完整拼音和首字母；
 简拼只取首字母，例如“输”是 s，不是 sh。双拼及其他码表选项见对应 source 文档。
@@ -90,8 +93,9 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 跳转搜索在每行只显示互不重叠的匹配，便于辨认后置标签对应的范围。优先保留最早结束的匹配，
 终点相同时保留更短的范围。继续输入时，被隐藏的其他分支仍参与匹配。
 
-操作符等待模式下按 `yr`，搜索目标并选择标签，再输入 `iw`，可复制远处单词并
-返回原窗口；`dr` 用于删除。
+操作符等待模式下按 `dr`，搜索目标并选择标签，再输入 `iW`，可删除远处单词并
+返回操作起点，demo 展示的就是这个操作；改用 `yr` 则复制。`iW` 选择完整非空白词，
+适合包含汉字与假名的日语词。
 
 
 ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartcase` 设置，`f/F/t/T` 也一样。
@@ -102,6 +106,10 @@ ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartc
 `æ`，`ss` 匹配 `ß`。大写字母保留大写编码（`É` → `E`、`Æ` → `AE`），遵循上述
 `ignorecase` / `smartcase` 设置。字母后的组合后缀随整个字素一起消耗。
 收录范围和数据来源见 [Latin 说明](docs/latin.md)。
+
+韩文按键位匹配，不是罗马音：`gksrmf → 한글`。搜索时保持英文输入；
+`rk → 가`、`Rk → 까` 严格区分，不受 `ignorecase` / `smartcase` 影响。
+详见[韩文 source](https://github.com/dirichy/flash-any-korean.nvim)。
 
 ### 搜索模式
 
@@ -146,7 +154,7 @@ F/t/T、计数、`;`/`,`、操作符和标签由 Flash 负责。删除 `modes.ch
 
 ## 配置码表
 
-在 setup 中选择 source；latin 已内置，中文、日文和图标 source 来自上面列出的插件，
+在 setup 中选择 source；latin 已内置，中文、日文、韩文和图标 source 来自上面列出的插件，
 必须在 setup 前加载：
 
 ```lua
@@ -155,6 +163,7 @@ require("flash-any").setup({
     "latin",
     "pinyin",
     "japanese",
+    "korean",
     "nerdfont",
     -- { name = "pinyin", scheme = "flypy", fuzzy = true },
     -- { name = "tiger" },
@@ -174,6 +183,7 @@ require("flash-any").setup({
 | `latin` | 拉丁字母变体，`letter` |
 | `pinyin` | 全拼，接受完整编码及首字母；配置 scheme 后默认完整编码 |
 | `japanese` | 假名及词典中的汉字、词组读音，罗马音拼写组，`full_code` |
+| `korean` | 现代韩文 두벌식 键位，严格区分大小写的 `full_code` |
 | `nerdfont` | Nerd Font 图标名称，`prefix` |
 | `tiger` | 虎码，按权重分配可选选键，默认首选空格、次选分号 |
 

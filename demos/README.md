@@ -1,46 +1,54 @@
 # Demo recordings / 演示录制
 
-主 demo 由 [demo.lua](demo.lua) 配置，同一份 `sources = { "latin", "pinyin", "japanese", "nerdfont" }`
-依次展示字符连跳、标签跳转、远程操作和屏幕外搜索：
+主 demo 由 [demo.lua](demo.lua) 配置，同一份 `sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }`
+按 `s → f → remote → search` 的顺序展示：
 
 | 场景 / Scene | 操作 / Input | 效果 / Result |
 | --- | --- | --- |
-| 多 source 首码 / Shared first code | `fz`，再连续按 `f` | 在有间隔的词组中依次跳到 ź、中、字、ず、zip 图标和字面 z |
-| 中文 / Chinese | `s` → `zhongwen` → 标签 / label | 跳到中文 |
-| 远程复制 / Remote yank | `yr` → `taberu` → 标签 / label → `iW` | 复制食べる，返回起点 |
-| Nerd Font | `s` → `vim` → 标签 / label | 跳到  |
-| 屏幕外混输 / Offscreen mixed search | `<Space>/` → `cafe zw taberu vim` → Enter | 一边输入，一边越过干扰项并滚到最终目标 |
+| 标签跳转 / Label jumps | `s` → `zhongwen` / `gksrmf` / `vim` → 标签 / label | 依次跳到中文、한글 和 Vim 图标 |
+| 多 source 首码 / Shared first code | `fz`，再连续按 `f` | 依次跳到 ź、中、字、ず、코、zip 图标和字面 z |
+| 远程删除 / Remote delete | `dr` → `taberu` → 标签 / label → `iW` | 删除食べる，返回操作起点 |
+| 屏幕外混输 / Offscreen mixed search | `<Space>/` → `cafe zw gksrmf taberu vim` → Enter | 输入时跳过干扰项，滚到最终目标 |
 
-`fz` 的六个候选来自 Latin、拼音、日语、图标和字面匹配，首码都是 z；后续 `f` 使用
-Flash 原生连跳，不重输查询。远程操作用 `iW` 选择完整词组，避免原生 `iw` 将汉字与假名分开。
-search 段不选标签，只开启一次搜索；依次在 `cafe`、`cafe zw`、`cafe zw taberu`、
-`cafe zw taberu vim` 停顿，预览从三处相似文本移到初始屏幕之外的最终目标。
-空格按 ASCII 字面匹配，zw 是中文简拼。状态栏实时回显实际按键。
+`fz` 的七个候选来自 Latin、拼音、日语、韩文、图标和字面匹配，首码都是 z；
+后续 `f` 使用 Flash 原生连跳，不重输查询。录制器先用原生行移动定位到该场景，
+再观察真实 `f` 按键进入验证阶段，不替换 Flash 的字符映射。
+远程删除使用 `iW` 选择完整非空白词，避免原生 `iw` 将汉字与假名分开。
+回放验证删除寄存器中的目标词、实际操作符 `d`、删除后的缓冲区和返回位置；磁盘样本不能改变。
 
-The main clip shares one dictionary across native repeated `f` motions, `s` label jumps,
-`yr` remote yank and label-free incremental search. Six spaced first-code candidates
-share z across all four sources and literal text. Remote yank uses `iW` to select the
-whole Japanese word, then returns to the origin. The continuous mixed search skips
-three near matches as the query grows and scrolls to a target outside the initial viewport.
-The status line echoes actual keys.
+search 段不选标签，只开启一次搜索；依次在 `cafe`、`cafe zw`、`cafe zw gksrmf`、
+`cafe zw gksrmf taberu` 和完整查询停顿，越过四处相似文本，滚动到初始屏幕之外的目标。
+空格按 ASCII 字面匹配，zw 是中文简拼，gksrmf 是韩文 두벌식 键位。
+状态栏实时回显实际按键。
+
+The main clip shows `s` label jumps for Chinese, Korean and icons, native repeated
+`f` motions, `dr` remote deletion and label-free incremental search, in that order.
+Seven spaced first-code candidates share z across all five sources and literal text.
+The recorder moves to the character example with native line motions, then observes
+real `f` input without replacing Flash's character mappings. Remote delete uses
+`iW` to select the entire Japanese word. Playback verifies the delete operator,
+register contents, changed buffer, restored origin and unchanged fixture on disk.
+The continuous mixed search skips four near matches as the query grows and scrolls
+to a target outside the initial viewport. The status line echoes actual keys.
 
 修改 demo.lua 的 sources 和 examples 即可更换例子。每个例子包含 title、text 和 pattern；
-mode 默认为 `jump`，可选 `char`、`remote` 或 `search`。`char` 放在首段，pattern 为单字素，
+mode 默认为 `jump`，可选 `char`、`remote` 或 `search`。`char` 的 pattern 为单字素，
 alternatives 在同一行追加有间隔的词组；候选和连跳次数从真实首码匹配推导。
-`remote` 使用 `yr` 和 `iW`。屏幕外 `search` 放在末段，decoys 按查询前缀排列；
-checkpoints 每项对应一个干扰项，最后一项对应目标。
+`remote` 使用 `dr` 和 `iW`，只删除目标词，不写回样本。屏幕外 `search` 放在末段，
+decoys 按查询前缀排列；checkpoints 每项对应一个干扰项，最后一项对应目标。
 可选 checkpoints 是逐步增长的查询前缀，最后一项必须等于 pattern，用来安排输入停顿。
 不指定时按第一个完整字素和完整查询停顿。可选 comment 控制单行旁白，默认用 title。
 查询显式填写以固定多音字及图标别名，候选、标签和落点均从真实匹配计算。
 
 Edit sources and examples in demo.lua. Each example supplies title, text and pattern;
-mode defaults to jump. A char scene must come first, uses a single-grapheme pattern,
-and appends spaced alternatives to its row; real first-code matches determine the repeat count.
-Remote scenes use yr plus iW. An offscreen search scene comes last, with decoys ordered
-by query prefix and one checkpoint per decoy plus the final target.
-Optional checkpoints must be increasing prefixes ending at the full pattern; comment supplies
-one-line narration. Explicit queries select the intended readings and icon aliases.
-Empty sources enable literal-only examples. Samples and tapes are generated in demos/output.
+mode defaults to jump. A char example uses a single-grapheme pattern and appends
+spaced alternatives to its row; real first-code matches determine the repeat count.
+Remote scenes use dr plus iW and delete only the target without saving the fixture.
+An offscreen search scene comes last, with decoys ordered by query prefix and one
+checkpoint per decoy plus the final target. Optional checkpoints must be increasing
+prefixes ending at the full pattern; comment supplies single-line narration.
+Explicit queries select the intended readings and icon aliases. Empty sources
+support literal-only examples. Samples and tapes are generated in demos/output.
 
 `f` 模式单独录制，使用 `sources = { "pinyin" }` 和 Flash 原生字符按键：
 
@@ -193,7 +201,7 @@ VHS 设置抓帧 30fps，本机 H.264 输出实测 25fps，以 ffprobe 报告为
 GIF 从 MP4 两遍转换，保留 1920×1080、20fps，变化区域调色板与固定 Bayer 抖动可减少渐变闪烁。
 输入速度为 120ms/键，语义分段后停留 0.8 秒，跳转后停留 1.8 秒。
 
-同一次 TUI 回放记录中间查询候选、实际标签和最终落点，确认样例未修改且没有 Neovim 错误。
+同一次 TUI 回放记录中间查询候选、实际标签和最终落点，确认只有预期的远程删除、磁盘样例未改变且没有 Neovim 错误。
 预期行列由原始样例中的目标位置确定，使用字节列；码表演示从真实匹配中选择落点。
 每轮清空旧验证文件，异常写入本轮 JSON；验证成功才转换 GIF、检查 codec/尺寸/实际帧率并提取封面。
 生成后仍须目视检查关键帧的字体、emoji、裁切和标签。
@@ -202,8 +210,8 @@ The recording produces `demo.mp4`, `demo.gif`, `demo.png`, `verification.json`,
 and `media.json`; character-mode files use the `char` prefix, including
 `char-verification.json` and `char-media.json`. `README.local.md` links locally
 recorded clips without release URLs. Live TUI assertions check intermediate matches, the selected label,
-all configured final queries and cursor positions, native f repeats, remote yank/return,
-per-prefix search cursors and viewports, and the unchanged fixture. Media checks verify
+all configured final queries and cursor positions, native f repeats, remote deletion/return,
+per-prefix search cursors and viewports, exact expected buffer edits and the unchanged fixture on disk. Media checks verify
 1920×1080 output and actual codecs/frame rates. The MP4 retains full color; the
 20fps GIF uses a separate palette pass and stable Bayer dithering.
 Expected byte positions come from the original fixture; table recordings select
@@ -229,14 +237,14 @@ Failed runs also save available media and verification JSON for diagnosis; they 
 
 ## 独立 source / Optional sources
 
-主 demo 需要 pinyin、japanese、nerdfont 三个外部 source，latin 已内置；字符演示只需要
+主 demo 需要 pinyin、japanese、korean、nerdfont 四个外部 source，latin 已内置；字符演示只需要
 pinyin。将 FLASH_ANY_SOURCE_PATH 设置为这些插件目录的父目录，例如它们都位于家目录时：
 
 ```sh
 FLASH_ANY_SOURCE_PATH="$HOME" sh demos/record.sh
 ```
 
-目录名应为 flash-any-pinyin.nvim、flash-any-japanese.nvim、flash-any-nerdfont.nvim。
+目录名应为 flash-any-pinyin.nvim、flash-any-japanese.nvim、flash-any-korean.nvim、flash-any-nerdfont.nvim。
 也可以使用 `.dev/source-packages` 或插件管理器的目录，录制入口不会加载个人 init.lua。
 只检查配置及匹配、不启动浏览器时，从核心仓库根目录运行：
 
@@ -245,15 +253,15 @@ FLASH_ANY_SOURCE_PATH="$HOME" nvim --clean -l demos/prepare-table.lua demos/demo
 ```
 
 默认演示 CI 从当前仓库所有者（可用仓库变量 FLASH_ANY_SOURCE_OWNER 覆盖）的
-flash-any-NAME.nvim main 分支安装 source，包括 japanese；核心基础测试使用小型 fixture，
+flash-any-NAME.nvim main 分支安装 source，包括 japanese 和 korean；核心基础测试使用小型 fixture，
 不依赖这些 source 仓库。普通外部 file 录制无需安装上述插件。
 
-The main demo needs external pinyin, japanese and nerdfont sources; latin is built
+The main demo needs external pinyin, japanese, korean and nerdfont sources; latin is built
 in. Character recordings need pinyin only. Set FLASH_ANY_SOURCE_PATH to the parent
 of the source checkouts (for example HOME), without loading personal configuration.
 The same preparation entry accepts demo.lua plus the demo output name; record.sh
 also accepts `demo /path/config.lua` for a different examples configuration.
-Recording CI installs published source dependencies, including japanese, from the
+Recording CI installs published source dependencies, including japanese and korean, from the
 repository owner; set FLASH_ANY_SOURCE_OWNER to use a different owner. Core tests use small fixtures;
 ordinary file-based table recordings do not need the optional packages.
 
