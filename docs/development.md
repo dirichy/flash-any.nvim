@@ -87,7 +87,19 @@ Lua-owned userdata持有码表快照和匹配结果，状态表持有原始行�
 
 native.load统一拥有码表缓存路径和构建：未指定binary时，按sources的稳定inspect
 表示和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
-不存在时创建目录并调用build.binary；存在时直接打开。显式binary优先使用固定路径。
+存在时直接打开；setup 缺失时通过 build.async 启动 nvim --clean -l 子进程，
+传递 MessagePack 构建参数、runtimepath 和当前窗口 cwd。同一路径在本进程内合并构建请求。
+工厂、读取、合并与写入在子进程执行；回调打开新快照。等待时保留旧 matcher，首次使用
+轻量字面快照，每次搜索通知一次。失败保留回退并通知。显式binary优先使用固定路径。
+build.binary/table 和不传回调的 native.load 供开发工具同步使用。缓存指纹检查及最终
+binary 的读取/校验仍在主线程；并非所有 setup 工作都迁移到后台。
+
+Setup compiles missing dictionaries in a headless Nvim worker, sharing runtimepath and
+cwd but no init.lua or in-memory Lua state. Requests for the same path share one worker.
+While waiting, searches keep their previous matcher or use a literal-only snapshot;
+notifications are emitted at build start and once per search using a fallback. Failures
+retain that fallback. Build helpers remain synchronous for exports. Cache fingerprinting
+and opening/validating the finished binary still run on the main thread.
 外部词典、Rime导入、lua/tsv及converter按绝对路径、大小和mtime（秒/纳秒）生成缓存键，
 修改后下次setup生成新快照。UTF-8 Rime只读头部发现导入，其他编码的自动检测/Rime
 仍复用整文件解码；显式非Rime格式只需stat。

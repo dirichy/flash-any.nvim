@@ -53,10 +53,14 @@ local function package_fingerprint()
 	return package_hash
 end
 
+local pending = {}
+
 ---@param path? string
 ---@param sources? FlashAnySourceSpec[]
----@return FlashAnyNativeEngine
-function M.load(path, sources)
+---@overload fun(path?: string, sources?: FlashAnySourceSpec[]): FlashAnyNativeEngine
+---@param ready fun(engine: FlashAnyNativeEngine?, err: string?)
+---@return FlashAnyNativeEngine?
+function M.load(path, sources, ready)
 	if not path then
 		assert(sources, "provide sources or a compiled binary")
 		local inputs = { native.version, package_fingerprint() }
@@ -105,9 +109,61 @@ function M.load(path, sources)
 	if not vim.uv.fs_stat(path) then
 		assert(sources, "binary is missing; provide sources to build it automatically: " .. path)
 		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
+		if ready then
+			if pending[path] then
+				pending[path][#pending[path] + 1] = ready
+				return
+			end
+			pending[path] = { ready }
+			local ok, err = pcall(
+				require("flash-any.build").async,
+				"binary",
+				{ sources = sources, output = path },
+				function(err)
+					local callbacks = pending[path]
+					pending[path] = nil
+					local opened, engine = false, nil
+					if not err then
+						opened, engine = pcall(native.open, path)
+						err = not opened and tostring(engine) or nil
+					end
+					if err then
+						vim.notify("flash-any: " .. err, vim.log.levels.ERROR)
+					end
+					for _, callback in ipairs(callbacks) do
+						callback(not err and engine or nil, err)
+					end
+				end
+			)
+			if not ok then
+				pending[path] = nil
+				error(err)
+			end
+			vim.notify("flash-any: building dictionary in background", vim.log.levels.INFO)
+			return
+		end
 		require("flash-any.build").binary({ sources = sources, output = path })
 	end
 	return native.open(path)
+end
+
+local literal
+
+---A small literal-only snapshot for first-build searches; no source factories are loaded.
+---@return FlashAnyNativeEngine
+function M.literal()
+	if not literal then
+		local keys, codes = {}, {}
+		for byte = 1, 127 do
+			local key = string.char(byte)
+			keys[byte], codes[byte] = key, { { native.modes.literal, key, "" } }
+		end
+		local path = vim.fn.tempname()
+		native.write(keys, codes, path)
+		literal = native.open(path)
+		vim.uv.fs_unlink(path)
+	end
+	return literal
 end
 
 ---Build-time only; C owns serialization, indexes and atomic file replacement.

@@ -11,6 +11,7 @@ if arg[1] == "child" then
 end
 local tests = {
 	"autobuild",
+	"build_async",
 	"init",
 	"runtime",
 	"source",

@@ -577,21 +577,61 @@ function M.binary(opts)
 	return #sources, #keys
 end
 
-function M.command(opts)
-	local ok, common, full, multi = pcall(M.table, opts)
+---Run a builder in an isolated headless Nvim, preserving runtimepath and local cwd.
+---@param kind "binary"|"table"
+---@param opts table
+---@param done fun(err: string?, result: integer[]?)
+function M.async(kind, opts, done)
+	local request = vim.fn.tempname()
+	local worker = assert(vim.api.nvim_get_runtime_file("lua/flash-any/build_worker.lua", false)[1])
+	local request_bytes = vim.mpack.encode({ kind = kind, opts = opts, runtimepath = vim.o.runtimepath })
+	local handle = assert(io.open(request, "wb"))
+	handle:write(request_bytes)
+	handle:close()
+	local ok, err = pcall(vim.system, { vim.v.progpath, "--clean", "-l", worker, request }, {
+		cwd = vim.fn.getcwd(),
+		text = true,
+	}, function(process)
+		vim.schedule(function()
+			local result
+			if process.code == 0 then
+				local file = io.open(request, "rb")
+				if file then
+					local bytes = file:read("*a")
+					file:close()
+					local decoded, value = pcall(vim.mpack.decode, bytes)
+					if decoded then
+						result = value
+					end
+				end
+			end
+			vim.uv.fs_unlink(request)
+			done(not result and (process.stderr ~= "" and process.stderr or "dictionary worker failed") or nil, result)
+		end)
+	end)
 	if not ok then
-		vim.notify("flash-any: " .. common, vim.log.levels.ERROR)
-		return
+		vim.uv.fs_unlink(request)
+		error(err)
 	end
-	local message = ("flash-any: wrote %d Lua entries"):format(common)
-	if opts.tsv then
-		message = message .. (" and %d TSV entries"):format(full)
-	end
-	local level = vim.log.levels.INFO
-	if multi > 0 then
-		message = message .. ("; %d multi-grapheme entries"):format(multi)
-	end
-	vim.notify(message, level)
+end
+
+function M.command(opts)
+	M.async("table", opts, function(err, result)
+		if err then
+			vim.notify("flash-any: " .. err, vim.log.levels.ERROR)
+			return
+		end
+		local common, full, multi = unpack(assert(result))
+		local message = ("flash-any: wrote %d Lua entries"):format(common)
+		if opts.tsv then
+			message = message .. (" and %d TSV entries"):format(full)
+		end
+		if multi > 0 then
+			message = message .. ("; %d multi-grapheme entries"):format(multi)
+		end
+		vim.notify(message, vim.log.levels.INFO)
+	end)
+	vim.notify("flash-any: building tables in background", vim.log.levels.INFO)
 end
 
 return M

@@ -72,8 +72,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 ```
 
 The plugin loads the prebuilt C module and asks you to run `make` if it is missing or
-cannot be loaded. Setup immediately builds the dictionary binary when it is missing;
-later startups reuse it. Other Flash jump options, such as `labels`, `search` and `jump`,
+cannot be loaded. Setup caches the dictionary for reuse on later startups.
+Other Flash jump options, such as `labels`, `search` and `jump`,
 can still be passed to setup. `jump(opts)` / `remote(opts)` use separate, complete
 configurations containing `sources` or `binary`; they do not inherit setup fields.
 
@@ -184,7 +184,15 @@ require("flash-any").setup({
 Use `binary = "/path/flash-any.bin"` to specify a fixed output path. If the file is
 missing, it is built from sources; specifying only binary loads an existing file.
 Failed builds retain the old output, and existing searches continue using their
-snapshot. Initial compilation runs synchronously during setup.
+snapshot.
+
+Missing dictionaries are built asynchronously in a headless Neovim process, keeping the
+editor responsive. Setup and `:FlashAnyBuildTable` notify when construction starts.
+Searches during construction use the previous dictionary,
+or literal matching if none exists, and notify once per search. Successful builds switch
+to the new dictionary. Source factories/converters must be available on runtimepath;
+the worker does not load your init.lua or inherit in-memory Lua state.
+
 The v14 format requires regenerating older explicit binaries; automatic caches rebuild.
 Run make after updating and restart Neovim to load the new native module.
 `require("flash-any.build").binary()` remains available for explicit exports and development tools.

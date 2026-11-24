@@ -20,6 +20,8 @@ end, {
 local default_opts = nil
 ---@type FlashAnyScan?
 local default_char = nil
+---@type {engine?: FlashAnyNativeEngine, pending: boolean, error?: string}?
+local default_book
 local char_attached = false
 ---@type (fun(win: integer, state: Flash.State, range: {from: Pos, to: Pos}): Flash.Match[])|nil
 local previous_char_matcher
@@ -32,6 +34,7 @@ local previous_char_matcher
 ---@param opts table? sources 自动编译，或 binary 加载现有码表；其余字段交给 Flash。
 ---@return table
 ---@return FlashAnyScan
+---@return {engine?: FlashAnyNativeEngine, pending: boolean, error?: string}
 local function build_opts(opts)
 	assert(type(opts) == "table", "provide complete opts or call setup before jump()")
 	opts = vim.deepcopy(opts)
@@ -44,22 +47,42 @@ local function build_opts(opts)
 	assert(opts.binary == nil or type(opts.binary) == "string", "binary must be a path")
 	assert(opts.sources ~= nil or opts.binary ~= nil, "provide sources or a compiled binary")
 	local native = require("flash-any.native")
-	local engine = native.load(opts.binary, opts.sources)
+	local book = { engine = default_book and default_book.engine, pending = true }
+	local engine = native.load(opts.binary, opts.sources, function(value, err)
+		book.engine = value or book.engine
+		book.pending, book.error = false, err
+	end)
+	if engine then
+		book.engine, book.pending = engine, false
+	end
+	local function notify_pending(state)
+		if (book.pending or book.error) and state._flash_any_build_notice ~= book then
+			state._flash_any_build_notice = book
+			vim.notify(
+				"flash-any: "
+					.. (book.error and "dictionary build failed" or "dictionary is building")
+					.. (book.engine and "; using previous dictionary" or "; using literal matching only"),
+				vim.log.levels.WARN
+			)
+		end
+	end
 	local get = function(win, state, range)
-		return native.get(win, state, range, engine)
+		notify_pending(state)
+		return native.get(win, state, range, book.engine or native.literal())
 	end
 	local char = function(win, state, range, motion)
-		return native.char(win, state, range, engine, motion)
+		notify_pending(state)
+		return native.char(win, state, range, book.engine or native.literal(), motion)
 	end
 	opts.sources, opts.binary, opts.char = nil, nil, nil
 	opts.labeler = function() end
 	opts.matcher = get
-	return opts, char
+	return opts, char, book
 end
 
 ---@param opts table
 function M.setup(opts)
-	default_opts, default_char = build_opts(opts)
+	default_opts, default_char, default_book = build_opts(opts)
 	if opts.char or char_attached then
 		-- Reuse Flash's public setup with its current options, preserving user settings.
 		local config = require("flash.config").get()

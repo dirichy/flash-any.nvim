@@ -11,11 +11,13 @@ if arg[1] == "child" then
 	plugin.setup({ sources = { "cached_source" } })
 	plugin.jump()
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "甲" })
-	assert(#options.matcher(0, {
-		pattern = function()
-			return arg[3]
-		end,
-	}, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
+	assert(vim.wait(10000, function()
+		return #options.matcher(0, {
+			pattern = function()
+				return arg[3]
+			end,
+		}, { from = { 1, 0 }, to = { 1, 0 } }) == 1
+	end))
 	if arg[4] == "cached" then
 		for _, module in ipairs({ "source", "table", "build", "sources.cached_source", "cached_source.codes" }) do
 			assert(package.loaded["flash-any." .. module] == nil, "cache hit loaded " .. module)

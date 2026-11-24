@@ -68,8 +68,8 @@ require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 在
-码表二进制不存在时立即构建，后续启动直接复用码表。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
+插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 会缓存
+码表，后续启动直接复用。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
 `jump(opts)` / `remote(opts)` 使用独立完整配置，包含 `sources` 或 `binary`，
 不会继承 setup 字段。
 
@@ -172,8 +172,15 @@ require("flash-any").setup({
 
 可用 `binary = "/path/flash-any.bin"` 指定固定产物路径，文件缺失时使用 sources
 构建；仅提供 binary 则加载现有文件。构建失败保留旧输出，已有搜索继续使用原
-快照。首次编译在 setup 中同步完成。`require("flash-any.build").binary()` 仍可用于
-显式导出及开发工具。
+快照。
+
+码表缺失时，会通过无界面 Neovim 子进程异步构建，编辑器保持响应。setup 和
+`:FlashAnyBuildTable` 都会在开始构建时通知。构建期间搜索使用旧码表；没有旧码表
+则只做字面匹配，每次搜索提示一次。
+成功后切换到新码表。source 工厂和 converter 必须可通过 runtimepath 或文件加载；
+子进程不加载 init.lua，也不继承主进程中的 Lua 内存状态。
+
+`require("flash-any.build").binary()` 仍可用于显式导出及开发工具。
 当前 v14 格式需要重新导出旧的显式 binary；自动缓存会重建。
 更新后运行 make，并重启 Neovim 加载新模块。
 

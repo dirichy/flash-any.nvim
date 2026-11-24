@@ -4,8 +4,22 @@ if arg[1] == "build" then
 	return
 end
 if arg[1] == "file-build" or arg[1] == "file-cached" then
+	local active_builds = 0
+	local builder = require("flash-any.build")
+	local async = builder.async
+	rawset(builder, "async", function(kind, opts, done)
+		active_builds = active_builds + 1
+		return async(kind, opts, function(...)
+			active_builds = active_builds - 1
+			done(...)
+		end)
+	end)
+
 	package.loaded.flash = {}
 	require("flash-any").setup({ sources = { { file = arg[2], format = "tsv" } } })
+	assert(vim.wait(10000, function()
+		return active_builds == 0
+	end))
 	if arg[1] == "file-cached" then
 		assert(package.loaded["flash-any.build"], "external dependencies should be checked")
 		for _, module in ipairs({ "grapheme", "grapheme_data", "table", "source" }) do

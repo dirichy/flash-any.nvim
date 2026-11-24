@@ -11,6 +11,17 @@ package.loaded.flash = {
 	end,
 }
 local plugin = require("flash-any")
+local active_builds = 0
+local builder = require("flash-any.build")
+local async = builder.async
+rawset(builder, "async", function(kind, opts, done)
+	active_builds = active_builds + 1
+	return async(kind, opts, function(...)
+		active_builds = active_builds - 1
+		done(...)
+	end)
+end)
+
 local build = require("flash-any.build")
 local path, other = vim.fn.tempname() .. ".bin", vim.fn.tempname() .. ".bin"
 build.binary({ sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } }, output = path })
@@ -47,6 +58,9 @@ local cache_home, notify = vim.env.XDG_CACHE_HOME, vim.notify
 vim.env.XDG_CACHE_HOME = cache
 local warnings = 0
 rawset(vim, "notify", function(message, level)
+	if level == vim.log.levels.INFO then
+		return
+	end
 	assert(level == vim.log.levels.WARN and message:find("inline data exceeds 200 entries", 1, true))
 	warnings = warnings + 1
 end)
@@ -61,6 +75,9 @@ plugin.setup({ sources = { { data = { codes = data } } } })
 assert(warnings == 1, "large structured data should warn")
 plugin.setup({ sources = { { data = data } } })
 assert(warnings == 1, "large data warning should appear only once per process")
+assert(vim.wait(10000, function()
+	return active_builds == 0
+end))
 rawset(vim, "notify", notify)
 vim.env.XDG_CACHE_HOME = cache_home
 vim.fn.delete(cache, "rf")

@@ -14,7 +14,7 @@ local fixture = require("fixture")
 local plugin = require("flash-any")
 local State = require("flash.state")
 local loop = State.loop
-State.loop = function() end
+rawset(State, "loop", function() end)
 fixture.setup({ sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } } })
 local state = plugin.jump()
 assert(state.opts.matcher and state.opts.labeler)
@@ -124,5 +124,31 @@ for _, text in ipairs({ "👩‍💻x", "éx", "1️⃣", "🇨🇳", "中国" 
 	state = plugin.jump(fixture.config({ sources = {} }))
 	assert(state.pattern() == text and #state.results == 1, vim.inspect({ text, state.pattern(), state.results }))
 end
+-- A real Flash session can preview literals while a worker builds, then use its result.
+local pending_root = vim.fn.tempname()
+vim.fn.mkdir(pending_root, "p")
+vim.fn.writefile({ "中\tx" }, pending_root .. "/input.tsv")
+vim.fn.writefile({ "return function(codes) vim.uv.sleep(300); return codes end" }, pending_root .. "/converter.lua")
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "|中|" })
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+rawset(State, "loop", function() end)
+state = plugin.jump({
+	sources = { { file = pending_root .. "/input.tsv", converter = pending_root .. "/converter.lua" } },
+	binary = pending_root .. "/out.bin",
+})
+state:update({ pattern = "中", check_jump = false, force = true })
+assert(#state.results == 1)
+assert(
+	vim.wait(10000, function()
+		-- Flash may reuse results for unchanged input; exercise a new query after loading.
+		state:update({ pattern = "", check_jump = false, force = true })
+		state:update({ pattern = "x", check_jump = false, force = true })
+		return #state.results == 1
+	end),
+	"background dictionary did not become usable in Flash"
+)
+state:hide()
+State.loop = loop
+vim.fn.delete(pending_root, "rf")
 assert(vim.v.errmsg == "", vim.v.errmsg)
 print("real Flash integration tests passed")

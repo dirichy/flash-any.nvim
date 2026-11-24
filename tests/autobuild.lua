@@ -1,9 +1,6 @@
 local root = assert(vim.uv.cwd())
 if arg[1] then
 	vim.opt.runtimepath:prepend(arg[2])
-	rawset(vim, "system", function()
-		error("loading and setup must not spawn a compiler or any external process")
-	end)
 	if arg[1] == "missing" or arg[1] == "invalid" then
 		local ok, err = pcall(require, "flash-any.native")
 		assert(not ok and tostring(err):find("run make in " .. arg[2], 1, true), tostring(err))
@@ -21,11 +18,16 @@ if arg[1] then
 	plugin.jump()
 	assert(options.sources == nil and options.binary == nil and options.labels == "ab")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })
-	assert(#options.matcher(0, {
-		pattern = function()
-			return "xy"
-		end,
-	}, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
+	assert(
+		vim.wait(10000, function()
+			return #options.matcher(0, {
+				pattern = function()
+					return "xy"
+				end,
+			}, { from = { 1, 0 }, to = { 1, 0 } }) == 1
+		end),
+		"async dictionary did not become ready"
+	)
 	local paths = vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true)
 	assert(#paths == (arg[1] == "first" and 1 or arg[1] == "updated" and 3 or 2))
 	if arg[1] == "updated" then
@@ -38,22 +40,39 @@ if arg[1] then
 		return
 	end
 	local build = require("flash-any.build")
-	local binary, calls = build.binary, 0
-	rawset(build, "binary", function(opts)
+	local async, calls = build.async, 0
+	rawset(build, "async", function(...)
 		calls = calls + 1
-		return binary(opts)
+		return async(...)
 	end)
 	plugin.setup({ sources = specs })
 	assert(calls == 0, "same configuration rebuilt")
 	plugin.setup({ sources = { { data = { ["中"] = "z", ["国"] = "y" } } } })
 	assert(calls == 1, "changed configuration did not build its own package")
-	assert(#vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2)
+	assert(vim.wait(10000, function()
+		return #vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2
+	end))
 	local path = vim.fn.stdpath("cache") .. "/nested/custom.bin"
 	plugin.setup({ sources = specs, binary = path })
-	assert(calls == 2 and vim.uv.fs_stat(path))
+	assert(calls == 2)
+	assert(vim.wait(10000, function()
+		return vim.uv.fs_stat(path) ~= nil
+	end))
 	plugin.setup({ binary = path })
 	assert(calls == 2)
-	assert(not pcall(plugin.setup, { sources = { { data = { ["中国"] = "\0" } } } }))
+	local failure
+	rawset(vim, "notify", function(message, level)
+		if level == vim.log.levels.ERROR then
+			failure = message
+		end
+	end)
+	plugin.setup({ sources = { { data = { ["中国"] = "\0" } } } })
+	assert(
+		vim.wait(10000, function()
+			return failure ~= nil
+		end),
+		"worker failure must be reported"
+	)
 	assert(#vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2)
 	return
 end

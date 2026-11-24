@@ -158,6 +158,9 @@ assert(lua_codes(opts.lua)["中"][1] == "a,b")
 local notices = {}
 local notify = vim.notify
 rawset(vim, "notify", function(message, level)
+	if message == "flash-any: building tables in background" then
+		return
+	end
 	notices[#notices + 1] = { message = message, level = level }
 end)
 package.loaded.flash = {}
@@ -165,32 +168,74 @@ require("flash-any")
 local command_source = write("command.csv", '"中","ab"\n')
 local command_lua, command_tsv = root .. "/command.lua", root .. "/command.tsv"
 vim.cmd("FlashAnyBuildTable " .. table.concat({ command_source, command_lua, command_tsv, "-", "csv", "utf-8" }, " "))
+assert(
+	vim.wait(10000, function()
+		return #notices == 1
+	end),
+	"command did not finish"
+)
 assert(vim.deep_equal(lua_codes(command_lua), { ["中"] = { "ab" } }))
 assert(read(command_tsv) == "中\tab\n" and #notices == 1 and notices[1].level == vim.log.levels.INFO)
 local command_multi = write("command.tsv", "中\tcd\r\n中\tab\r\n中\tab\r\n")
 vim.cmd("FlashAnyBuildTable " .. table.concat({ command_multi, command_lua, command_tsv, "-", "tsv", "utf-8" }, " "))
+assert(
+	vim.wait(10000, function()
+		return #notices == 2
+	end),
+	"command did not finish"
+)
 assert(vim.deep_equal(lua_codes(command_lua), { ["中"] = { "ab", "cd" } }))
 assert(read(command_tsv) == "中\tab\n中\tcd\n" and #notices == 2 and notices[2].level == vim.log.levels.INFO)
 vim.cmd("FlashAnyBuildTable " .. table.concat({ words, command_lua, command_tsv, word_common, "tsv", "utf-8" }, " "))
+assert(
+	vim.wait(10000, function()
+		return #notices == 3
+	end),
+	"command did not finish"
+)
 assert(#notices == 3 and notices[3].level == vim.log.levels.INFO)
 assert(notices[3].message:find("2 multi-grapheme entries", 1, true))
 assert(vim.deep_equal(lua_codes(command_lua), { ["中国"] = { "country", "word" } }))
 assert(read(command_tsv):find("きゃ\tkya\n", 1, true))
 opts.format = "invalid"
 build.command(opts)
+assert(
+	vim.wait(10000, function()
+		return #notices == 4
+	end),
+	"command did not finish"
+)
 assert(#notices == 4 and notices[4].level == vim.log.levels.ERROR)
 local previous_cwd = vim.fn.getcwd()
 vim.cmd.lcd(root)
 vim.cmd("FlashAnyBuildTable " .. command_source .. " " .. lua_only.lua)
-assert(#notices == 5 and notices[5].level == vim.log.levels.INFO)
+assert(
+	vim.wait(10000, function()
+		return #notices == 5
+	end),
+	"command did not finish"
+)
+assert(#notices == 5 and notices[5].level == vim.log.levels.INFO, vim.inspect(notices))
 assert(notices[5].message == "flash-any: wrote 1 Lua entries")
 assert(vim.deep_equal(lua_codes(lua_only.lua), { ["中"] = { "ab" } }))
 vim.cmd("FlashAnyBuildTable " .. table.concat({ words, lua_only.lua, "-", "-", "tsv", "utf-8" }, " "))
+assert(
+	vim.wait(10000, function()
+		return #notices == 6
+	end),
+	"command did not finish"
+)
 assert(#notices == 6 and notices[6].level == vim.log.levels.INFO)
 assert(notices[6].message:find("wrote 6 Lua entries", 1, true))
 assert(not notices[6].message:find("TSV", 1, true))
 assert(notices[6].message:find("2 multi-grapheme entries", 1, true))
 vim.cmd("FlashAnyBuildTable " .. table.concat({ words, lua_only.lua, "-", word_common, "tsv", "utf-8" }, " "))
+assert(
+	vim.wait(10000, function()
+		return #notices == 7
+	end),
+	"command did not finish"
+)
 assert(#notices == 7 and vim.deep_equal(lua_codes(lua_only.lua), { ["中国"] = { "country", "word" } }))
 assert(vim.fn.filereadable(root .. "/-") == 0, "the TSV placeholder must never become an output file")
 vim.cmd.lcd(previous_cwd)
