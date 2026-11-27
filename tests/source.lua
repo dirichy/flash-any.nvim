@@ -70,6 +70,8 @@ assert(romaji.data ~= source.data and romaji.data["い"][1] == "i")
 assert(require("flash-any.tables.japan").codes["あ"][1] == "a")
 print("ok - a source can declare a differently named table with its own cache")
 
+assert(package.loaded["flash-any.build"] == nil, "source/table loading must not depend on the builder")
+
 local native = require("flash-any.native")
 local function run(text, pattern, specs)
 	local path = root .. "/test.bin"

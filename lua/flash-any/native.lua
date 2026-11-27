@@ -85,7 +85,7 @@ function M.load(path, sources, ready, force)
 				end
 				if source.file then
 					assert(type(source.file) == "string", "file must be a dictionary path")
-					inputs[#inputs + 1] = require("flash-any.build").fingerprint(source.file, source)
+					inputs[#inputs + 1] = require("flash-any.reader").fingerprint(source.file, source)
 				end
 				for _, field in ipairs({ "lua", "tsv", "converter" }) do
 					if source[field] then
@@ -187,6 +187,20 @@ local function ignorecase(pattern)
 	return vim.go.ignorecase and not (vim.go.smartcase and pattern:find("[A-Z]"))
 end
 
+---Reuse cached lines when the window, buffer revision and range are unchanged.
+---@param engine FlashAnyNativeEngine
+---@param win integer
+---@param buf integer
+---@param tick integer
+---@param from integer
+---@param to integer
+---@return string[]?
+local function cached_lines(engine, win, buf, tick, from, to)
+	if not engine:has(win, buf, tick, from, to) then
+		return vim.api.nvim_buf_get_lines(buf, from - 1, to, false)
+	end
+end
+
 ---@param win integer
 ---@param state table
 ---@param range table
@@ -204,15 +218,13 @@ function M.get(win, state, range, engine)
 		return {}
 	end
 	local tick = vim.api.nvim_buf_get_changedtick(buf)
-	local lines = not engine:has(win, buf, tick, from, to) and vim.api.nvim_buf_get_lines(buf, from - 1, to, false)
-		or nil
 	return engine:scan(
 		win,
 		buf,
 		tick,
 		from,
 		to,
-		lines,
+		cached_lines(engine, win, buf, tick, from, to),
 		pattern,
 		state.labels and state:labels() or nil,
 		nil,
@@ -237,8 +249,7 @@ function M.char(win, state, range, engine, motion)
 	local tick, ret = vim.api.nvim_buf_get_changedtick(buf), {}
 	local insensitive = ignorecase(pattern)
 	for row = first, last do
-		local lines = not engine:has(win, buf, tick, row, row) and vim.api.nvim_buf_get_lines(buf, row - 1, row, false)
-			or nil
+		local lines = cached_lines(engine, win, buf, tick, row, row)
 		vim.list_extend(ret, engine:scan(win, buf, tick, row, row, lines, pattern, nil, motion or "f", insensitive))
 	end
 	return ret

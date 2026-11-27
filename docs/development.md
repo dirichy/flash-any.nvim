@@ -45,8 +45,19 @@ prepared data and direct inputs; the binary compiler iterates data directly. Lua
 contain only codes. Grapheme counts remain solely for build completion messages.
 
 
-- `build.lua`、`source.lua`、`table.lua`：构建时一次读全输入，输出普通 Lua map，
-  转换、校验和合并后直接交给二进制编译器；没有 TSV 查询引擎或 lazy/reader 间接层。
+- `reader.lua`：外部字典解析及递归导入的 metadata fingerprint，不依赖构建器或 source。
+- `table.lua`：码表规范化、转换、Lua/TSV 覆盖、补空格和选键排名，只依赖 reader 读取外部数据。
+- `source.lua`：工厂及默认实例缓存；resolve 依次解析配置、准备数据、解析匹配规则，依赖 table。
+- `build.lua`：Lua/TSV 导出、二进制合并编译、异步任务及命令；保留 read/fingerprint/selectors
+  原入口，分别直接引用 reader 和 table 的实现。
+
+The build-time dependency chain is `build → source → table → reader`. Reader owns
+external dictionary parsing and imported-file fingerprints; table owns normalization,
+conversion, overlays, padding and ranked selectors. Source owns factory instance caches
+and resolves configuration, complete data and matching rules in that order. Build owns
+exports, binary compilation and workers; its existing read/fingerprint/selectors helpers
+remain aliases to their implementations. No reverse dependency on build remains in
+source, table or reader.
 - `src/text.h`：严格UTF8解码及Unicode17扩展字素分段，只保留当前分段状态；没有
   文本索引数组、Cursor方法或Lua逐字素回调。
 - `src/binary.c`：二进制序列化、共享编码组、索引构建、完整校验、文件读取与原子写入。
@@ -58,12 +69,12 @@ contain only codes. Grapheme counts remain solely for build completion messages.
 - `native.lua`、`init.lua`、`matcher.lua`、`search.lua`：Neovim文本IO及Flash桥接，Flash仍管理按键、
   操作符、窗口、remote恢复和绘制。Flash要求的Lua matcher回调只是C入口。
 
-已有二进制时不加载source或字素模块；外部file的依赖检查只加载构建器的文件读取部分。
+已有二进制时不加载source或字素模块；外部file的依赖检查只加载 reader。
 缺失时按sources构建。Lua的grapheme.lua只封装C的each/len，UTF-8解码和UAX #29
 规则仅在text.h中实现；构建和扫描共用同一实现。
 `tests/autobuild.lua`和`tests/source_cache.lua`在独立进程中验证构建与缓存复用。
 
-Cached external files load only the dependency-reading portion of the builder,
+Cached external files load only reader for dependency checks,
 without grapheme/source modules. Build-time grapheme counting and enumeration call
 the same C decoder and boundary rules used by scanning. The Lua grapheme module
 is a thin adapter. Bundled Unicode input data lives under scripts/data.
@@ -533,7 +544,7 @@ Nvim after make. Previous format descriptions above document their original revi
 核心 Lua/C 不再识别拼音或虎码名称。groups.h 保存通用编码组视图和 codec，
 GROUP_FLAG=0x08 与 full/initial/prefix 正交；二进制布局仍为 v8，无格式迁移。
 组名只在 source 内解析，构建器按排序去重后的拼写内容分配全局 ID，避免多个
-source 使用相同组名时互相覆盖。选键排名由 build.selectors 负责，C 只认识后缀。
+source 使用相同组名时互相覆盖。选键排名由 table.selectors 负责，build.selectors 保留原入口，C 只认识后缀。
 source 自行维护数据、分音/模糊音/键位转换、默认选键及字符覆盖。
 
 五个独立插件根目录在独立的 source checkout，未纳入核心仓库，尚未发布远程。
@@ -543,7 +554,7 @@ source 自行维护数据、分音/模糊音/键位转换、默认选键及字�
 
 The core has no pinyin/Tiger name dispatch. groups.h owns the generic v8 spelling
 codec; local names are resolved before groups are interned by normalized contents.
-Ranking belongs to build.selectors; the C engine sees only optional suffix metadata.
+Ranking belongs to table.selectors (also exposed as build.selectors); the C engine sees only optional suffix metadata.
 Source packages own tables, conversions and defaults. They are separately installed
 runtimepath plugins and have no compilation step. Local publication-ready directories
 are under .dev/source-packages; public source releases are not yet available.

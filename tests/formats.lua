@@ -1,9 +1,20 @@
 vim.opt.runtimepath:prepend(vim.uv.cwd())
+if arg[1] == "cached" then
+	vim.env.XDG_CACHE_HOME = arg[2] .. "/cache"
+	assert(require("flash-any.native").load(nil, { { file = arg[2] .. "/main.dict.yaml" } }))
+	for _, name in ipairs({ "build", "source", "table", "grapheme" }) do
+		assert(not package.loaded["flash-any." .. name], "cached file loaded " .. name)
+	end
+	return
+end
 local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 vim.env.XDG_CACHE_HOME = root .. "/cache"
 local build = require("flash-any.build")
 local tables = require("flash-any.table")
+local reader = require("flash-any.reader")
+assert(build.read == reader.read and build.fingerprint == reader.fingerprint)
+assert(build.selectors == tables.selectors)
 local function write(name, text)
 	local path = root .. "/" .. name
 	local handle = assert(io.open(path, "wb"))
@@ -68,6 +79,9 @@ local input = { file = rime }
 local native = require("flash-any.native")
 local book = native.load(nil, { input })
 assert(#book:scan(0, 0, 1, 1, 1, { "中国" }, "a,bguo", { "a", "b" }) == 1)
+local cached = vim.system({ vim.v.progpath, "--clean", "-l", "tests/formats.lua", "cached", root }, { text = true })
+	:wait()
+assert(cached.code == 0, cached.stderr)
 local fingerprint = build.fingerprint(rime)
 write("child.dict.yaml", "---\nname: child\nversion: '2'\n...\n国\tnew\n")
 assert(build.fingerprint(rime) ~= fingerprint)

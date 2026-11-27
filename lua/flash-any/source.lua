@@ -119,128 +119,137 @@ end
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
 ---@field selectors? table<string, table<string, string>>
 
+---@param value FlashAnySourceSpec
+---@return FlashAnySourceConfig
+---@return FlashAnySourceDefinition
+local function configure(value)
+	assert(type(value) == "string" or type(value) == "table", "source must be a name or configuration table")
+	local named_only = type(value) == "string"
+	if named_only then
+		value = { name = value }
+	end
+	if not value.name and type(value.codes) == "table" then
+		value = { data = value }
+	end
+	if not (value.name or value.matcher or value.data or value.lua or value.tsv or value.file or value.converter) then
+		return { data = value }, {}
+	end
+	---@cast value FlashAnySourceConfig
+	assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
+	assert(
+		not value.converter or (value.file and not value.lua and not value.data),
+		"converter requires an external file"
+	)
+	assert(not value.tsv or value.lua, "tsv requires a Lua companion; use file for external dictionaries")
+	assert(
+		not value.file or (not value.lua and not value.data and not value.tsv),
+		"file cannot be combined with lua, data or tsv"
+	)
+	assert(
+		value.selection == nil or value.selection == false or type(value.selection) == "table",
+		"selection must be a table or false"
+	)
+	assert(value.groups == nil or type(value.groups) == "table", "groups must map codes to spelling lists")
+	local defaults = value.name and M.load(value.name, not named_only and value or nil) or {}
+	-- Factories declare file metadata; the same reader/ranking path serves direct files.
+	if defaults.file then
+		local configured = vim.tbl_extend("force", defaults, value)
+		if type(defaults.selection) == "table" and type(value.selection) == "table" then
+			configured.selection = vim.tbl_extend("force", defaults.selection, value.selection)
+		end
+		if type(value.file) == "string" then
+			-- An override is a different dictionary, whose header/format may differ.
+			for _, field in ipairs({ "format", "columns", "encoding", "header" }) do
+				configured[field] = value[field]
+			end
+		end
+		if value.data or value.lua then
+			configured.file = nil
+			configured.groups = value.groups
+		elseif value.file == false then
+			configured.file = defaults.file
+		end
+		value = configured
+	end
+	return value, defaults
+end
+
+---@param value FlashAnySourceConfig
+---@param defaults FlashAnySourceDefinition
+---@return FlashAnyTable?
+---@return table<string, string[]>? groups
+---@return table<string, table<string, string>>? selectors
+local function prepare(value, defaults)
+	local data = defaults.data
+	local selectors
+	local groups = defaults.groups
+	if not value.name or value.data or value.lua or value.file then
+		groups = value.groups
+	end
+	if not defaults.prepared then
+		if value.lua then
+			data, groups =
+				tables.append_space(tables.from_files(value.lua, value.tsv, groups), value.append_space_below, groups)
+		elseif value.file then
+			assert(not value.data and not value.tsv, "file cannot be combined with data or tsv")
+			if value.selection then
+				assert(value.matcher == nil or value.matcher == "full_code", "selection requires full_code matching")
+				assert(
+					not value.converter and value.append_space_below == nil,
+					"selection cannot be combined with converter or append_space_below"
+				)
+				local ranks
+				data, ranks = tables.from_file(value.file, vim.tbl_extend("force", value, { weights = true }))
+				selectors = tables.selectors(
+					data,
+					assert(ranks),
+					assert(value.selection.keys, "selection.keys is required for file sources")
+				)
+			else
+				data, groups =
+					tables.append_space(tables.from_file(value.file, value), value.append_space_below, groups)
+			end
+		elseif value.data then
+			data, groups = tables.append_space(tables.normalize(value.data, groups), value.append_space_below, groups)
+		end
+	end
+	if value.selection and not defaults.prepared then
+		assert(value.file, "ranked selection requires a weighted file")
+		assert(type(value.selection) == "table", "selection must be a table or false")
+	end
+	return data, groups, selectors
+end
+
 ---@param values FlashAnySourceSpec[]
 ---@return FlashAnySource[]
 function M.resolve(values)
 	assert(type(values) == "table" and vim.islist(values), "opts.sources is required and must be a list")
 	local ret = { { name = "literal", mode = "literal" } }
 	for _, value in ipairs(values) do
-		assert(type(value) == "string" or type(value) == "table", "source must be a name or configuration table")
-		local named_only = type(value) == "string"
-		if named_only then
-			value = { name = value }
+		-- Configuration and factory defaults, then complete data, then matching rules.
+		local config, defaults = configure(value)
+		local data, groups, selectors = prepare(config, defaults)
+		local matcher = config.matcher
+		if matcher == nil then
+			matcher = defaults.matcher
 		end
-		if not value.name and type(value.codes) == "table" then
-			value = { data = value }
+		local fallback = config.fallback
+		if fallback == nil then
+			fallback = defaults.fallback
 		end
-		if value.name or value.matcher or value.data or value.lua or value.tsv or value.file or value.converter then
-			---@cast value FlashAnySourceConfig
-			assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
-			assert(
-				not value.converter or (value.file and not value.lua and not value.data),
-				"converter requires an external file"
-			)
-			assert(not value.tsv or value.lua, "tsv requires a Lua companion; use file for external dictionaries")
-			assert(
-				not value.file or (not value.lua and not value.data and not value.tsv),
-				"file cannot be combined with lua, data or tsv"
-			)
-			assert(
-				value.selection == nil or value.selection == false or type(value.selection) == "table",
-				"selection must be a table or false"
-			)
-			assert(value.groups == nil or type(value.groups) == "table", "groups must map codes to spelling lists")
-			local defaults = value.name and M.load(value.name, not named_only and value or nil) or {}
-			-- Factories declare file metadata; the same reader/ranking path serves direct files.
-			if defaults.file then
-				local configured = vim.tbl_extend("force", defaults, value)
-				if type(defaults.selection) == "table" and type(value.selection) == "table" then
-					configured.selection = vim.tbl_extend("force", defaults.selection, value.selection)
-				end
-				if type(value.file) == "string" then
-					-- An override is a different dictionary, whose header/format may differ.
-					for _, field in ipairs({ "format", "columns", "encoding", "header" }) do
-						configured[field] = value[field]
-					end
-				end
-				if value.data or value.lua then
-					configured.file = nil
-					configured.groups = value.groups
-				elseif value.file == false then
-					configured.file = defaults.file
-				end
-				value = configured
-			end
-			local data = defaults.data
-			local selectors
-			local groups = defaults.groups
-			if not value.name or value.data or value.lua or value.file then
-				groups = value.groups
-			end
-			if not defaults.prepared then
-				if value.lua then
-					data, groups = tables.append_space(
-						tables.from_files(value.lua, value.tsv, groups),
-						value.append_space_below,
-						groups
-					)
-				elseif value.file then
-					assert(not value.data and not value.tsv, "file cannot be combined with data or tsv")
-					if value.selection then
-						assert(
-							value.matcher == nil or value.matcher == "full_code",
-							"selection requires full_code matching"
-						)
-						assert(
-							not value.converter and value.append_space_below == nil,
-							"selection cannot be combined with converter or append_space_below"
-						)
-						local ranks
-						data, ranks = tables.from_file(value.file, vim.tbl_extend("force", value, { weights = true }))
-						selectors = require("flash-any.build").selectors(
-							data,
-							assert(ranks),
-							assert(value.selection.keys, "selection.keys is required for file sources")
-						)
-					else
-						data, groups =
-							tables.append_space(tables.from_file(value.file, value), value.append_space_below, groups)
-					end
-				elseif value.data then
-					data, groups =
-						tables.append_space(tables.normalize(value.data, groups), value.append_space_below, groups)
-				end
-			end
-			if value.selection and not defaults.prepared then
-				assert(value.file, "ranked selection requires a weighted file")
-				assert(type(value.selection) == "table", "selection must be a table or false")
-			end
-			local matcher = value.matcher
-			if matcher == nil then
-				matcher = defaults.matcher
-			end
-			local fallback = value.fallback
-			if fallback == nil then
-				fallback = defaults.fallback
-			end
-			assert(fallback == nil or type(fallback) == "boolean", "fallback must be a boolean")
-			local mode = source_mode(matcher)
-			if value.selection and not defaults.prepared then
-				assert(mode == "full_code", "selection requires full_code matching")
-			end
-			ret[#ret + 1] = {
-				data = data,
-				mode = mode,
-				name = value.name,
-				fallback = fallback,
-				selectors = selectors,
-				groups = groups,
-			}
-		else
-			---@cast value FlashAnyTableInput
-			local data = tables.normalize(value)
-			ret[#ret + 1] = { data = data, mode = "full_code" }
+		assert(fallback == nil or type(fallback) == "boolean", "fallback must be a boolean")
+		local mode = source_mode(matcher)
+		if config.selection and not defaults.prepared then
+			assert(mode == "full_code", "selection requires full_code matching")
 		end
+		ret[#ret + 1] = {
+			data = data,
+			mode = mode,
+			name = config.name,
+			fallback = fallback,
+			selectors = selectors,
+			groups = groups,
+		}
 	end
 	return ret
 end

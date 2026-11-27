@@ -109,7 +109,7 @@ function M.from_file(path, opts)
 		convert = dofile(vim.fn.expand(opts.converter))
 		assert(type(convert) == "function", "converter file must return a function")
 	end
-	local rows, ranks = require("flash-any.build").read(path, opts)
+	local rows, ranks = require("flash-any.reader").read(path, opts)
 	for char, codes in pairs(rows) do
 		if convert then
 			local converted = convert(codes)
@@ -137,7 +137,7 @@ function M.load(name, opts)
 	local tsv = vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".tsv", false)[1]
 	assert(lua or tsv, "code table not found: " .. name)
 	local groups, convert = opts and opts.groups, opts and opts.convert
-	local data = tsv and require("flash-any.build").read(tsv, { format = "tsv" }) or {}
+	local data = tsv and require("flash-any.reader").read(tsv, { format = "tsv" }) or {}
 	if lua then
 		local overrides = M.normalize(require("flash-any.tables." .. name), groups)
 		if convert then
@@ -183,6 +183,44 @@ function M.from_files(lua_path, tsv_path, groups)
 		data[text] = codes
 	end
 	return data
+end
+
+---Assign optional suffixes by descending weight, then original order.
+---@param data FlashAnyTable
+---@param ranks table<string, table<string, {weight: number, order: number}>>
+---@param keys string[]
+---@return table<string, table<string, string>>
+function M.selectors(data, ranks, keys)
+	assert(type(keys) == "table" and vim.islist(keys) and #keys > 0, "selection.keys must be a nonempty list")
+	local used = {}
+	for _, key in ipairs(keys) do
+		assert(
+			type(key) == "string" and #key > 0 and #key < 128 and not key:find("[%z\128-\255]"),
+			"selection keys must be nonempty ASCII strings without NUL shorter than 128 bytes"
+		)
+		assert(not used[key], "selection keys must be distinct")
+		used[key] = true
+	end
+	local selectors = {}
+	for code, candidates in pairs(ranks) do
+		local ordered = {}
+		for text, rank in pairs(candidates) do
+			if data[text] then
+				ordered[#ordered + 1] = { text = text, weight = rank.weight, order = rank.order }
+			end
+		end
+		table.sort(ordered, function(a, b)
+			return a.weight > b.weight
+				or (a.weight == b.weight and (a.order < b.order or (a.order == b.order and a.text < b.text)))
+		end)
+		for index, candidate in ipairs(ordered) do
+			if keys[index] then
+				selectors[candidate.text] = selectors[candidate.text] or {}
+				selectors[candidate.text][code] = keys[index]
+			end
+		end
+	end
+	return selectors
 end
 
 return M

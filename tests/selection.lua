@@ -26,6 +26,11 @@ vim.fn.writefile({
 	"无\tuv",
 	"零\tuv\t0",
 }, file)
+local resolved = require("flash-any.source").resolve({ { file = file, selection = { keys = { " ", ";" } } } })[2]
+assert(vim.deep_equal(resolved.data["甲"], { "ab" }), "base code must be stored only once")
+assert(resolved.selectors["甲"].ab == " " and resolved.selectors["乙"].ab == ";")
+assert(resolved.selectors["丙"] == nil)
+assert(package.loaded["flash-any.build"] == nil, "weighted source resolution must not load the builder")
 local build, native = require("flash-any.build"), require("flash-any.native")
 local serial = 0
 local function engine(opts)
@@ -92,10 +97,6 @@ local multiple = engine({ selection = { keys = { "one", "two" } } })
 assert(found(multiple, "甲", "abone") and found(multiple, "乙", "abtwo"))
 assert(found(book, "子", "zz;") and found(book, "子", "zz; "))
 assert(found(book, "丑,", "xy,z,"), "literal code punctuation must remain intact")
-local resolved = require("flash-any.source").resolve({ { file = file, selection = { keys = { " ", ";" } } } })[2]
-assert(vim.deep_equal(resolved.data["甲"], { "ab" }), "base code must be stored only once")
-assert(resolved.selectors["甲"].ab == " " and resolved.selectors["乙"].ab == ";")
-assert(resolved.selectors["丙"] == nil)
 -- Missing/empty weights keep bare codes without taking any selector rank.
 local unweighted = require("flash-any.source").resolve({ { file = file, selection = { keys = { " ", ";" } } } })[2]
 assert(not unweighted.selectors["，"] and not unweighted.selectors["。"])
