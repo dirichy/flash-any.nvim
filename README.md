@@ -74,8 +74,9 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 The plugin loads the prebuilt C module and asks you to run `make` if it is missing or
 cannot be loaded. Setup caches the dictionary for reuse on later startups.
 Other Flash jump options, such as `labels`, `search` and `jump`,
-can still be passed to setup. `jump(opts)` / `remote(opts)` use separate, complete
-configurations containing `sources` or `binary`; they do not inherit setup fields.
+can still be passed to setup. `jump(opts)`, `remote(opts)` and `search(opts)` merge
+single-call Flash options with setup and reuse its dictionary. Configure `sources`,
+`binary` and `char` only in setup; runtime calls never build another dictionary.
 
 ## Usage
 
@@ -137,9 +138,9 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 For example, with pinyin configured, `zhongwen` finds 中文. ASCII punctuation is
-literal, with no regex syntax. Like `jump(opts)`, `search(opts)` accepts a complete
-one-shot configuration containing `sources` or `binary`. Set `search.forward` and
-`search.wrap` to change direction or wrapping. This separate entry point leaves
+literal, with no regex syntax. `search(opts)` accepts Flash options, for example
+`search({ search = { forward = false, wrap = false } })`. These options override setup
+for this call while retaining its dictionary. This separate entry point leaves
 native `/`, its search register, and native `n`/`N` unchanged.
 
 ### Character motions f/F/t/T
@@ -150,8 +151,8 @@ Set `char = true` in flash-any's setup to connect all `f/F/t/T` motions automati
 require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`char` is a boolean, default `false`, and only setup changes this global integration;
-one-shot jump/remote/search options do not change it. Character motions use setup's sources.
+`char` is a boolean, default `false`, configured only in setup.
+Character motions use setup's sources.
 `fz` matches codes beginning with z and literal z. Flash owns keys, labels, counts,
 `;`/`,` repeats and operators. Existing Flash options such as `multi_line`, `jump_labels`
 and custom keys are preserved; `modes.char.enabled = false` still disables Flash's character mode.

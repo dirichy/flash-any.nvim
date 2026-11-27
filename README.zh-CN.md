@@ -70,8 +70,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 会缓存
 码表，后续启动直接复用。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
-`jump(opts)` / `remote(opts)` 使用独立完整配置，包含 `sources` 或 `binary`，
-不会继承 setup 字段。
+`jump(opts)`、`remote(opts)`、`search(opts)` 将单次 Flash 选项合并到 setup 配置，
+复用其中的码表。`sources`、`binary`、`char` 只能在 setup 配置，运行时入口不构建新码表。
 
 ## 用法
 
@@ -128,8 +128,8 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 例如拼音配置下输入 `zhongwen` 可定位“中文”。ASCII 标点按字面匹配，不解释正则。
-`search(opts)` 与 `jump(opts)` 一样接受包含 `sources` 或 `binary` 的完整单次配置。
-方向和回绕可用 `search.forward`、`search.wrap` 调整。
+`search(opts)` 只接受 Flash 选项，例如 `search({ search = { forward = false, wrap = false } })`。
+这些选项仅覆盖本次调用，码表始终复用 setup 配置。
 这是独立搜索入口，不替换原生 `/`，也不更新 `/` 寄存器或原生 `n`/`N`。
 
 ### 字符模式 f/F/t/T
@@ -140,8 +140,7 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`char` 是布尔值，默认 `false`；只有 setup 会改变全局接入，单次 jump/remote/search
-配置中的开关不改变它。字符模式使用 setup 中的 sources。
+`char` 是布尔值，默认 `false`，只能在 setup 中配置。字符模式使用 setup 中的 sources。
 `fz` 匹配编码以 z 开头的字符及字面 z。按键、标签、计数、`;`/`,` 连跳和操作符仍由 Flash 管理。
 保留 Flash 已有的 `multi_line`、`jump_labels` 和自定义按键；Flash 的
 `modes.char.enabled = false` 仍会禁用字符模式。先配置 Flash，再 setup flash-any；

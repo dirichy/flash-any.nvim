@@ -9,11 +9,12 @@ vim.o.columns = 100
 package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 local fixture = require("fixture")
 local plugin = require("flash-any")
-fixture.setup({
+local base = {
 	sources = { { data = { ["中"] = "vs", ["国"] = "go" } } },
 	labels = "abc",
 	jump = { autojump = true },
-})
+}
+fixture.setup(base)
 
 local function search(lines, pos, input, expected, opts)
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
@@ -56,35 +57,13 @@ search({ "aX x" }, { 1, 0 }, "x<CR>", { 1, 1 })
 vim.go.smartcase = true
 search({ "ax X" }, { 1, 0 }, "X<CR>", { 1, 3 })
 vim.go.ignorecase, vim.go.smartcase = false, false
--- A complete one-shot config uses its own sources and leaves setup untouched.
-search(
-	{ "a中国" },
-	{ 1, 0 },
-	"other<CR>",
-	{ 1, 4 },
-	fixture.config({ sources = { { data = { ["国"] = "other" } } } })
-)
+-- Dictionary changes go through setup; per-call Flash options reuse that dictionary.
+fixture.setup({ sources = { { data = { ["国"] = "other" } } } })
+search({ "a中国" }, { 1, 0 }, "other<CR>", { 1, 4 })
+fixture.setup(base)
 search({ "a中国" }, { 1, 0 }, "vs<CR>", { 1, 1 })
-search(
-	{ "a中 中" },
-	{ 1, 5 },
-	"vs<CR>",
-	{ 1, 1 },
-	fixture.config({
-		sources = { { data = { ["中"] = "vs" } } },
-		search = { forward = false, wrap = false },
-	})
-)
-search(
-	{ "a中 中" },
-	{ 1, 5 },
-	"vs<CR>",
-	{ 1, 5 },
-	fixture.config({
-		sources = { { data = { ["中"] = "vs" } } },
-		search = { wrap = false },
-	})
-)
+search({ "a中 中" }, { 1, 5 }, "vs<CR>", { 1, 1 }, { search = { forward = false, wrap = false } })
+search({ "a中 中" }, { 1, 5 }, "vs<CR>", { 1, 5 }, { search = { wrap = false } })
 -- Matches in another window must not steal the current buffer's search target.
 vim.cmd("vnew")
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })

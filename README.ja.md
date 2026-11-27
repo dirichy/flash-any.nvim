@@ -72,8 +72,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 C モジュールが未ビルド、またはロードできない場合は make の実行を案内します。
 setup は辞書バイナリがなければ生成し、以降はキャッシュを再利用します。
 Flash の labels、search、jump などのオプションも setup に渡せます。
-`jump(opts)` と `remote(opts)` は sources または binary を含む独立した完全設定で、
-setup のフィールドを継承しません。
+`jump(opts)`、`remote(opts)`、`search(opts)` は単発の Flash オプションを setup にマージし、
+設定済みの辞書を使います。sources、binary、char は setup でのみ指定できます。
 
 ## 使い方
 
@@ -136,7 +136,7 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 拼音設定なら `zhongwen` で「中文」を検索できます。ASCII 記号は文字どおりに扱い、
-正規表現は解釈しません。`search(opts)` は `jump(opts)` と同じ完全な単発設定を受け付けます。
+正規表現は解釈しません。`search(opts)` は Flash オプションのみ受け付け、setup の辞書を使います。
 方向と折り返しは `search.forward`、`search.wrap` で変更できます。
 標準の `/`、検索レジスター、`n`/`N` は変更しません。
 
@@ -148,8 +148,8 @@ flash-any の setup に `char = true` を指定すると、`f/F/t/T` を自動�
 require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-`char` は boolean、既定値は `false` です。全体の接続を変更するのは setup だけで、
-単発の jump/remote/search 設定では変更しません。文字移動は setup の sources を使います。
+`char` は boolean、既定値は `false` で、setup でのみ設定できます。
+文字移動は setup の sources を使います。
 `fz` は z で始まるコードと文字 z を検索します。キー、ラベル、回数、`;`/`,`、
 オペレーターは Flash が管理します。既存の multi_line、jump_labels、キー設定を保持し、
 Flash の `modes.char.enabled = false` も尊重します。Flash を先に設定してください。

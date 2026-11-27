@@ -73,8 +73,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 미리 빌드한 C 모듈이 없거나 로드할 수 없으면 make 실행을 안내합니다.
 setup은 사전 바이너리가 없을 때 바로 생성하며, 이후 시작 시에는 캐시를 재사용합니다.
 `labels`, `search`, `jump` 같은 Flash 옵션도 setup에 전달할 수 있습니다.
-`jump(opts)`와 `remote(opts)`는 sources 또는 binary를 포함하는 독립적인 전체 설정을 사용하며
-setup의 필드를 상속하지 않습니다.
+`jump(opts)`, `remote(opts)`, `search(opts)`는 일회성 Flash 옵션을 setup에 병합하고
+설정된 사전을 재사용합니다. sources, binary, char는 setup에서만 설정할 수 있습니다.
 
 ## 사용법
 
@@ -141,7 +141,7 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 병음을 설정하면 `zhongwen`으로 中文을 검색할 수 있습니다. ASCII 문장 부호는 그대로 검색하며
-정규식 문법은 없습니다. `search(opts)`도 sources 또는 binary를 포함하는 전체 일회성 설정을 받습니다.
+정규식 문법은 없습니다. `search(opts)`는 Flash 옵션만 받고 setup의 사전을 재사용합니다.
 `search.forward`와 `search.wrap`으로 방향과 순환을 조절합니다.
 이 API는 기본 `/`, 검색 레지스터, 기본 `n`/`N` 동작을 바꾸지 않습니다.
 
@@ -153,8 +153,8 @@ flash-any의 setup에서 `char = true`를 설정하면 `f/F/t/T`가 자동으로
 require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 ```
 
-char는 boolean이며 기본값은 false입니다. 전역 연결은 setup만 변경하며,
-일회성 jump/remote/search 옵션으로는 바뀌지 않습니다. 문자 이동은 setup의 sources를 사용합니다.
+char는 boolean이며 기본값은 false이고 setup에서만 설정할 수 있습니다.
+문자 이동은 setup의 sources를 사용합니다.
 fz는 첫 코드가 z인 문자와 문자 z를 찾습니다. 키, 레이블, 횟수, `;`/`,` 반복 및 연산자는
 Flash가 관리합니다. 기존 multi_line, jump_labels 및 사용자 키 설정을 유지하고,
 Flash의 `modes.char.enabled = false`도 존중합니다. Flash를 먼저 설정하세요.

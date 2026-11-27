@@ -2,12 +2,16 @@
 
 ## 边界 / Boundaries
 
-运行时只有 C 后端。`setup` / `jump(opts)` / `remote(opts)` 接收 `sources` 或 `binary`；
+运行时只有 C 后端。只有 `setup` 接收 `sources` 或 `binary`；
 缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。
-键支持完整字素和词组，连续输入可以连接多个词条。词组只从字素边界开始和结束，不跨行。
+jump/remote/search 只合并单次 Flash 选项并复用 setup matcher，拒绝 sources/binary/char，
+不创建独立字典生命周期。键支持完整字素和词组，连续输入可以连接多个词条。
+词组只从字素边界开始和结束，不跨行。
 
 Runtime is C-only. Setup builds a missing package from sources or loads an existing
-binary. Lua factories/converters execute only while building. Keys can be complete
+binary. Jump/remote/search merge per-call Flash options with setup, reusing its
+matcher; they reject sources/binary/char and never prepare a dictionary.
+Lua factories/converters execute only while building. Keys can be complete
 graphemes or phrases; input can consume several entries. Phrase boundaries must be
 grapheme boundaries, and entries cannot span buffer lines.
 
@@ -290,13 +294,13 @@ reserve both cases only for insensitive rules so labels cannot consume valid inp
 `setup({ char = true, ... })` 用 `flash.config.get()` 取得当前完整配置，再通过 Flash 的
 公开 setup 接入 `M.char`，不直接改内部配置或接管按键。setup 拥有接入前 matcher 的保存与恢复；
 重复启用不保存自己的回调，关闭时只恢复仍由本插件接管的 matcher。默认关闭，
-单次 jump/remote/search 配置不改变全局接入。Flash 的 enabled、multi_line、keys 等设置保留。
+单次 jump/remote/search 调用不接受 char 配置。Flash 的 enabled、multi_line、keys 等设置保留。
 
 Setup's boolean `char` option defaults to false. Enabling it passes Flash's current
 configuration from `flash.config.get()` back through its public setup with `M.char`
 as the character matcher. Setup owns the previous matcher and restores it only while
 the installed callback is still ours. Repeated enabling never snapshots our own callback.
-One-shot calls do not change the integration. Existing Flash options, including
+Per-call options cannot configure char. Existing Flash options, including
 enabled, multi_line and keys, remain in place; Flash still owns all mappings.
 
 ## 异步搜索 / Asynchronous search

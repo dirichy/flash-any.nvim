@@ -36,13 +36,13 @@ local previous_char_matcher
 ---@field multi_line? boolean
 ---@field jump_labels? boolean
 
----完整配置在此校验、构建；运行层不合并默认配置或解释简写。
+---Setup validates and builds the dictionary; runtime calls only merge Flash options.
 ---@param opts table? sources 自动编译，或 binary 加载现有码表；其余字段交给 Flash。
 ---@return table
 ---@return FlashAnyScan
 ---@return FlashAnyBook
 local function build_opts(opts)
-	assert(type(opts) == "table", "provide complete opts or call setup before jump()")
+	assert(type(opts) == "table", "setup requires an options table")
 	opts = vim.deepcopy(opts)
 	assert(opts.char == nil or type(opts.char) == "boolean", "char must be a boolean")
 	assert(
@@ -136,27 +136,42 @@ function M.rebuild()
 	default_book.rebuild()
 end
 
----@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
+---@param opts? table Flash options only; dictionary configuration belongs to setup.
+---@return table
+local function get_opts(opts)
+	local config = assert(default_opts, "call setup before using flash-any")
+	if opts == nil then
+		return config
+	end
+	assert(type(opts) == "table", "Flash options must be a table")
+	assert(
+		opts.sources == nil and opts.binary == nil and opts.char == nil,
+		"configure sources, binary and char in setup()"
+	)
+	assert(opts.matcher == nil, "custom matchers are not supported")
+	return vim.tbl_deep_extend("force", config, opts) --[[@as table]]
+end
+
+---@param opts? table Single-call Flash options merged with setup.
 ---@return Flash.State
 function M.jump(opts)
-	local config = opts == nil and default_opts or build_opts(opts)
+	local config = get_opts(opts)
 	return flash.jump(config)
 end
 
 ---Search with the configured sources, then perform a remote operator via Flash.
----@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
+---@param opts? table Single-call Flash options merged with setup.
 ---@return Flash.State
 function M.remote(opts)
-	local config = opts == nil and default_opts or build_opts(opts)
+	local config = get_opts(opts)
 	return flash.remote(config)
 end
 
 ---Incrementally search the current buffer without jump labels.
----@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。
+---@param opts? table Single-call Flash options merged with setup.
 ---@return Flash.State
 function M.search(opts)
-	local config = opts == nil and default_opts or build_opts(opts)
-	assert(config, "call setup before search()")
+	local config = get_opts(opts)
 	config = vim.deepcopy(config)
 	local get, finish = require("flash-any.search").new(config.matcher)
 	config = vim.tbl_deep_extend("force", config, {

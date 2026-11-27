@@ -23,10 +23,9 @@ rawset(builder, "async", function(kind, opts, done)
 end)
 
 local build = require("flash-any.build")
-local path, other = vim.fn.tempname() .. ".bin", vim.fn.tempname() .. ".bin"
+local path = vim.fn.tempname() .. ".bin"
 build.binary({ sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } }, output = path })
-build.binary({ sources = { { data = { ["中"] = "x" } } }, output = other })
-assert(not pcall(plugin.jump) and not pcall(plugin.remote))
+assert(not pcall(plugin.jump) and not pcall(plugin.remote) and not pcall(plugin.search))
 assert(not pcall(plugin.setup, {}))
 assert(not pcall(plugin.setup, { binary = path, char = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, sources = "pinyin" }))
@@ -43,15 +42,20 @@ local state = {
 assert(#matcher(0, state, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
 plugin.remote()
 assert(remote.matcher == matcher)
-plugin.jump({ binary = other, labels = "xyz", char = true })
-assert(jump.labels == "xyz" and jump.search == nil and jump.matcher ~= matcher and jump.char == nil)
-assert(#jump.matcher(0, {
-	pattern = function()
-		return "x"
-	end,
-}, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
+plugin.jump({ labels = "xyz", search = { forward = false } })
+assert(jump.labels == "xyz" and jump.search.forward == false and jump.search.wrap == false)
+assert(jump.matcher == matcher, "per-call Flash options must retain the setup dictionary")
+plugin.remote({ labels = "remote", jump = { autojump = false } })
+assert(remote.labels == "remote" and remote.jump.autojump == false and remote.matcher == matcher)
+for _, method in ipairs({ plugin.jump, plugin.remote, plugin.search }) do
+	for _, opts in ipairs({ { sources = {} }, { binary = path }, { char = true }, { matcher = function() end } }) do
+		local ok, err = pcall(method, opts)
+		local expected = opts.matcher and "custom matchers" or "setup()"
+		assert(not ok and tostring(err):find(expected, 1, true), tostring(err))
+	end
+end
 plugin.jump()
-assert(jump.matcher == matcher and jump.labels == "abc")
+assert(jump.matcher == matcher and jump.labels == "abc" and jump.search.wrap == false and jump.search.forward == nil)
 assert(package.loaded["flash-any.cursor"] == nil and package.loaded["flash-any.match"] == nil)
 local cache = vim.fn.tempname()
 local cache_home, notify = vim.env.XDG_CACHE_HOME, vim.notify
@@ -82,5 +86,4 @@ rawset(vim, "notify", notify)
 vim.env.XDG_CACHE_HOME = cache_home
 vim.fn.delete(cache, "rf")
 vim.uv.fs_unlink(path)
-vim.uv.fs_unlink(other)
 print("C-only runtime setup/jump/remote tests passed")
