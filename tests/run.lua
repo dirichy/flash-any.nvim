@@ -12,6 +12,7 @@ end
 local tests = {
 	"autobuild",
 	"build_async",
+	"rebuild",
 	"init",
 	"runtime",
 	"source",

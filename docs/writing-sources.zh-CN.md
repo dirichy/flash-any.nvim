@@ -75,7 +75,7 @@ return function()
     codetable = "mycodes",
     matcher = "full_code",
   }
-end
+end, 1
 ```
 
 把完整 UTF-8 码表放到 `lua/flash-any/tables/mycodes.tsv`，每行是文字、**真正的 Tab**、编码。
@@ -98,6 +98,12 @@ end
 如果改名，同时更新工厂文件名、`codetable`、`minimal.lua` 中的 source 名称、README 和 demo。
 修改工厂或码表后，**重启 Neovim** 再运行第一步的验证；只重跑 setup 不会清掉 Lua require 缓存。
 `:checkhealth flash-any` 可检查环境；缓存及显式 binary 的重建规则见[参考](sources.md)。
+
+模块可返回 `工厂函数, 版本号`，如上例的 `end, 1`。版本号可为有限数字或非空字符串，
+省略时为 `0`，兼容旧的只返回函数的模块。更新码表、转换规则或其他构建依赖后，
+必须修改版本号；不再自动遍历包内文件来发现更新。模块顶层只声明函数和版本，
+重读取和转换放进工厂函数内。手动修改后可更新版本并重启，或调用
+`require("flash-any").rebuild()` 异步强制重建最近一次 setup 的 sources。
 
 ## 3. 现有码表、converter 和 groups
 

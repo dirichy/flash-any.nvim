@@ -86,7 +86,7 @@ native.lua直接加载native.so，不检查源码mtime、不调用编译器；�
 Lua-owned userdata持有码表快照和匹配结果，状态表持有原始行。
 
 native.load统一拥有码表缓存路径和构建：未指定binary时，按sources的稳定inspect
-表示和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
+表示、所选source版本、核心CACHE_VERSION和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
 存在时直接打开；setup 缺失时通过 build.async 启动 nvim --clean -l 子进程，
 传递 MessagePack 构建参数、runtimepath 和当前窗口 cwd。同一路径在本进程内合并构建请求。
 工厂、读取、合并与写入在子进程执行；回调打开新快照。等待时保留旧 matcher，首次使用
@@ -100,25 +100,36 @@ While waiting, searches keep their previous matcher or use a literal-only snapsh
 notifications are emitted at build start and once per search using a fallback. Failures
 retain that fallback. Build helpers remain synchronous for exports. Cache fingerprinting
 and opening/validating the finished binary still run on the main thread.
-外部词典、Rime导入、lua/tsv及converter按绝对路径、大小和mtime（秒/纳秒）生成缓存键，
-修改后下次setup生成新快照。UTF-8 Rime只读头部发现导入，其他编码的自动检测/Rime
-仍复用整文件解码；显式非Rime格式只需stat。
-runtimepath中lua/flash-any下的Lua/TSV同样参与缓存键，每进程检查一次，与require生命周期一致。
-更新插件后重启Nvim；无需执行工厂或加载码表即可检查缓存。大小/mtime均未改变的编辑
-不能检测；命名空间外的任意Lua间接依赖不自动跟踪。显式binary仅在缺失时构建。
+用户 sources 显式声明的外部词典、Rime 导入、lua/tsv 及 converter 按绝对路径、
+大小和 mtime（秒/纳秒）生成缓存键。保留大小/mtime 的编辑无法检测。
+`factory.lua` 统一用 loadfile（或 package.preload）读取模块的工厂和可选版本，
+在进程内缓存，并将工厂放入 package.loaded，保留普通 require 取得函数的用法。
+require 本身丢弃模块的第二返回值，因此核心不能用它读取版本。缺省版本为 0，
+允许有限数字及非空字符串；只读取配置中的 source，不遍历其他包或跟踪隐式依赖。
+作者更新构建依赖时负责改版本，source 模块更新后需重启。核心 Lua 构建规则变化且
+不改变原生格式时，推进 native.lua 的 CACHE_VERSION。
+`rebuild()` 使用最近 setup 的 sources 异步强制重建，不重设 Flash 配置。book 统一
+管理 pending 状态，已有任务时不再发起加载请求；即使文件元数据变化导致缓存路径变化，
+也不会并行或排队重建。任务完成或失败后才允许下次重建，无需结果代次或乱序保护。
+保留失败回退和按查询固定字典的机制。显式 binary 也可重建，但需要 sources。
 
 Make directly invokes the C compiler; GNU make 3.81 syntax is sufficient. Unicode
 headers are committed, and regeneration is a maintainer-only step. Bundled public
 Lua/C headers and compile_flags.txt keep builds and clangd independent of local
 LuaJIT development packages. Plugin managers or users run make on installation and
 updates; loading native.so never builds it and reports actionable load errors.
-The dictionary loader owns cache paths;
-external dictionary, Rime import, Lua/TSV companion and converter paths, sizes and
-nanosecond mtimes select cache snapshots. UTF-8 Rime dependency discovery reads headers
-only; non-UTF-8 auto/Rime input still uses whole-file decoding. Installed Lua/TSV files
-under lua/flash-any are checked once per process, requiring a restart after updates.
-Changes preserving both size and mtime, and arbitrary Lua dependencies outside this
-namespace, require explicit rebuilding.
+The dictionary loader owns cache paths. Explicit file inputs retain metadata/Rime-import
+checks; named sources use the factory module's second return value, defaulting to zero.
+`factory.lua` loads declarations once per process and preserves both return values,
+while package.loaded exposes the factory to ordinary require callers. Factories are
+invoked only while compiling. No package-wide file scanning or dependency manifest is
+used. Authors bump source versions for dependency changes; restart after module updates.
+Core Lua compilation changes bump CACHE_VERSION if the native wire version stays fixed.
+`rebuild()` forces an asynchronous rebuild from the latest setup's sources. Each book owns
+its pending state and admits only one task, even when file metadata changes the cache
+path. Requests during that task do not enqueue another. Completion or failure allows a
+new rebuild; no generation or out-of-order result guard is needed. Flash options, failure
+fallback and query snapshots are retained.
 
 ## 码表 / Dictionary
 
@@ -472,7 +483,7 @@ source 自行维护数据、分音/模糊音/键位转换、默认选键及字�
 
 五个独立插件根目录在独立的 source checkout，未纳入核心仓库，尚未发布远程。
 只有安装到 runtimepath 的工厂才参与发现；核心可用 sources={} 单独运行。
-更新 source 的 lua/flash-any 下 Lua/TSV 文件会进入已有元数据缓存失效机制。
+更新 source 数据时推进 source 版本号，使自动缓存失效。
 核心不负责下载、更新 source；source 插件无 C 编译步骤。
 
 The core has no pinyin/Tiger name dispatch. groups.h owns the generic v8 spelling

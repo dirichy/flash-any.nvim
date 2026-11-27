@@ -81,7 +81,7 @@ return function()
     codetable = "mycodes",
     matcher = "full_code",
   }
-end
+end, 1
 ```
 
 Place the complete UTF-8 table in lua/flash-any/tables/mycodes.tsv. Each row contains
@@ -106,6 +106,14 @@ When renaming, update the factory filename, codetable, minimal.lua source name,
 READMEs and demo. **Restart Neovim** after factory/table changes; calling setup again
 does not clear Lua require caches. Use `:checkhealth flash-any` for environment
 checks and the [reference](sources.md) for caches and explicit binary rebuilding.
+
+Modules may return `factory, version`, as in `end, 1` above. Versions are finite numbers
+or nonempty strings; omission means `0`, preserving old factory-only modules. Bump the
+version whenever dictionaries, conversions or other build dependencies change. Package
+files are no longer scanned for updates. Keep module-level code limited to declarations;
+perform data loading and conversion inside the factory. After manual edits, bump the
+version and restart, or call `require("flash-any").rebuild()` to rebuild the latest
+setup's sources asynchronously.
 
 ## 3. Existing files, converters and groups
 

@@ -147,8 +147,8 @@ end
 ```
 
 用户可覆盖 file、selection.keys 或设 selection=false；selection={} 保留工厂默认键。
-改用 data/lua 时须关闭选键，因为这些数据没有文件权重。随插件分发的词典放在
-lua/flash-any 下，让现有文件元数据缓存机制覆盖更新。
+改用 data/lua 时须关闭选键，因为这些数据没有文件权重。随插件分发的词典由作者的
+source 版本号控制缓存失效，更新词典时同步修改版本号。
 
 Any file source can assign optional ASCII suffix strings by weight and stable input
 order. Direct file configurations must supply keys; source factories own defaults.
@@ -163,8 +163,8 @@ candidates and assigns suffixes; factories do not construct ranks or selectors.
 Rows without a weight keep bare codes and take no selector rank; explicit zero
 weights still participate. Omit weights for punctuation. Users may override the
 file or keys, disable selection, or use selection={} to retain default keys. Data/Lua
-overrides require selection=false because they have no file weights. Ship files under
-lua/flash-any so the existing metadata cache tracks package updates.
+overrides require selection=false because they have no file weights. Source versions
+control invalidation for bundled dictionaries; bump the version when they change.
 
 ## 内部编码组 / Internal spelling groups
 
@@ -237,21 +237,23 @@ end
 编码或有效组引用/序列；输入编码可以是 Unicode。例如配合上述 groups，可将
 词典中的 `すし` 转成 `す し`。它不解析文件格式，也不转换运行时查询。
 
-自动缓存按路径、大小和修改时间（含纳秒）跟踪根词典、Rime 导入、lua/tsv 和 converter；
-修改后下次 setup 使用新快照。缓存命中时不执行 converter。lua/flash-any 下安装的
-Lua/TSV 每进程检查一次，更新后需重启 Nvim。大小和修改时间均未变的编辑、命名空间外
-自行加载的 Lua 依赖需手动重建。显式 binary 存在时直接加载，缺失时才构建。
+用户 sources 中显式配置的 file、lua、tsv、converter 及 Rime 导入按路径、大小和
+修改时间（含纳秒）参与缓存键，修改后下次 setup 使用新快照。保留大小和修改时间的
+编辑无法自动检测。命名 source 的内部依赖不再逐文件扫描，由作者维护的版本号负责，
+见下文工厂约定。显式 binary 存在时直接加载，缺失时才自动构建；`rebuild()` 可强制
+重新构建最近一次 setup 的 sources（包括显式 binary）。
 
 The optional converter file returns a function accepting all deduplicated encodings
 for one text entry. Return an array of ASCII codes or valid group references/sequences,
 or nil/empty to omit that entry. For example, with the groups above it can convert
 すし to す し. It runs only during compilation; raw input encodings may be Unicode.
-It does not parse file formats or transform runtime queries. Automatic cache
-keys include paths, sizes and nanosecond mtimes of dictionaries, recursive Rime
-imports, Lua/TSV companions and converters. Cached startup never executes the converter.
-Installed Lua/TSV files under lua/flash-any are checked once per process; restart
-after updates. Edits preserving size and mtime, and arbitrary Lua dependencies outside
-this namespace, require manual rebuilding. Explicit binary paths rebuild only when missing.
+It does not parse file formats or transform runtime queries. Automatic cache keys
+include paths, sizes and nanosecond mtimes of file/lua/tsv/converter inputs explicitly
+configured in sources, including recursive Rime imports. Edits preserving size and mtime
+require manual rebuilding. Named sources use their author-maintained versions instead
+of scanning internal files; see the factory contract below. Existing explicit binaries
+load directly and build automatically only when missing. `rebuild()` forces construction
+from the latest setup's sources, including an explicit binary output.
 
 ## 录制与 README / Recording and README
 
@@ -292,8 +294,22 @@ return function(opts)
     matcher = "full_code",
     fallback = false,
   }
-end
+end, 1
 ```
+
+模块返回 `工厂函数, 版本号`；版本号可为有限数字或非空字符串，省略时为 `0`，
+兼容旧的只返回函数的模块。作者修改码表、转换或其他构建依赖时，须更新版本号；
+不再遍历包内文件。模块声明会在检查缓存时加载一次，但不调用工厂；不要在模块顶层
+做重读取、转换或副作用。工厂仍只在构建时调用。版本和模块按进程缓存，更新后重启
+Neovim；手动修改数据后也可调用 `require("flash-any").rebuild()` 强制重建。
+
+Modules return `factory, version`; versions are finite numbers or nonempty strings.
+Omitted versions default to `0`, preserving old factory-only modules. Bump the version
+when dictionaries, conversions or other build dependencies change; package files are
+no longer scanned. Cache checks load the module declaration once without invoking the
+factory. Keep heavy I/O, conversion and side effects inside the factory, which runs only
+during construction. Versions/modules are cached per process, so restart after source
+module updates. After manual data edits, `require("flash-any").rebuild()` forces a rebuild.
 
 也可用 `codetable = "japan"` 代替 data，加载一份完整 `lua/flash-any/tables/japan.tsv`，或独立 Lua 表。表名与工厂名不必相同。需要转换时可在工厂调用
 `require("flash-any.table").load(name, {convert = fn, extra = map})`；这些 Lua

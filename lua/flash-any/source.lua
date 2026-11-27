@@ -27,13 +27,7 @@ function M.load(name, opts)
 	if not opts and cache[name] then
 		return cache[name]
 	end
-	local module = "flash-any.sources." .. name
-	assert(
-		#vim.api.nvim_get_runtime_file("lua/flash-any/sources/" .. name .. ".lua", false) > 0 or package.preload[module],
-		"source '" .. name .. "' is not installed; load its source plugin before setup"
-	)
-	local factory = require(module)
-	assert(type(factory) == "function", "source module must return a factory: " .. name)
+	local factory = require("flash-any.factory").load(name)
 	local source = factory(opts or {})
 	assert(type(source) == "table", "source factory must return a table: " .. name)
 	if opts and opts.groups ~= nil then

@@ -20,7 +20,13 @@ end, {
 local default_opts = nil
 ---@type FlashAnyScan?
 local default_char = nil
----@type {engine?: FlashAnyNativeEngine, pending: boolean, error?: string}?
+---@class FlashAnyBook
+---@field engine? FlashAnyNativeEngine
+---@field pending boolean
+---@field error? string
+---@field rebuild fun()
+
+---@type FlashAnyBook?
 local default_book
 local char_attached = false
 ---@type (fun(win: integer, state: Flash.State, range: {from: Pos, to: Pos}): Flash.Match[])|nil
@@ -34,7 +40,7 @@ local previous_char_matcher
 ---@param opts table? sources 自动编译，或 binary 加载现有码表；其余字段交给 Flash。
 ---@return table
 ---@return FlashAnyScan
----@return {engine?: FlashAnyNativeEngine, pending: boolean, error?: string}
+---@return FlashAnyBook
 local function build_opts(opts)
 	assert(type(opts) == "table", "provide complete opts or call setup before jump()")
 	opts = vim.deepcopy(opts)
@@ -47,14 +53,28 @@ local function build_opts(opts)
 	assert(opts.binary == nil or type(opts.binary) == "string", "binary must be a path")
 	assert(opts.sources ~= nil or opts.binary ~= nil, "provide sources or a compiled binary")
 	local native = require("flash-any.native")
-	local book = { engine = default_book and default_book.engine, pending = true }
-	local engine = native.load(opts.binary, opts.sources, function(value, err)
-		book.engine = value or book.engine
-		book.pending, book.error = false, err
-	end)
-	if engine then
-		book.engine, book.pending = engine, false
+	local sources, binary = opts.sources, opts.binary
+	local book = { engine = default_book and default_book.engine, pending = false }
+	local function load(force)
+		if book.pending then
+			return
+		end
+		if force then
+			assert(sources, "rebuild requires sources in setup; a binary alone cannot be rebuilt")
+		end
+		local engine = native.load(binary, sources, function(value, err)
+			book.engine = value or book.engine
+			book.pending, book.error = false, err
+		end, force)
+		book.pending, book.error = true, nil
+		if engine then
+			book.engine, book.pending = engine, false
+		end
 	end
+	book.rebuild = function()
+		load(true)
+	end
+	load()
 	local function dictionary_for(state)
 		local snapshot = state._flash_any_dictionary
 		local pattern = state.pattern()
@@ -108,6 +128,12 @@ function M.setup(opts)
 			previous_char_matcher = nil
 		end
 	end
+end
+
+---Rebuild the latest setup's sources asynchronously, retaining the current dictionary.
+function M.rebuild()
+	assert(default_book, "call setup before rebuild()")
+	default_book.rebuild()
 end
 
 ---@param opts table? 完整的单次配置；nil 使用 setup 保存的配置。

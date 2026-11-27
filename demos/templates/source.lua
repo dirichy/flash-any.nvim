@@ -7,4 +7,5 @@ return function()
 		codetable = "SOURCE",
 		matcher = "full_code", -- Keep demo.lua's matcher consistent / 与 demo.lua 的模式一致。
 	}
-end
+end,
+	1

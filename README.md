@@ -195,6 +195,20 @@ the next change to query input or a new search uses the new dictionary; unchange
 keeps its current snapshot. Source factories/converters must be available on runtimepath;
 the worker does not load your init.lua or inherit in-memory Lua state.
 
+Named sources use author-provided versions for cache invalidation (default `0`);
+package files are no longer scanned. Authors must bump the version after dictionary or
+conversion changes; restart Neovim after updating source modules. After manual edits, use:
+
+```lua
+require("flash-any").rebuild()
+```
+
+This asynchronously rebuilds the latest setup's sources, retaining its Flash options
+and current query snapshots. Each setup configuration runs at most one build at a time;
+repeated calls during construction reuse that task without queuing another. If data
+changes during construction, call rebuild again after it finishes. Setup must include
+`sources`; a binary-only setup cannot be rebuilt. See the [source version contract](docs/sources.md#工厂--factory).
+
 The v14 format requires regenerating older explicit binaries; automatic caches rebuild.
 Run make after updating and restart Neovim to load the new native module.
 `require("flash-any.build").binary()` remains available for explicit exports and development tools.

@@ -16,6 +16,21 @@ assert(vim.tbl_contains(registry.available(), "algorithm"))
 assert(package.loaded["flash-any.sources.algorithm"] == nil)
 print("ok - runtime discovery does not execute source modules")
 
+local factories = require("flash-any.factory")
+write("versioned", {
+	"_G.source_module_runs = (_G.source_module_runs or 0) + 1",
+	"return function() error('version checks must not call the factory') end, 'release-1'",
+})
+local factory, version = factories.load("versioned")
+assert(type(factory) == "function" and version == "release-1")
+local again, same_version = factories.load("versioned")
+assert(again == factory and same_version == version and rawget(_G, "source_module_runs") == 1)
+for index, invalid in ipairs({ "false", "{}", "''", "0/0", "math.huge" }) do
+	local name = "invalid_version_" .. index
+	write(name, { "return function() return {} end, " .. invalid })
+	assert(not pcall(factories.load, name), "invalid source versions must fail")
+end
+
 -- Build a private external plugin fixture instead of shipping example sources.
 vim.fn.mkdir(root .. "/lua/flash-any/tables", "p")
 vim.fn.writefile(

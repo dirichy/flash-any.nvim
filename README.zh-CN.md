@@ -182,6 +182,18 @@ require("flash-any").setup({
 source 工厂和 converter 必须可通过 runtimepath 或文件加载；
 子进程不加载 init.lua，也不继承主进程中的 Lua 内存状态。
 
+命名 source 按作者提供的版本号失效缓存，省略时为 `0`，不再遍历包内文件。作者更新
+码表或转换规则时须修改版本号，用户更新 source 模块后重启 Neovim。手动修改后也可调用：
+
+```lua
+require("flash-any").rebuild()
+```
+
+它会异步强制重建最近一次 setup 的 sources，保留 Flash 配置和当前查询快照。每份
+setup 配置同时只运行一个构建任务；期间重复调用直接复用，不追加任务。若构建期间
+又修改了数据，完成后再调用一次。setup 必须包含 sources，仅提供 binary 无法重建。
+[source 版本约定](docs/sources.md#工厂--factory)见参考。
+
 `require("flash-any.build").binary()` 仍可用于显式导出及开发工具。
 当前 v14 格式需要重新导出旧的显式 binary；自动缓存会重建。
 更新后运行 make，并重启 Neovim 加载新模块。

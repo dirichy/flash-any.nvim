@@ -19,7 +19,7 @@ if arg[1] == "child" then
 		}, { from = { 1, 0 }, to = { 1, 0 } }) == 1
 	end))
 	if arg[4] == "cached" then
-		for _, module in ipairs({ "source", "table", "build", "sources.cached_source", "cached_source.codes" }) do
+		for _, module in ipairs({ "source", "table", "build", "cached_source.codes" }) do
 			assert(package.loaded["flash-any." .. module] == nil, "cache hit loaded " .. module)
 		end
 	end
@@ -28,11 +28,18 @@ end
 local root = vim.fn.tempname()
 vim.fn.mkdir(root .. "/plugin/lua/flash-any/sources", "p")
 vim.fn.mkdir(root .. "/plugin/lua/flash-any/cached_source", "p")
-vim.fn.writefile(
-	{ 'return function() return { data = require("flash-any.cached_source.codes") } end' },
-	root .. "/plugin/lua/flash-any/sources/cached_source.lua"
-)
+local factory = root .. "/plugin/lua/flash-any/sources/cached_source.lua"
 local codes = root .. "/plugin/lua/flash-any/cached_source/codes.lua"
+local function write_factory(version)
+	local suffix = version ~= nil and (", " .. vim.inspect(version)) or ""
+	vim.fn.writefile(
+		{ 'return function() return {data = require("flash-any.cached_source.codes")} end' .. suffix },
+		factory
+	)
+	-- Keep metadata constant: only the returned version should select a new cache.
+	assert(vim.uv.fs_utime(factory, 1000000000, 1000000000))
+end
+write_factory()
 vim.fn.writefile({ 'return { ["甲"] = { "a" } }' }, codes)
 local function run(query, cached)
 	local result = vim.system({
@@ -49,13 +56,21 @@ local function run(query, cached)
 end
 run("a")
 run("a", true)
-assert(#vim.fn.glob(root .. "/cache/**/flash-any/*.bin", false, true) == 1)
+write_factory(0)
+run("a", true) -- Omitted version and explicit zero select the same cache.
 vim.fn.writefile({ 'return { ["甲"] = { "changed" } }' }, codes)
+run("a", true) -- No broad file tracking; unchanged version keeps the existing cache.
+write_factory(1)
 run("changed")
 run("changed", true)
-assert(
-	#vim.fn.glob(root .. "/cache/**/flash-any/*.bin", false, true) == 2,
-	"external source dependency changes must select a new cache"
-)
+vim.fn.writefile({ 'return { ["甲"] = { "next" } }' }, codes)
+run("changed", true)
+write_factory(2)
+run("next")
+run("next", true)
+write_factory("release-3")
+run("next")
+run("next", true)
+assert(#vim.fn.glob(root .. "/cache/**/flash-any/*.bin", false, true) == 4)
 vim.fn.delete(root, "rf")
-print("external source dependency invalidation and cache-hit loading tests passed")
+print("source versions, legacy default zero and cache-hit factory isolation tests passed")

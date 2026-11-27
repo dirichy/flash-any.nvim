@@ -103,10 +103,12 @@ for _, phase in ipairs({ "missing", "invalid", "first", "cached", "updated" }) d
 		assert(result.code == 0, result.stderr)
 	end
 	if phase == "updated" then
-		-- A package update must invalidate dictionaries even if the wire version is unchanged.
-		local path = plugin_root .. "/lua/flash-any/build.lua"
+		-- Lua compilation changes bump the core cache revision without changing the wire format.
+		local path = plugin_root .. "/lua/flash-any/native.lua"
 		local content = vim.fn.readfile(path)
-		table.insert(content, 1, "-- Updated package fixture.")
+		for i, line in ipairs(content) do
+			content[i] = line:gsub("local CACHE_VERSION = 1", "local CACHE_VERSION = 2")
+		end
 		assert(vim.fn.writefile(content, path) == 0)
 	end
 	local process = vim.system(

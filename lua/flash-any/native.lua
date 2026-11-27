@@ -34,24 +34,10 @@ M.grapheme = native.grapheme
 
 local stamp = require("flash-any.stamp")
 
-local package_hash
+-- Bump when Lua compilation changes without a native format/version change.
+local CACHE_VERSION = 1
 local warned_data = false
 local DATA_WARNING_LIMIT = 200
-local function package_fingerprint()
-	if not package_hash then
-		local inputs = {}
-		-- Track installed build code and bundled tables without executing source factories.
-		-- These modules have require caches too; package updates take effect after restarting Nvim.
-		local paths = vim.api.nvim_get_runtime_file("lua/flash-any/**/*.lua", true)
-		vim.list_extend(paths, vim.api.nvim_get_runtime_file("lua/flash-any/**/*.tsv", true))
-		table.sort(paths)
-		for _, path in ipairs(paths) do
-			inputs[#inputs + 1] = stamp(path)
-		end
-		package_hash = vim.fn.sha256(table.concat(inputs, "\n"))
-	end
-	return package_hash
-end
 
 local pending = {}
 
@@ -59,14 +45,21 @@ local pending = {}
 ---@param sources? FlashAnySourceSpec[]
 ---@overload fun(path?: string, sources?: FlashAnySourceSpec[]): FlashAnyNativeEngine
 ---@param ready fun(engine: FlashAnyNativeEngine?, err: string?)
+---@param force? boolean
 ---@return FlashAnyNativeEngine?
-function M.load(path, sources, ready)
+function M.load(path, sources, ready, force)
 	if not path then
 		assert(sources, "provide sources or a compiled binary")
-		local inputs = { native.version, package_fingerprint() }
+		local inputs = { native.version, tostring(CACHE_VERSION) }
 		local data_count = 0
 		-- Follow the reader's import graph so a changed sub-dictionary selects a new snapshot.
 		for _, source in ipairs(sources) do
+			local name = type(source) == "string" and source or type(source) == "table" and source.name
+			if name then
+				assert(type(name) == "string", "source name must be a string")
+				local _, version = require("flash-any.factory").load(name)
+				inputs[#inputs + 1] = vim.inspect({ name, version })
+			end
 			if type(source) == "table" then
 				---@cast source FlashAnySourceConfig
 				local data = source.data
@@ -106,14 +99,14 @@ function M.load(path, sources, ready)
 		path = vim.fn.stdpath("cache") .. "/flash-any/" .. key .. ".bin"
 	end
 	path = vim.fn.expand(path)
-	if not vim.uv.fs_stat(path) then
+	if ready and pending[path] then
+		pending[path][#pending[path] + 1] = ready
+		return
+	end
+	if force or not vim.uv.fs_stat(path) then
 		assert(sources, "binary is missing; provide sources to build it automatically: " .. path)
 		vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
 		if ready then
-			if pending[path] then
-				pending[path][#pending[path] + 1] = ready
-				return
-			end
 			pending[path] = { ready }
 			local ok, err = pcall(
 				require("flash-any.build").async,
