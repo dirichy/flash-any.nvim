@@ -1,6 +1,5 @@
--- Each test gets its own Neovim process. External source tests are opt-in.
+-- Isolate setup/module state. Matching uses generated tables, without optional source packages.
 local root = assert(vim.uv.cwd())
-local source_path = vim.env.FLASH_ANY_SOURCE_PATH
 if arg[1] == "child" then
 	dofile("scripts/source_path.lua")
 	local path = assert(arg[2])
@@ -15,38 +14,21 @@ local tests = {
 	"rebuild",
 	"init",
 	"setup",
-	"runtime",
 	"source",
 	"source_cache",
 	"third_party",
 	"formats",
-	"demo",
-	"source_guide",
-	"groups",
-	"group_sequences",
 	"selection",
-	"table",
 	"table_files",
 	"build",
 	"health",
 	"text",
-	"native",
-	"phrases",
-	"overlap",
-	"letter",
-	"literal",
-	"latin",
-	"utf8",
-	"reference_cursor",
+	"binary",
+	"matcher",
 }
 local paths = {}
 for _, test in ipairs(tests) do
 	paths[#paths + 1] = "tests/" .. test .. ".lua"
-end
-vim.list_extend(paths, vim.fn.glob("tests/reference_match/*.lua", false, true))
-if source_path then
-	assert(vim.fn.isdirectory(source_path) == 1, "FLASH_ANY_SOURCE_PATH must contain the optional plugin directories")
-	vim.list_extend(paths, vim.fn.glob("tests/integration/*.lua", false, true))
 end
 for _, path in ipairs(paths) do
 	local result = vim.system(

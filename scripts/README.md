@@ -15,7 +15,6 @@ maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
 
 | 入口 / Entry | 用途 / Purpose |
 | --- | --- |
-| `check_dictionaries.py [--download] [--nvim PATH]` | 固定版本真实码表全量对照与 C 匹配；默认离线，首次下载需 --download；编码派生测试还需 iconv / pinned upstream dictionary checks, optional download, iconv for derived encodings |
 | `bench_scan.py BASELINE --samples 9` | 索引版与当前单趟C扫描对照；BASELINE须包含原版完整lua目录和native.so |
 | `bench_cache.py --root BASELINE --samples 9` | 历史索引版的文本/结果缓存对照；需要索引版快照，不能使用当前单趟版 |
 | `bench_merge.py BASELINE --samples 9` | 合表前后原生后端对照；需要合表前可运行快照 |
@@ -31,7 +30,7 @@ maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
 | `bench_root_pool.cc DICTIONARY.bin PAGED.index OUTPUT_PREFIX` | 编译后独立运行；拆分根codes/base数组，将去重共享池块搬入无分支base区，重建偏移并全量校验序列化结果 / reuse vacant root-base runs for shared-pool blocks |
 | `bench_phrases.py --source-root V11_ROOT --pool-images DIR --methods paged split packed packed-all range --data DIR` | 用实际搬移镜像做完整扫描；split编译去掉区域选择，packed仅搬编码，packed-all也搬文本 / full scans with actual relocated pool references |
 | `bench_lua_matcher.py --samples 9` | 历史v11 checkout上临时C模块调用单字素Lua matcher的成本对照；加`--multiple`比较多个matcher分别跨界和Lua内部批量分派，不增加生产接口 |
-| `bench_native.lua` | 单进程Lua参考实现或C扫描测量；独立进程对照优先使用上面的Python入口 |
+| `bench_native.lua` | 单进程C扫描测量（PACKAGE cold|warm）；独立进程对照优先使用上面的Python入口 |
 | `bench_binary_load.lua` | 单进程源数据或二进制加载测量 |
 
 `bench_merge.lua`、`bench_scan.lua`和`bench_cache.lua`是上述独立进程测试的驱动。
@@ -60,13 +59,12 @@ deterministic fixture encoding between experiments and is not runtime code.
 
 旧Cursor、紧密码点字符串、预建边界、Lua matcher临时分配、TSV二分查找和
 常用字缓存实验脚本已删除；旧Python码表导出/排序工具也已删除，统一使用 build.table。
-`tests/reference/`有差分测试和Lua/C对照消费者，因此保留为测试参考实现；
-生产运行时不会加载它。历史数字保留在文档中，历史命令不代表当前API。
+旧 Lua matcher、Cursor、查表参考实现和逐表测试工具已删除。
+码表匹配现在用固定种子的生成表按功能验证；历史数字和命令仅作记录，不代表当前 API。
 
-Obsolete Cursor, packed-codepoint, boundary-index and Lua matcher allocation
-experiments, TSV binary-search/common-cache benchmarks and obsolete Python table
-export/sort tools were removed. Use build.table for exports. The frozen Lua implementation remains under tests as
-an oracle consumed by differential tests and benchmarks, outside production loading.
+The legacy Lua matcher, Cursor and lookup oracle, their self-tests and per-dictionary
+runners were removed. Core matching tests use reproducible generated dictionaries.
+Historical measurements and commands are retained as records, not current APIs.
 
 Source-specific table generators now live with their optional source packages;
 the core retains only general import/export and Unicode grapheme tools. Historical

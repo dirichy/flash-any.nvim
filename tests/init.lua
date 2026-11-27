@@ -19,6 +19,7 @@ assert(not pcall(plugin.setup, {}))
 assert(not pcall(plugin.setup, { binary = path, char = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, sources = "pinyin" }))
 plugin.setup({ binary = path, labels = "abc", search = { wrap = false } })
+assert(not pcall(plugin.rebuild), "binary-only setup cannot reconstruct sources")
 plugin.jump()
 assert(jump.labels == "abc" and jump.binary == nil and jump.sources == nil and jump.char == nil)
 local matcher = jump.matcher

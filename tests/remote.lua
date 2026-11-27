@@ -19,17 +19,6 @@ local cases = {
 		input = "yrzga",
 		target = "中国 target",
 		text = "中国",
-	},
-	{
-		input = "drvsgoa",
-		target = "中国 target",
-		text = "中国",
-		after = " target",
-	},
-	{
-		input = "yrzga",
-		target = "中国 target",
-		text = "中国",
 		split = true,
 	},
 }

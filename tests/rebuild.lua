@@ -1,6 +1,6 @@
 -- Setup variants run in fresh processes; the public API has no reset hook.
 if not arg[1] then
-	for _, phase in ipairs({ "automatic", "binary-only", "explicit", "serial" }) do
+	for _, phase in ipairs({ "automatic", "explicit", "serial" }) do
 		local result = vim.system({ vim.v.progpath, "--clean", "-l", "tests/rebuild.lua", phase }, { text = true })
 			:wait()
 		assert(result.code == 0, (result.stderr or "") .. (result.stdout or ""))
@@ -76,12 +76,6 @@ if arg[1] == "automatic" then
 	local cached = require("flash-any.native").load(nil, { "rebuild" })
 	assert(#cached:scan(0, 0, 1, 1, 1, { "中" }, "b", nil) == 1)
 	assert(builds == 2, "successful rebuild must replace the automatic cache")
-elseif arg[1] == "binary-only" then
-	local explicit = root .. "/export.bin"
-	vim.fn.writefile({ "中\ta" }, input)
-	builder.binary({ sources = { "rebuild" }, output = explicit })
-	plugin.setup({ binary = explicit })
-	assert(not pcall(plugin.rebuild), "binary-only setup cannot reconstruct sources")
 elseif arg[1] == "explicit" then
 	local explicit = root .. "/export.bin"
 	vim.fn.writefile({ "中\ta" }, input)

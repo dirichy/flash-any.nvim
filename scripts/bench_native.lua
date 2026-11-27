@@ -1,8 +1,7 @@
 dofile("scripts/source_path.lua")
-package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
--- Run independently: nvim --clean -l scripts/bench_native.lua lua|binary PACKAGE cold|warm
-vim.opt.runtimepath:prepend(arg[4] or vim.uv.cwd())
-local mode, path, phase = assert(arg[1]), assert(arg[2]), arg[3] or "cold"
+-- Run independently: nvim --clean -l scripts/bench_native.lua PACKAGE cold|warm
+vim.opt.runtimepath:prepend(arg[3] or vim.uv.cwd())
+local path, phase = assert(arg[1]), arg[2] or "cold"
 local lines = {}
 for i = 1, 40 do
 	lines[i] = ("中国人民学习中文，ASCII flash_any 混合文本。"):rep(4)
@@ -17,19 +16,10 @@ state.labels = function()
 end
 local range = { from = { 1, 0 }, to = { #lines, 0 } }
 local start, cpu = vim.uv.hrtime(), os.clock()
-local scan
-if mode == "binary" then
-	local native = require("flash-any.native")
-	local engine = native.load(path)
-	scan = function()
-		return native.get(0, state, range, engine)
-	end
-else
-	local sources = require("reference.source").resolve({ "pinyin" })
-	local match = require("reference.match")
-	scan = function()
-		return match.get(0, state, range, sources)
-	end
+local native = require("flash-any.native")
+local engine = native.load(path)
+local function scan()
+	return native.get(0, state, range, engine)
 end
 local load_ms, load_cpu = (vim.uv.hrtime() - start) / 1e6, (os.clock() - cpu) * 1000
 local queries = { "z", "zh", "zho", "zhon", "zhong", "zhongg", "zhonggu", "zhongguo" }
@@ -54,7 +44,7 @@ for i = 2, #queries do
 	elapsed[#elapsed + 1], cpus[#cpus + 1] = (vim.uv.hrtime() - start) / 1e6, (os.clock() - cpu) * 1000
 end
 print(vim.json.encode({
-	mode = mode,
+	mode = "binary",
 	phase = phase,
 	load_ms = load_ms,
 	load_cpu = load_cpu,

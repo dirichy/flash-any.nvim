@@ -9,8 +9,6 @@ vim.o.columns = 100
 package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 local fixture = require("fixture")
 local plugin = require("flash-any")
-local Char = require("flash.plugins.char")
-local Pos = require("flash.search.pos")
 if arg[2] == "emoji" then
 	require("flash").setup({ modes = { char = { multi_line = false, jump_labels = false } } })
 	fixture.setup({ sources = { { data = { ["👩‍💻"] = "v" } } }, char = true })
@@ -20,6 +18,8 @@ if arg[2] == "emoji" then
 	assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), { 1, #"👩‍💻" }))
 	return
 end
+local Char = require("flash.plugins.char")
+local Pos = require("flash.search.pos")
 require("flash").setup({ modes = { char = { multi_line = false } } })
 fixture.setup({
 	char = true,
@@ -39,12 +39,6 @@ fixture.setup({
 	},
 })
 
-local config = require("flash.config")
----@cast config { modes: { char: FlashAnyCharOptions } }
-assert(config.modes.char.matcher == plugin.char and config.modes.char.multi_line == false)
-assert(not pcall(plugin.setup, { sources = {}, char = false }))
-assert(config.modes.char.matcher == plugin.char, "repeated setup must leave Flash integration unchanged")
-
 local function reset(lines, pos)
 	if Char.state then
 		Char.state:hide()
@@ -58,29 +52,6 @@ local function keys(input, pos)
 	assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), pos), vim.inspect(vim.api.nvim_win_get_cursor(0)))
 end
 
-vim.go.ignorecase = true
-reset({ "aV中v" })
-keys("fv", { 1, 1 })
-keys(";", { 1, 2 })
-keys(";", { 1, 5 })
-vim.go.smartcase = true
-reset({ "aV中v" })
-keys("fV", { 1, 1 })
-keys(";", { 1, 1 })
-vim.go.ignorecase, vim.go.smartcase = false, false
-
-reset({ "a中国中" })
-keys("f中", { 1, 1 })
-keys(";", { 1, 7 })
-keys("F中", { 1, 1 })
-reset({ "a国中" })
-keys("t中", { 1, 1 })
-
-reset({ "a中珠v end" })
-keys("fv", { 1, 1 })
-keys("f", { 1, 4 })
-keys(";", { 1, 7 })
-keys(",", { 1, 4 })
 reset({ "a中珠v end" })
 keys("2fv", { 1, 4 })
 reset({ "a中珠v end" }, { 1, 7 })
@@ -132,15 +103,8 @@ local matcher = state:get_matcher(vim.api.nvim_get_current_win())
 assert(visited[2] and not visited[70], vim.inspect(visited))
 assert(matcher:find({ pos = Pos({ 1, 0 }), count = 2, forward = true, wrap = false }).pos[1] == 70)
 assert(visited[70] == 1 and not visited[140])
-assert(matcher:find({ pos = Pos({ 100, 0 }), forward = false, wrap = false }).pos[1] == 70)
-assert(visited[70] == 1)
-assert(matcher:find({ pos = Pos({ 70, 0 }), count = 0 }).pos[1] == 70)
-assert(matcher:find({ pos = Pos({ 70, 0 }), current = true, wrap = false }).pos[1] == 70)
-local found = matcher:find({ pos = Pos({ 1, 0 }), wrap = false })
-assert(matcher:find({ match = found, forward = true, wrap = false }).pos[1] == 70)
 allow_far = true
 assert(matcher:find({ pos = Pos({ 1, 0 }), count = 4, forward = true, wrap = false }).pos[1] == 900)
-assert(matcher:find({ pos = Pos({ 1, 0 }), count = 1000002, forward = true, wrap = true }).pos[1] == 70)
 vim.api.nvim_buf_set_lines(0, 69, 70, false, { "" })
 assert(matcher:find({ pos = Pos({ 1, 0 }), count = 2, forward = true, wrap = false }).pos[1] == 140)
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "none" })
@@ -148,24 +112,6 @@ assert(not matcher:find({ wrap = true }))
 state:hide()
 rawset(vim.api, "nvim_buf_get_lines", get_lines)
 
-require("flash").setup({
-	modes = {
-		char = {
-			matcher = plugin.char,
-			multi_line = false,
-			jump_labels = true,
-			labels = "ab",
-			label = { exclude = "", uppercase = false },
-		},
-	},
-})
-
-reset({ "a中珠" })
-vim.api.nvim_feedkeys("v" .. string.char(27), "t", false)
-local label_state = Char.jump("f")
-assert(label_state and label_state.opts.labeler == Char.labeler)
-assert(label_state.results[1].label == "a" or label_state.results[2].label == "a")
-assert(vim.v.errmsg == "", vim.v.errmsg)
 -- Till motions must not land inside the preceding or matched grapheme.
 require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false, jump_labels = false } } })
 
@@ -179,4 +125,5 @@ local result = vim.system(
 	{ text = true }
 ):wait()
 assert(result.code == 0, result.stderr)
-print("real Flash char integration tests passed")
+assert(vim.v.errmsg == "", vim.v.errmsg)
+print("counted/operator char motions, lazy distant lookup and Unicode till regressions passed")

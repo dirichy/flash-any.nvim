@@ -1,3 +1,4 @@
+-- A failed Flash integration must allow retry; a second setup must not alter a working configuration.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local path = vim.fn.tempname() .. ".bin"
 require("flash-any.build").binary({ sources = { { data = { ["中"] = "x" } } }, output = path })
@@ -25,21 +26,14 @@ package.loaded.flash = {
 	end,
 }
 plugin = require("flash-any")
-for _, opts in ipairs({ {}, { binary = path, char = "yes" }, { sources = "invalid" } }) do
-	assert(not pcall(plugin.setup, opts))
-end
 local ok, err = pcall(plugin.setup, { binary = path, char = true })
 assert(not ok and tostring(err):find("Flash setup fixture failed", 1, true))
 assert(not pcall(plugin.jump), "failed setup must not commit partial options")
 fail = false
 plugin.setup({ binary = path, char = true, labels = "ab" })
-local options = plugin.jump()
-assert(options.labels == "ab")
-for _, opts in ipairs({ { binary = path }, { sources = {} }, { binary = path, char = false } }) do
-	ok, err = pcall(plugin.setup, opts)
-	assert(not ok and tostring(err):find("only be called once", 1, true))
-	assert(plugin.jump() == options, "rejected setup must preserve the original options")
-end
+ok, err = pcall(plugin.setup, { binary = path, char = false })
+assert(not ok and tostring(err):find("only be called once", 1, true))
+assert(plugin.jump().labels == "ab", "rejected setup must preserve the original options")
 assert(calls == 2, "duplicate setup must not touch Flash integration")
 vim.uv.fs_unlink(path)
 print("single setup, reentrancy, failed initialization retry and atomic publication tests passed")

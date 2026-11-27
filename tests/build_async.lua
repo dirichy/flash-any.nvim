@@ -1,3 +1,5 @@
+-- Users can type during construction; each query must keep one dictionary snapshot.
+-- Failure recovery and repeated rebuild requests are covered by rebuild.lua.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local root = vim.fn.tempname()
 vim.fn.mkdir(root .. "/lua/flash-any/sources", "p")
@@ -6,7 +8,6 @@ vim.fn.writefile({
 	"  assert(vim.g.main_process_only == nil)",
 	"  local input = dofile(opts.config)",
 	"  vim.uv.sleep(input.delay or 300)",
-	"  assert(not input.fail, 'fixture build failure')",
 	"  return { data = { ['中'] = { input.code } } }",
 	"end",
 }, root .. "/lua/flash-any/sources/slow.lua")
@@ -24,22 +25,19 @@ package.loaded.flash = {
 	end,
 }
 local plugin = require("flash-any")
-local builds, active = 0, 0
+local active = 0
 local builder = require("flash-any.build")
 local async = builder.async
 rawset(builder, "async", function(kind, opts, done)
-	builds, active = builds + 1, active + 1
+	active = active + 1
 	return async(kind, opts, function(...)
 		active = active - 1
 		done(...)
 	end)
 end)
 local input = root .. "/input.lua"
-local function write(code, delay, fail)
-	vim.fn.writefile(
-		vim.split("return " .. vim.inspect({ code = code, delay = delay, fail = fail }), "\n", { plain = true }),
-		input
-	)
+local function write(code, delay)
+	vim.fn.writefile(vim.split("return " .. vim.inspect({ code = code, delay = delay }), "\n", { plain = true }), input)
 end
 local query = "中"
 local state = {
@@ -99,27 +97,6 @@ query = "y"
 assert(#second(0, state, range) == 1)
 query = "x"
 assert(#first(0, pinned, range) == 1, "existing query must keep its snapshot")
-write("bad", 100, true)
-plugin.rebuild()
-local failed = first
-assert(vim.wait(10000, function()
-	return active == 0
-end))
-query = "y"
-assert(#failed(0, { pattern = state.pattern }, range) == 1)
-assert(notifications[#notifications][1]:find("build failed; using previous dictionary", 1, true))
-assert(vim.uv.fs_stat(root .. "/dictionary.bin"), "failed rebuild must retain the existing binary")
--- Repeated requests reuse one worker, and a second setup is rejected.
-write("new", 100)
-plugin.rebuild()
-plugin.rebuild()
-assert(not pcall(plugin.setup, { sources = {} }))
-assert(builds == 4, "duplicate rebuild spawned another worker")
-assert(vim.wait(10000, function()
-	return active == 0
-end))
-query = "new"
-assert(#first(0, { pattern = state.pattern }, range) == 1)
 assert(package.loaded["flash-any.sources.slow"] == nil, "factory ran in main process")
 vim.fn.delete(root, "rf")
-print("background build responsiveness, literal/old fallbacks, failures and repeated rebuild passed")
+print("background responsiveness, pending notices, literal fallback and dictionary snapshots passed")

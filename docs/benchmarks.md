@@ -4,7 +4,7 @@
 TSV二分查找、prefix continuation 和常用字缓存测量脚本也已随生产查表层删除。
 早期章节中的脚本路径和命令仅描述当时测量，不能在当前版本直接执行。
 当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见末尾
-“v13局部模数与8字节节点”。`tests/reference/`仍供差分测试使用，不是运行时后端。
+“v13局部模数与8字节节点”。旧 `tests/reference/` 已删除；当前测试使用生成码表验证功能。
 v11格式的完整扫描实验需给`bench_phrases.py`传入`--source-root V11_ROOT`；本轮保留的
 源码快照为`/tmp/flash-any-native-v11`。下文旧命令不会自动转换为当前格式。
 用户侧构建现已改用Neovim Lua和随附头文件，只需C编译器；下文的旧Python构建及
@@ -1337,7 +1337,7 @@ matching across graphemes remains supported. Existing packages must be rebuilt.
 
 最终运行时只加载二进制码表，由 C 完成字素分段、查询、扫描匹配和结果生成。
 Lua 保留构建工具与 Neovim/Flash 桥接；删除运行时 Lua matcher、Cursor、自定义
-matcher/scope 回调。旧 Lua 实现冻结在 tests/reference，仅供差分测试和历史对照。
+matcher/scope 回调。当时使用的旧 Lua 对照实现现已删除。
 当前不实现词组或前缀扩展标记，码表键必须为单个完整字素。
 
 常用字对照使用原 Lua 版本 `d3f1fec`（含常用字缓存），与合表 C 后端分别运行。

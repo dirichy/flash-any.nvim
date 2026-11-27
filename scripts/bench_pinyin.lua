@@ -5,7 +5,6 @@ local output, task = assert(arg[1]), assert(arg[2])
 local load =
 	assert(package.loadlib(vim.env.FLASH_ANY_PINYIN_NATIVE or output .. "/native.so", "luaopen_flash_any_native"))
 local prototype = load()
-package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 local native = require("flash-any.native")
 local function path(mode, fuzzy, unicode, matcher)
 	return output
@@ -84,19 +83,11 @@ if task == "build" then
 	end
 	local sizes = {}
 	for _, fuzzy in ipairs({ "plain", "fuzzy" }) do
-		-- Capture the existing build-time converter, keeping the fuzzy rules identical.
-		local reference_tables = require("reference.table")
-		local table_load, convert = reference_tables.load, nil
-		rawset(reference_tables, "load", function(_, opts)
-			convert = opts.convert
-			return {}
-		end)
-		require("reference.pinyin")({ fuzzy = fuzzy == "fuzzy" and true or {} })
-		rawset(reference_tables, "load", table_load)
+		local resolved = registry.resolve({ { name = "pinyin", fuzzy = fuzzy == "fuzzy" } })[2]
 		local forms, coverage = {}, {}
 		for index, spelling in ipairs(syllables) do
 			local set = {}
-			for _, variant in ipairs(assert(convert)({ spelling })) do
+			for _, variant in ipairs(resolved.groups and resolved.groups[spelling] or { spelling }) do
 				set[variant] = true
 			end
 			forms[index] = vim.tbl_keys(set)
@@ -106,8 +97,13 @@ if task == "build" then
 		local profile = prototype.pack_pinyin(forms)
 		write(output .. "/" .. fuzzy .. ".syllables", profile)
 		write(output .. "/" .. fuzzy .. ".coverage.json", vim.json.encode(coverage))
-		local expanded =
-			require("reference.table").materialize(require("reference.pinyin")({ fuzzy = fuzzy == "fuzzy" }).data)
+		local expanded = {}
+		for text, codes in pairs(assert(resolved.data)) do
+			expanded[text] = {}
+			for _, code in ipairs(codes) do
+				vim.list_extend(expanded[text], resolved.groups and resolved.groups[code] or { code })
+			end
+		end
 		for _, unicode in ipairs({ false, true }) do
 			for _, mode in ipairs({ "expanded", "syllables", "skip" }) do
 				local rows = {}

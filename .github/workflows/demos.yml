@@ -49,9 +49,8 @@ jobs:
         run: |
           make
           nvim --clean -l tests/run.lua
-          nvim --clean -l tests/flash.lua "$FLASH_NVIM_PATH"
-          nvim --clean -l tests/char.lua "$FLASH_NVIM_PATH"
-          nvim --clean --headless -u tests/remote.lua
+          nvim --clean -l tests/demo.lua
+          nvim --clean -l tests/source_guide.lua
       - name: record
         run: |
           demos/record.sh

@@ -386,16 +386,18 @@ arrays override TSV too, preserving their ability to block later fallback source
 
 `:FlashAnyBuildTable` 可从 Rime/CSV/TSV/空白分隔词典生成 Lua/TSV。转换器保留
 多字素条目并报告数量；file 和 Lua/data 接入均可直接编译词组。格式详见
-[开发说明](development.md)；测试参考实现不属于插件 API。
+[开发说明](development.md)。
 
 The export command preserves multi-grapheme entries; file and Lua/data sources compile them directly.
 See [development notes](development.md)
-for binary layout. The frozen Lua oracle under tests is not a plugin API.
+for binary layout.
 
 ## 真实码表验证 / Real dictionary checks
 
-固定上游版本、全量对照结果及复现命令见 [真实码表测试](dictionary-tests.md)。
-Pinned upstream versions, full-data comparisons and reproduction commands are documented there.
+核心按功能测试生成码表，通用格式导入独立验证；source 专有转换由相应包维护。
+Core tests use generated tables by feature and validate import formats separately.
+Source-specific conversions belong to their source packages.
+历史上游验证结果见 [历史记录](dictionary-tests.md) / See the historical report for past upstream checks.
 
 
 独立 source 包仅保留完整 TSV，不再携带常用字 Lua 缓存。拼音、虎码、五笔的标点

@@ -1,4 +1,11 @@
-# 真实码表验证 / Real dictionary checks
+# 历史真实码表验证 / Historical dictionary checks
+
+以下为历史验证记录。逐表测试脚本和版本清单已删除，文中的复现命令不再适用于当前版本。
+当前核心按功能测试生成码表；各 source 的专有转换由相应包验证。
+
+This is a historical report. The per-dictionary runner and manifest were removed;
+commands below require the historical revision. Core tests now use generated tables
+by feature; source-specific conversions belong to their source packages.
 
 本轮在 Linux 上使用 Neovim 0.11.0 / GNU make 3.81，以及 Neovim 0.12.6 验证。
 11 份原始上游文件固定提交和 SHA256，逐项核对 338,500 组文本/编码关系；

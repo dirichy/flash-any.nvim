@@ -20,7 +20,6 @@ jobs:
         with:
           neovim: true
           version: v0.11.0
-      - uses: ./.github/actions/setup-fonts
       - name: Build and test without optional sources
         run: |
           make

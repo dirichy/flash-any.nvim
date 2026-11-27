@@ -60,15 +60,13 @@ contain only codes. Grapheme counts remain solely for build completion messages.
 
 已有二进制时不加载source或字素模块；外部file的依赖检查只加载构建器的文件读取部分。
 缺失时按sources构建。Lua的grapheme.lua只封装C的each/len，UTF-8解码和UAX #29
-规则仅在text.h中实现；构建和扫描共用同一实现。旧Lua算法仅在tests/reference中作为独立对照。
-`tests/runtime.lua`和`tests/autobuild.lua`在独立进程中验证这两个路径。
+规则仅在text.h中实现；构建和扫描共用同一实现。
+`tests/autobuild.lua`和`tests/source_cache.lua`在独立进程中验证构建与缓存复用。
 
 Cached external files load only the dependency-reading portion of the builder,
 without grapheme/source modules. Build-time grapheme counting and enumeration call
 the same C decoder and boundary rules used by scanning. The Lua grapheme module
-is a thin adapter; the old Lua algorithm lives only in tests/reference as an
-independent oracle. Its canonical TSV reader is also test-owned and eagerly reads a
-map; it does not import the production parser or a production lookup engine. Bundled Unicode input data lives under scripts/data.
+is a thin adapter. Bundled Unicode input data lives under scripts/data.
 Explicit binaries and cached built-in sources load without Lua builders or scanners. Fresh-process tests
 cover missing/broken native modules, external make, automatic dictionary compilation
 and persistent-cache reuse. Loading/setup never invokes a compiler.
@@ -375,6 +373,42 @@ buffer construction and dictionary setup. They are local observations, not a lat
 
 ## 测试与 LSP / Tests and LSP
 
+每项测试应能说明它防止的具体问题：用户可能执行的操作、文件或运行时安全、
+明确的性能退化，或容易写错的算法规则。不要按函数、分支或字段逐一配套断言，
+也不要验证普通 Lua table 的读写行为。优先检查操作产生的匹配结果或错误；
+converter 接收整组还是单行等扩展接口约定，可以直接检查其输出。
+相同风险已有覆盖时合并用例，不为每个配置组合复制一次完整流程。
+
+异步构建测试负责首次构建时编辑器仍能响应、等待通知和查询快照；重建测试负责
+手动更新、并发请求合并及失败后保留旧文件并允许重试。C 的损坏二进制、边界、
+GC 生命周期与官方 Unicode 边界测试保留，用于防止越界、悬空引用
+和匹配算法错误；这些用例的理由是具体风险，而不是与实现代码一一对应。
+
+Each test needs a concrete reason: plausible user behavior, file or runtime safety,
+a known performance risk, or an error-prone algorithmic rule. Assert observable
+results or extension contracts rather than mirroring functions, branches, fields,
+or ordinary Lua table operations. Merge overlapping scenarios instead of repeating
+whole workflows for every option combination. Background-build tests cover responsiveness,
+notices and query snapshots; rebuild tests cover manual updates, concurrent requests,
+file preservation and retry. Corrupt binary, boundary, GC and Unicode tests protect
+against memory errors and incorrect matching.
+
+码表按功能验证，不逐个安装或扫描外部 source。`tests/matcher.lua`用三张固定种子的
+随机表，连续验证 matcher、输入编辑、大小写与字面混输、共享组和词组歧义；
+`tests/binary.lua`负责损坏文件、写入失败、组编号边界和快照生命周期。
+旧 Lua matcher、Cursor、查表引擎及其自测已删除，不再维护第二套匹配实现。
+
+Demos verify successful jump, char repeat, remote deletion and offscreen search.
+Flash regression tests retain only cases outside those recordings: label placement,
+codepoint input, counted/operator motions, cancellation, buffer edits and dictionary
+changes between asynchronous batches. Generator/tutorial checks run with demo CI,
+not the default core suite.
+
+Matching is tested by feature using three reproducible generated maps, with explicit
+expected results and small independent group expansion / interval-selection checks.
+No external dictionaries or legacy Lua matcher are required. The old Lua matcher,
+Cursor and lookup implementation, including their self-tests, have been removed.
+
 ```sh
 make -B
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/run.lua
@@ -386,7 +420,7 @@ NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/search_in
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
 make -B CFLAGS='-O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined'
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/text.lua
-NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/native.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/binary.lua
 make -B
 lua-language-server --check=. --checklevel=Hint
 ```
@@ -405,10 +439,10 @@ Both Neovim 0.11.0 / GNU make 3.81 and Neovim 0.12.6 / GNU make 4.4.1 passed
 the full test suite on Linux, including real Flash jump, char and remote integration.
 The `.dev` tool installations are local and are not distributed with the plugin.
 
-Flash checkout放在.dev/flash.nvim。`tests/text.lua`直接校验C的官方Unicode字素边界
-与非法字节；native测试对照冻结Lua参考实现。`tests/reference/`只作为测试oracle，
-不在插件runtimepath，不提供运行时兼容API。旧Cursor及Lua扫描实验脚本已经清理，
-历史性能数字保留在benchmarks文档中；当前工具入口见[scripts说明](../scripts/README.md)。
+Flash checkout放在.dev/flash.nvim。`tests/text.lua`用官方Unicode测试数据校验C的
+字素边界与非法字节。demo生成与教程命令单独运行：
+`nvim --clean -l tests/demo.lua`、`nvim --clean -l tests/source_guide.lua`。
+历史性能数字保留在benchmarks文档中；当前入口见[scripts说明](../scripts/README.md)。
 LuaLS配置包含真实Neovim/Flash库与测试模块路径，保留全部诊断级别。
 
 clangd的`--check`还自测代码动作；本机SwapBinaryOperands对Lua宏有重叠替换错误。
@@ -416,24 +450,19 @@ clangd的`--check`还自测代码动作；本机SwapBinaryOperands对Lua宏有�
 配置诊断抑制。分别检查src/native.c、src/binary.c、src/scan.c、src/native.h及src/text.h，
 确认生成头和随附公开Lua/C头可解析。
 
-Tests keep the old Lua implementation solely as an independent oracle under tests.
-Production does not load it. Unicode boundaries, native/Lua differential behavior,
-Flash integration, malformed packages and GC lifetimes are covered. Full LuaLS checks
+Tests cover generated dictionary behavior, Unicode boundaries, Flash regressions,
+malformed packages and GC lifetimes. Full LuaLS checks
 use the real Neovim/Flash libraries. Clangd's macro code-action self-test issue is
 separate from source diagnostics; no project diagnostic suppression is installed.
 
 历史性能对照见 [benchmarks](benchmarks.md)，当前架构以后续C-only收敛记录为准。
 
-## 真实上游码表 / Real upstream dictionaries
+历史上游码表验证结果见[记录](dictionary-tests.md)。逐表测试工具已移除；
+当前由通用格式导入测试和生成码表的功能测试覆盖核心行为，source 特有转换由各包维护。
 
-可选运行 `python scripts/check_dictionaries.py --download --nvim .dev/nvim-0.11.0/bin/nvim`。
-Python 和 iconv 仅用于这套开发测试，不增加插件构建或运行依赖。下载文件和报告位于
-忽略的 `.dev/real-tables`，固定版本及校验和在 `tests/data/dictionaries.json`。
-见 [测试范围与结果](dictionary-tests.md)。
-
-The optional upstream corpus suite compares every text/code pair using an independent
-Python reader and samples C matches. Python/iconv are developer-test dependencies only.
-Downloaded data and reports stay in .dev; normal tests and plugin setup require no network.
+Upstream dictionary results are historical. Per-dictionary runners were removed;
+core tests cover import formats and generated-table behavior. Source-specific
+conversion belongs to the corresponding source packages.
 
 以下版本小节记录各功能引入时的格式；当前布局以上文v14为准。
 The versioned sections below describe historical introductions; v14 above defines the current layout.
