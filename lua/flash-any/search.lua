@@ -90,7 +90,7 @@ function M.new(scan)
 	end
 
 	local function finish(state)
-		-- Refresh the snapshot before committing, including edits made while waiting.
+		-- Refresh input/buffer state before committing; retain the query's dictionary.
 		state:update({ force = true })
 		synchronous = true
 		while job and not job.done and valid(job) do

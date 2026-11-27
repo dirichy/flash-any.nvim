@@ -70,7 +70,12 @@ assert(notifications[2][1]:find("literal matching only", 1, true))
 assert(vim.wait(10000, function()
 	return active == 0
 end))
-assert(#first(0, state, range) == 1, "worker result was not installed")
+assert(#first(0, state, range) == 0, "unchanged query must retain its literal snapshot")
+assert(#first(0, { pattern = state.pattern }, range) == 1, "a new search must use the completed dictionary")
+query = "xx"
+first(0, state, range)
+query = "x"
+assert(#first(0, state, range) == 1, "changed input must select the completed dictionary")
 local second = setup("y", 300)
 assert(#second(0, state, range) == 1, "reconfiguration must retain old dictionary")
 assert(notifications[#notifications][1]:find("previous dictionary", 1, true))

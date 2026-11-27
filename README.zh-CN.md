@@ -177,7 +177,9 @@ require("flash-any").setup({
 码表缺失时，会通过无界面 Neovim 子进程异步构建，编辑器保持响应。setup 和
 `:FlashAnyBuildTable` 都会在开始构建时通知。构建期间搜索使用旧码表；没有旧码表
 则只做字面匹配，每次搜索提示一次。
-成功后切换到新码表。source 工厂和 converter 必须可通过 runtimepath 或文件加载；
+同一查询的所有扫描批次及 Enter 提交固定使用一份不可变码表快照。构建成功后，
+下一次修改查询输入或重新发起搜索时使用新码表；输入不变则继续使用当前快照。
+source 工厂和 converter 必须可通过 runtimepath 或文件加载；
 子进程不加载 init.lua，也不继承主进程中的 Lua 内存状态。
 
 `require("flash-any.build").binary()` 仍可用于显式导出及开发工具。

@@ -189,8 +189,10 @@ snapshot.
 Missing dictionaries are built asynchronously in a headless Neovim process, keeping the
 editor responsive. Setup and `:FlashAnyBuildTable` notify when construction starts.
 Searches during construction use the previous dictionary,
-or literal matching if none exists, and notify once per search. Successful builds switch
-to the new dictionary. Source factories/converters must be available on runtimepath;
+or literal matching if none exists, and notify once per search. Each query keeps one
+immutable dictionary snapshot across all batches and Enter. After a successful build,
+the next change to query input or a new search uses the new dictionary; unchanged input
+keeps its current snapshot. Source factories/converters must be available on runtimepath;
 the worker does not load your init.lua or inherit in-memory Lua state.
 
 The v14 format requires regenerating older explicit binaries; automatic caches rebuild.

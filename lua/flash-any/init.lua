@@ -55,7 +55,15 @@ local function build_opts(opts)
 	if engine then
 		book.engine, book.pending = engine, false
 	end
-	local function notify_pending(state)
+	local function dictionary_for(state)
+		local snapshot = state._flash_any_dictionary
+		local pattern = state.pattern()
+		-- Pin the immutable dictionary across rows, windows and coroutine resumes.
+		-- A completed build becomes visible only when input changes or a new state starts.
+		if not snapshot or snapshot.book ~= book or snapshot.pattern ~= pattern then
+			snapshot = { book = book, pattern = pattern, engine = book.engine or native.literal() }
+			state._flash_any_dictionary = snapshot
+		end
 		if (book.pending or book.error) and state._flash_any_build_notice ~= book then
 			state._flash_any_build_notice = book
 			vim.notify(
@@ -65,14 +73,13 @@ local function build_opts(opts)
 				vim.log.levels.WARN
 			)
 		end
+		return snapshot.engine
 	end
 	local get = function(win, state, range)
-		notify_pending(state)
-		return native.get(win, state, range, book.engine or native.literal())
+		return native.get(win, state, range, dictionary_for(state))
 	end
 	local char = function(win, state, range, motion)
-		notify_pending(state)
-		return native.char(win, state, range, book.engine or native.literal(), motion)
+		return native.char(win, state, range, dictionary_for(state), motion)
 	end
 	opts.sources, opts.binary, opts.char = nil, nil, nil
 	opts.labeler = function() end

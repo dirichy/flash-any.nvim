@@ -290,17 +290,34 @@ enabled, multi_line and keys, remain in place; Flash still owns all mappings.
 
 ## 异步搜索 / Asynchronous search
 
+`init.lua` owns dictionary selection: each state pins the selected immutable dictionary
+by configuration identity and query text. `book.engine` is only the latest available
+dictionary; replacing it never changes an existing query's snapshot. Both ordinary and
+char scans read the pinned dictionary, so coroutine resumes and Enter use the same data.
+A new query or state selects the latest dictionary. The search job key intentionally does
+not track the latest dictionary identity: completed builds wait for new input instead of
+invalidating running jobs. Buffer/range/case changes may restart jobs for unchanged input,
+but still use that query's pinned dictionary.
+
+`init.lua` 统一选择字典：state 按配置身份及查询文本持有不可变字典快照，
+`book.engine` 只代表最新可用字典。普通匹配和 char 扫描共用快照；异步分批恢复、
+Enter 同步完成时都不切换字典。新查询或新 state 才选择最新字典。job key 无需跟踪
+最新字典身份，因为构建完成采用等待输入变化的策略，不主动失效旧 job。
+同一输入因 buffer/range/大小写规则变化而重新建 job 时，也继续使用固定快照。
+
 `search.lua` owns the pending preview coroutine, its snapshot and published results.
 Both visible highlighting and directional lookup reuse `matcher.lua`, yielding between
 lines once a 2 ms batch budget expires. A 1 ms timer resumes work so input can run
 between batches. Query, buffer identity, changedtick and case options invalidate old
 work; hidden states cannot publish results. Harmless previous highlights remain until
-replacement results arrive. Enter refreshes the snapshot and drains the same coroutine
-without yielding, then restores the origin before committing the target.
+replacement results arrive. Enter refreshes input/buffer state while retaining the query's
+dictionary, then drains the same coroutine without yielding and restores the origin
+before committing the target.
 
 `search.lua` 统一管理预览任务、快照和已发布结果。可见高亮和目标查找都分批执行；
 查询、缓冲区、changedtick 或大小写选项变化时旧任务失效，隐藏后不再发布结果。
-新结果就绪前保留无害旧高亮。Enter 刷新快照，同步完成当前协程，再从原位置提交跳转。
+新结果就绪前保留无害旧高亮。Enter 刷新输入及缓冲区状态，保留查询的字典快照，
+同步完成当前协程，再从原位置提交跳转。
 这是主线程协作式异步，单行 C 匹配不能中断；不提供线程并行或严格的延迟上限。
 
 Local measurement (2026-11-18, separate clean Neovim processes per mode/scenario):
