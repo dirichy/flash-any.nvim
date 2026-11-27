@@ -10,7 +10,7 @@ package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
 local fixture = require("fixture")
 local plugin = require("flash-any")
 local base = {
-	sources = { { data = { ["中"] = "vs", ["国"] = "go" } } },
+	sources = { { data = { ["中"] = "vs", ["国"] = { "go", "other" } } } },
 	labels = "abc",
 	jump = { autojump = true },
 }
@@ -57,10 +57,8 @@ search({ "aX x" }, { 1, 0 }, "x<CR>", { 1, 1 })
 vim.go.smartcase = true
 search({ "ax X" }, { 1, 0 }, "X<CR>", { 1, 3 })
 vim.go.ignorecase, vim.go.smartcase = false, false
--- Dictionary changes go through setup; per-call Flash options reuse that dictionary.
-fixture.setup({ sources = { { data = { ["国"] = "other" } } } })
+-- Per-call Flash options reuse the configured dictionary.
 search({ "a中国" }, { 1, 0 }, "other<CR>", { 1, 4 })
-fixture.setup(base)
 search({ "a中国" }, { 1, 0 }, "vs<CR>", { 1, 1 })
 search({ "a中 中" }, { 1, 5 }, "vs<CR>", { 1, 1 }, { search = { forward = false, wrap = false } })
 search({ "a中 中" }, { 1, 5 }, "vs<CR>", { 1, 5 }, { search = { wrap = false } })

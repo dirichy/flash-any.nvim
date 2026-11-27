@@ -11,17 +11,6 @@ package.loaded.flash = {
 	end,
 }
 local plugin = require("flash-any")
-local active_builds = 0
-local builder = require("flash-any.build")
-local async = builder.async
-rawset(builder, "async", function(kind, opts, done)
-	active_builds = active_builds + 1
-	return async(kind, opts, function(...)
-		active_builds = active_builds - 1
-		done(...)
-	end)
-end)
-
 local build = require("flash-any.build")
 local path = vim.fn.tempname() .. ".bin"
 build.binary({ sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } }, output = path })
@@ -72,16 +61,13 @@ local data = {}
 for i = 1, 200 do
 	data[vim.fn.nr2char(0x20000 + i)] = { "x", "alias" }
 end
-plugin.setup({ sources = { { data = data } } })
+require("flash-any.native").load(nil, { { data = data } })
 assert(warnings == 0, "200 entries should not warn; aliases must not count separately")
 data["甲"] = "x"
-plugin.setup({ sources = { { data = { codes = data } } } })
+require("flash-any.native").load(nil, { { data = { codes = data } } })
 assert(warnings == 1, "large structured data should warn")
-plugin.setup({ sources = { { data = data } } })
+require("flash-any.native").load(nil, { { data = data } })
 assert(warnings == 1, "large data warning should appear only once per process")
-assert(vim.wait(10000, function()
-	return active_builds == 0
-end))
 rawset(vim, "notify", notify)
 vim.env.XDG_CACHE_HOME = cache_home
 vim.fn.delete(cache, "rf")

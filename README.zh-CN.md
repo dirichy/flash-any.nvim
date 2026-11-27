@@ -69,7 +69,9 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 ```
 
 插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 会缓存
-码表，后续启动直接复用。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
+码表，后续启动直接复用。每个 Neovim 会话只能成功 setup 一次；重复调用会报错，
+保留原配置。同步初始化失败后可修正重试；setup 已成功返回后，即使后台构建失败，
+也通过 `rebuild()` 更新码表或重试。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
 `jump(opts)`、`remote(opts)`、`search(opts)` 将单次 Flash 选项合并到 setup 配置，
 复用其中的码表。`sources`、`binary`、`char` 只能在 setup 配置，运行时入口不构建新码表。
 
@@ -145,7 +147,6 @@ require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 保留 Flash 已有的 `multi_line`、`jump_labels` 和自定义按键；Flash 的
 `modes.char.enabled = false` 仍会禁用字符模式。先配置 Flash，再 setup flash-any；
 之后重新执行 `require("flash").setup()` 可能覆盖 matcher。
-再次 setup flash-any 时设 `char = false` 或省略开关，若 matcher 仍由本插件接管，便恢复之前的 matcher。
 底层 `require("flash-any").char` 回调仍保留，供手动接入使用。
 lazy.nvim 中启用 char 时还需 `lazy = false`，确保第一次按 s 前 f 就已可用。
 
@@ -188,8 +189,8 @@ source 工厂和 converter 必须可通过 runtimepath 或文件加载；
 require("flash-any").rebuild()
 ```
 
-它会异步强制重建最近一次 setup 的 sources，保留 Flash 配置和当前查询快照。每份
-setup 配置同时只运行一个构建任务；期间重复调用直接复用，不追加任务。若构建期间
+它会异步强制重建 setup 中配置的 sources，保留 Flash 配置和当前查询快照。同一会话
+同时只运行一个构建任务；期间重复调用直接复用，不追加任务。若构建期间
 又修改了数据，完成后再调用一次。setup 必须包含 sources，仅提供 binary 无法重建。
 [source 版本约定](docs/sources.md#工厂--factory)见参考。
 

@@ -28,9 +28,7 @@ local default_char = nil
 
 ---@type FlashAnyBook?
 local default_book
-local char_attached = false
----@type (fun(win: integer, state: Flash.State, range: {from: Pos, to: Pos}): Flash.Match[])|nil
-local previous_char_matcher
+local setting_up = false
 
 ---@class FlashAnyCharOptions: Flash.State.Config
 ---@field multi_line? boolean
@@ -54,7 +52,7 @@ local function build_opts(opts)
 	assert(opts.sources ~= nil or opts.binary ~= nil, "provide sources or a compiled binary")
 	local native = require("flash-any.native")
 	local sources, binary = opts.sources, opts.binary
-	local book = { engine = default_book and default_book.engine, pending = false }
+	local book = { pending = false }
 	local function load(force)
 		if book.pending then
 			return
@@ -107,30 +105,33 @@ local function build_opts(opts)
 	return opts, char, book
 end
 
+---Configure once per Neovim session. Failed synchronous initialization may be retried.
 ---@param opts table
 function M.setup(opts)
-	default_opts, default_char, default_book = build_opts(opts)
-	if opts.char or char_attached then
-		-- Reuse Flash's public setup with its current options, preserving user settings.
-		local config = require("flash.config").get()
-		local char = config.modes.char --[[@as FlashAnyCharOptions]]
+	assert(
+		not default_opts and not setting_up,
+		"flash-any: setup() may only be called once; use rebuild() to refresh dictionaries"
+	)
+	setting_up = true
+	local ok, options, scan, book = pcall(function()
+		local config, char, dictionary = build_opts(opts)
 		if opts.char then
-			if char.matcher ~= M.char then
-				previous_char_matcher = char.matcher
-			end
-			char.matcher = M.char
-		elseif char.matcher == M.char then
-			char.matcher = previous_char_matcher
+			-- Flash owns keys and repeats; preserve all other character-mode options.
+			local flash_opts = require("flash.config").get()
+			local char_opts = flash_opts.modes.char --[[@as FlashAnyCharOptions]]
+			char_opts.matcher = M.char
+			flash.setup(flash_opts)
 		end
-		flash.setup(config)
-		char_attached = opts.char == true
-		if not char_attached then
-			previous_char_matcher = nil
-		end
+		return config, char, dictionary
+	end)
+	setting_up = false
+	if not ok then
+		error(options)
 	end
+	default_opts, default_char, default_book = options, scan, book
 end
 
----Rebuild the latest setup's sources asynchronously, retaining the current dictionary.
+---Rebuild setup's sources asynchronously, retaining the current dictionary.
 function M.rebuild()
 	assert(default_book, "call setup before rebuild()")
 	default_book.rebuild()

@@ -72,6 +72,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 미리 빌드한 C 모듈이 없거나 로드할 수 없으면 make 실행을 안내합니다.
 setup은 사전 바이너리가 없을 때 바로 생성하며, 이후 시작 시에는 캐시를 재사용합니다.
+setup은 Neovim 세션마다 한 번만 성공할 수 있으며, 두 번째 호출은 오류를 냅니다.
+동기 초기화가 실패하면 수정 후 재시도할 수 있습니다. 사전 갱신과 비동기 빌드 재시도에는 rebuild()를 사용하세요.
 `labels`, `search`, `jump` 같은 Flash 옵션도 setup에 전달할 수 있습니다.
 `jump(opts)`, `remote(opts)`, `search(opts)`는 일회성 Flash 옵션을 setup에 병합하고
 설정된 사전을 재사용합니다. sources, binary, char는 setup에서만 설정할 수 있습니다.
@@ -159,8 +161,7 @@ fz는 첫 코드가 z인 문자와 문자 z를 찾습니다. 키, 레이블, 횟
 Flash가 관리합니다. 기존 multi_line, jump_labels 및 사용자 키 설정을 유지하고,
 Flash의 `modes.char.enabled = false`도 존중합니다. Flash를 먼저 설정하세요.
 나중에 Flash의 setup을 다시 실행하면 matcher가 바뀔 수 있습니다.
-flash-any setup에서 char를 false로 설정하거나 생략하면, 여전히 이 플러그인의 matcher가
-설정된 경우 이전 matcher로 복원합니다. 수동 연결을 위한 char 콜백도 유지합니다.
+수동 연결을 위한 char 콜백도 유지합니다.
 lazy.nvim에서는 `lazy = false`를 설정해 첫 s 이전에도 f를 사용할 수 있게 하세요.
 
 

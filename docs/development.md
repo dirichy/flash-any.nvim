@@ -2,6 +2,17 @@
 
 ## 边界 / Boundaries
 
+setup 只允许成功初始化一次，重复或重入时在触及构建与 Flash 前报错。同步初始化
+失败可重试；配置和 char 接入都成功后才发布默认状态。异步构建失败不重开 setup，
+由 rebuild 重试。jump/remote/search/char/rebuild 和构建工具均可重复调用。table.lazy
+只允许对同一张表绑定一次 loader，重复绑定在修改任何缓存前报错。
+
+Setup commits once; duplicate/reentrant calls fail before touching builds or Flash.
+Synchronous failures can be retried; options publish only after preparation and char
+integration succeed. Background failures retry through rebuild. Runtime operations and
+build tools remain repeatable. table.lazy binds once per table and rejects replacement
+before altering its caches.
+
 运行时只有 C 后端。只有 `setup` 接收 `sources` 或 `binary`；
 缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。
 jump/remote/search 只合并单次 Flash 选项并复用 setup matcher，拒绝 sources/binary/char，
@@ -112,7 +123,7 @@ require 本身丢弃模块的第二返回值，因此核心不能用它读取版
 允许有限数字及非空字符串；只读取配置中的 source，不遍历其他包或跟踪隐式依赖。
 作者更新构建依赖时负责改版本，source 模块更新后需重启。核心 Lua 构建规则变化且
 不改变原生格式时，推进 native.lua 的 CACHE_VERSION。
-`rebuild()` 使用最近 setup 的 sources 异步强制重建，不重设 Flash 配置。book 统一
+`rebuild()` 使用 setup 的 sources 异步强制重建，不重设 Flash 配置。book 统一
 管理 pending 状态，已有任务时不再发起加载请求；即使文件元数据变化导致缓存路径变化，
 也不会并行或排队重建。任务完成或失败后才允许下次重建，无需结果代次或乱序保护。
 保留失败回退和按查询固定字典的机制。显式 binary 也可重建，但需要 sources。
@@ -129,7 +140,7 @@ while package.loaded exposes the factory to ordinary require callers. Factories 
 invoked only while compiling. No package-wide file scanning or dependency manifest is
 used. Authors bump source versions for dependency changes; restart after module updates.
 Core Lua compilation changes bump CACHE_VERSION if the native wire version stays fixed.
-`rebuild()` forces an asynchronous rebuild from the latest setup's sources. Each book owns
+`rebuild()` forces an asynchronous rebuild from setup's sources. Each book owns
 its pending state and admits only one task, even when file metadata changes the cache
 path. Requests during that task do not enqueue another. Completion or failure allows a
 new rebuild; no generation or out-of-order result guard is needed. Flash options, failure
@@ -209,7 +220,7 @@ complete package before writing; replacement uses a temporary file in the output
 
 `open`用fread直接读入冻结userdata，避免Lua IO的额外完整字符串和mmap原地改写
 问题。不同Flash state共享只读码表，分别拥有行/查询缓存；按buffer/changedtick
-失效，随state回收。重新setup加载新快照，不改变已有搜索。
+失效，随state回收。rebuild加载新快照，不改变已有查询。
 
 Each snapshot owns both immutable tables and their tagged ASCII code lists. Bounds, tags and
 index reachability are validated at load time. Package replacement is atomic. Existing
@@ -292,16 +303,15 @@ reserve both cases only for insensitive rules so labels cannot consume valid inp
 ## 字符模式接入 / Character-mode integration
 
 `setup({ char = true, ... })` 用 `flash.config.get()` 取得当前完整配置，再通过 Flash 的
-公开 setup 接入 `M.char`，不直接改内部配置或接管按键。setup 拥有接入前 matcher 的保存与恢复；
-重复启用不保存自己的回调，关闭时只恢复仍由本插件接管的 matcher。默认关闭，
-单次 jump/remote/search 调用不接受 char 配置。Flash 的 enabled、multi_line、keys 等设置保留。
+公开 setup 接入 `M.char`，不直接改内部配置或接管按键。初始化只执行一次，
+不保存重复 setup 才需要的旧 matcher 恢复状态。默认关闭，单次运行时调用不接受 char。
+Flash 的 enabled、multi_line、keys 等设置保留。
 
-Setup's boolean `char` option defaults to false. Enabling it passes Flash's current
-configuration from `flash.config.get()` back through its public setup with `M.char`
-as the character matcher. Setup owns the previous matcher and restores it only while
-the installed callback is still ours. Repeated enabling never snapshots our own callback.
-Per-call options cannot configure char. Existing Flash options, including
-enabled, multi_line and keys, remain in place; Flash still owns all mappings.
+Setup's boolean char option defaults to false. Enabling it passes Flash's current
+configuration back through its public setup with M.char as the character matcher.
+Initialization happens once, so no previous-matcher restoration state is retained.
+Per-call options cannot configure char. Existing Flash options remain in place;
+Flash owns mappings, counts and repeats.
 
 ## 异步搜索 / Asynchronous search
 

@@ -4,9 +4,10 @@ vim.fn.mkdir(root .. "/lua/flash-any/sources", "p")
 vim.fn.writefile({
 	"return function(opts)",
 	"  assert(vim.g.main_process_only == nil)",
-	"  vim.uv.sleep(opts.delay or 300)",
-	"  assert(not opts.fail, 'fixture build failure')",
-	"  return { data = { ['中'] = { opts.code } } }",
+	"  local input = dofile(opts.config)",
+	"  vim.uv.sleep(input.delay or 300)",
+	"  assert(not input.fail, 'fixture build failure')",
+	"  return { data = { ['中'] = { input.code } } }",
 	"end",
 }, root .. "/lua/flash-any/sources/slow.lua")
 vim.opt.runtimepath:append(root)
@@ -33,13 +34,12 @@ rawset(builder, "async", function(kind, opts, done)
 		done(...)
 	end)
 end)
-local function setup(code, delay, fail)
-	plugin.setup({
-		sources = { { name = "slow", code = code, delay = delay, fail = fail } },
-		binary = root .. "/" .. code .. ".bin",
-	})
-	plugin.jump()
-	return assert(options).matcher
+local input = root .. "/input.lua"
+local function write(code, delay, fail)
+	vim.fn.writefile(
+		vim.split("return " .. vim.inspect({ code = code, delay = delay, fail = fail }), "\n", { plain = true }),
+		input
+	)
 end
 local query = "中"
 local state = {
@@ -49,8 +49,12 @@ local state = {
 }
 local range = { from = { 1, 0 }, to = { 1, 0 } }
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中 abc" })
-local first = setup("x", 300)
+write("x", 300)
+plugin.setup({ sources = { { name = "slow", config = input } }, binary = root .. "/dictionary.bin" })
+plugin.jump()
+local first = assert(options).matcher
 assert(active == 1 and notifications[1][1]:find("building dictionary", 1, true))
+assert(not pcall(plugin.setup, { sources = {} }), "setup must also reject duplicates while building")
 -- Main-loop timers must run while the worker is still sleeping.
 local responsive = false
 vim.defer_fn(function()
@@ -76,8 +80,17 @@ query = "xx"
 first(0, state, range)
 query = "x"
 assert(#first(0, state, range) == 1, "changed input must select the completed dictionary")
-local second = setup("y", 300)
-assert(#second(0, state, range) == 1, "reconfiguration must retain old dictionary")
+local pinned = {
+	pattern = function()
+		return "x"
+	end,
+}
+assert(#first(0, pinned, range) == 1)
+write("y", 300)
+plugin.rebuild()
+local second = first
+state = { pattern = state.pattern }
+assert(#second(0, state, range) == 1, "rebuild must retain old dictionary")
 assert(notifications[#notifications][1]:find("previous dictionary", 1, true))
 assert(vim.wait(10000, function()
 	return active == 0
@@ -85,27 +98,28 @@ end))
 query = "y"
 assert(#second(0, state, range) == 1)
 query = "x"
-assert(#first(0, state, range) == 1, "existing matcher must keep its snapshot")
-local failed = setup("bad", 100, true)
+assert(#first(0, pinned, range) == 1, "existing query must keep its snapshot")
+write("bad", 100, true)
+plugin.rebuild()
+local failed = first
 assert(vim.wait(10000, function()
 	return active == 0
 end))
 query = "y"
 assert(#failed(0, { pattern = state.pattern }, range) == 1)
 assert(notifications[#notifications][1]:find("build failed; using previous dictionary", 1, true))
-assert(not vim.uv.fs_stat(root .. "/bad.bin"))
--- Duplicate requests share one worker; an older completion cannot replace newer setup.
-setup("old", 500)
-local current = setup("new", 100)
-setup("new", 100)
-assert(builds == 5, "duplicate setup spawned another worker")
+assert(vim.uv.fs_stat(root .. "/dictionary.bin"), "failed rebuild must retain the existing binary")
+-- Repeated requests reuse one worker, and a second setup is rejected.
+write("new", 100)
+plugin.rebuild()
+plugin.rebuild()
+assert(not pcall(plugin.setup, { sources = {} }))
+assert(builds == 4, "duplicate rebuild spawned another worker")
 assert(vim.wait(10000, function()
 	return active == 0
 end))
 query = "new"
-assert(#current(0, { pattern = state.pattern }, range) == 1)
-plugin.jump()
-assert(#assert(options).matcher(0, { pattern = state.pattern }, range) == 1)
+assert(#first(0, { pattern = state.pattern }, range) == 1)
 assert(package.loaded["flash-any.sources.slow"] == nil, "factory ran in main process")
 vim.fn.delete(root, "rf")
-print("background build responsiveness, literal/old fallbacks, failures and concurrent setup passed")
+print("background build responsiveness, literal/old fallbacks, failures and repeated rebuild passed")

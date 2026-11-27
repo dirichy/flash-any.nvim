@@ -14,6 +14,7 @@ local tests = {
 	"build_async",
 	"rebuild",
 	"init",
+	"setup",
 	"runtime",
 	"source",
 	"source_cache",

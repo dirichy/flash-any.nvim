@@ -40,39 +40,27 @@ if arg[1] then
 		return
 	end
 	local build = require("flash-any.build")
-	local async, calls = build.async, 0
-	rawset(build, "async", function(...)
+	local binary, calls = build.binary, 0
+	rawset(build, "binary", function(...)
 		calls = calls + 1
-		return async(...)
+		return binary(...)
 	end)
-	plugin.setup({ sources = specs })
+	require("flash-any.native").load(nil, specs)
 	assert(calls == 0, "same configuration rebuilt")
-	plugin.setup({ sources = { { data = { ["中"] = "z", ["国"] = "y" } } } })
+	require("flash-any.native").load(nil, { { data = { ["中"] = "z", ["国"] = "y" } } })
 	assert(calls == 1, "changed configuration did not build its own package")
 	assert(vim.wait(10000, function()
 		return #vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2
 	end))
 	local path = vim.fn.stdpath("cache") .. "/nested/custom.bin"
-	plugin.setup({ sources = specs, binary = path })
+	require("flash-any.native").load(path, specs)
 	assert(calls == 2)
 	assert(vim.wait(10000, function()
 		return vim.uv.fs_stat(path) ~= nil
 	end))
-	plugin.setup({ binary = path })
+	require("flash-any.native").load(path)
 	assert(calls == 2)
-	local failure
-	rawset(vim, "notify", function(message, level)
-		if level == vim.log.levels.ERROR then
-			failure = message
-		end
-	end)
-	plugin.setup({ sources = { { data = { ["中国"] = "\0" } } } })
-	assert(
-		vim.wait(10000, function()
-			return failure ~= nil
-		end),
-		"worker failure must be reported"
-	)
+	assert(not pcall(require("flash-any.native").load, nil, { { data = { ["中国"] = "\0" } } }))
 	assert(#vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2)
 	return
 end

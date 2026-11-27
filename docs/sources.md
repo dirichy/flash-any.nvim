@@ -238,10 +238,10 @@ end
 词典中的 `すし` 转成 `す し`。它不解析文件格式，也不转换运行时查询。
 
 用户 sources 中显式配置的 file、lua、tsv、converter 及 Rime 导入按路径、大小和
-修改时间（含纳秒）参与缓存键，修改后下次 setup 使用新快照。保留大小和修改时间的
+修改时间（含纳秒）参与缓存键，修改后下次启动或调用 `rebuild()` 使用新快照。保留大小和修改时间的
 编辑无法自动检测。命名 source 的内部依赖不再逐文件扫描，由作者维护的版本号负责，
 见下文工厂约定。显式 binary 存在时直接加载，缺失时才自动构建；`rebuild()` 可强制
-重新构建最近一次 setup 的 sources（包括显式 binary）。
+重新构建 setup 中配置的 sources（包括显式 binary）。
 
 The optional converter file returns a function accepting all deduplicated encodings
 for one text entry. Return an array of ASCII codes or valid group references/sequences,
@@ -253,7 +253,7 @@ configured in sources, including recursive Rime imports. Edits preserving size a
 require manual rebuilding. Named sources use their author-maintained versions instead
 of scanning internal files; see the factory contract below. Existing explicit binaries
 load directly and build automatically only when missing. `rebuild()` forces construction
-from the latest setup's sources, including an explicit binary output.
+from setup's sources, including an explicit binary output.
 
 ## 录制与 README / Recording and README
 

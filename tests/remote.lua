@@ -16,20 +16,17 @@ end)
 
 local cases = {
 	{
-		sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } },
 		input = "yrzga",
 		target = "中国 target",
 		text = "中国",
 	},
 	{
-		sources = { { data = { ["中"] = "vs", ["国"] = "go" } } },
 		input = "drvsgoa",
 		target = "中国 target",
 		text = "中国",
 		after = " target",
 	},
 	{
-		sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" } },
 		input = "yrzga",
 		target = "中国 target",
 		text = "中国",
@@ -79,7 +76,6 @@ next_case = function()
 		vim.api.nvim_set_current_win(origin)
 	end
 	local buf = vim.api.nvim_win_get_buf(target)
-	fixture.setup({ sources = case.sources, labels = "a", label = { uppercase = false } })
 	state = nil
 	vim.api.nvim_input(case.input)
 	wait_for(function()
@@ -103,6 +99,14 @@ next_case = function()
 	end)
 end
 
+fixture.setup({
+	sources = {
+		{ data = { ["中"] = "zhong", ["国"] = "guo" }, matcher = "initial" },
+		{ data = { ["中"] = "vs", ["国"] = "go" } },
+	},
+	labels = "a",
+	label = { uppercase = false },
+})
 vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = next_case })
 vim.defer_fn(function()
 	fail("remote integration watchdog timed out")

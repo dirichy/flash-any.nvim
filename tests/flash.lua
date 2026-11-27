@@ -15,7 +15,31 @@ local plugin = require("flash-any")
 local State = require("flash.state")
 local loop = State.loop
 rawset(State, "loop", function() end)
-local base = { sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } } }
+local pending_root = vim.fn.tempname()
+vim.fn.mkdir(pending_root, "p")
+vim.fn.writefile({}, pending_root .. "/input.tsv")
+vim.fn.writefile({ "return function(codes) vim.uv.sleep(300); return codes end" }, pending_root .. "/converter.lua")
+local base = {
+	sources = {
+		"latin",
+		{
+			data = {
+				["中"] = "vs",
+				["国"] = "go",
+				["珠"] = "vu",
+				["㐀"] = "qq",
+				["甲"] = "x",
+				["乙"] = "x",
+				["甲乙"] = "x",
+				["👩‍💻"] = "dev",
+				["中国"] = "zg",
+				["中国人民"] = "zgrm",
+				["人民"] = "rm",
+			},
+		},
+		{ file = pending_root .. "/input.tsv", converter = pending_root .. "/converter.lua" },
+	},
+}
 fixture.setup(base)
 local state = plugin.jump()
 assert(state.opts.matcher and state.opts.labeler)
@@ -43,7 +67,7 @@ state:hide()
 -- same-code phrase spans both. Exercise Flash's actual extmarks and jump target.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "|甲乙|" })
 vim.api.nvim_win_set_cursor(0, { 1, 0 })
-fixture.setup({ sources = { { data = { ["甲"] = "x", ["乙"] = "x", ["甲乙"] = "x" } } } })
+
 state = plugin.jump()
 state:update({ pattern = "x", check_jump = false, force = true })
 assert(#state.results == 2)
@@ -62,7 +86,7 @@ state:jump(state.results[2])
 assert(vim.api.nvim_win_get_cursor(0)[2] == 4, "the second label must jump to 乙")
 state:hide()
 -- New Flash searches read current options even when the query is unchanged.
-fixture.setup(base)
+
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "v V 中" })
 for _, case in ipairs({
 	{ false, false, "v", 2 },
@@ -80,7 +104,7 @@ end
 vim.go.ignorecase, vim.go.smartcase = false, false
 -- Verify multi-codepoint ranges against the real Flash state and highlighter.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "👩‍💻x" })
-fixture.setup({ sources = { { data = { ["👩‍💻"] = "dev" } } } })
+
 state = plugin.jump()
 for _, pattern in ipairs({ "d", "de", "dev", "devx", "👩‍💻", "👩‍💻x" }) do
 	state:update({ pattern = pattern, check_jump = false, force = true })
@@ -93,9 +117,7 @@ assert(#state.results == 1 and state.results[1].end_pos[2] == 7, "literal prefix
 state:hide()
 -- Word codes and their continuations use the same real Flash result ranges.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国人民 中国" })
-fixture.setup({
-	sources = { { data = { ["中国"] = "zg", ["中国人民"] = "zgrm", ["人民"] = "rm" } } },
-})
+
 state = plugin.jump()
 for _, case in ipairs({ { "zg", 2, 3 }, { "zgrm", 1, 9 } }) do
 	state:update({ pattern = case[1], check_jump = false, force = true })
@@ -106,7 +128,7 @@ state:hide()
 -- Bundled Latin data integrates with the real state and consumes combining suffixes.
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "café æx" })
 vim.go.ignorecase = true
-fixture.setup({ sources = { "latin" } })
+
 state = plugin.jump()
 state:update({ pattern = "CAFE AEX", check_jump = false, force = true })
 assert(#state.results == 1 and state.results[1].end_pos[2] == #"café æx" - 1)
@@ -115,7 +137,7 @@ state:update({ pattern = "CAFE", check_jump = false, force = true })
 assert(#state.results == 0)
 state:hide()
 vim.go.ignorecase, vim.go.smartcase = false, false
-fixture.setup(base)
+
 vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
 State.loop = loop
 -- Exercise the real input loop, including a next key that must not become a label.
@@ -128,22 +150,16 @@ for _, text in ipairs({ "👩‍💻x", "éx", "1️⃣", "🇨🇳", "中国" 
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "|" .. text .. "|" })
 	vim.api.nvim_win_set_cursor(0, { 1, 0 })
 	vim.api.nvim_feedkeys(text .. string.char(27), "t", true)
-	fixture.setup({ sources = {} })
+
 	state = plugin.jump()
 	assert(state.pattern() == text and #state.results == 1, vim.inspect({ text, state.pattern(), state.results }))
 end
--- A real Flash session can preview literals while a worker builds, then use its result.
-local pending_root = vim.fn.tempname()
-vim.fn.mkdir(pending_root, "p")
+-- A real Flash session can retain old matches while rebuilding, then use its result.
 vim.fn.writefile({ "中\tx" }, pending_root .. "/input.tsv")
-vim.fn.writefile({ "return function(codes) vim.uv.sleep(300); return codes end" }, pending_root .. "/converter.lua")
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "|中|" })
 vim.api.nvim_win_set_cursor(0, { 1, 0 })
 rawset(State, "loop", function() end)
-plugin.setup({
-	sources = { { file = pending_root .. "/input.tsv", converter = pending_root .. "/converter.lua" } },
-	binary = pending_root .. "/out.bin",
-})
+plugin.rebuild()
 state = plugin.jump()
 state:update({ pattern = "中", check_jump = false, force = true })
 assert(#state.results == 1)

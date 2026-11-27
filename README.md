@@ -72,7 +72,11 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 ```
 
 The plugin loads the prebuilt C module and asks you to run `make` if it is missing or
-cannot be loaded. Setup caches the dictionary for reuse on later startups.
+cannot be loaded. Call setup once per Neovim session; a second call raises an error
+without changing the existing configuration. A synchronous initialization failure may
+be corrected and retried. Once setup returns successfully, use `rebuild()` to refresh
+dictionaries, including retrying a failed background build. Setup caches the dictionary
+for reuse on later startups.
 Other Flash jump options, such as `labels`, `search` and `jump`,
 can still be passed to setup. `jump(opts)`, `remote(opts)` and `search(opts)` merge
 single-call Flash options with setup and reuse its dictionary. Configure `sources`,
@@ -157,8 +161,7 @@ Character motions use setup's sources.
 `;`/`,` repeats and operators. Existing Flash options such as `multi_line`, `jump_labels`
 and custom keys are preserved; `modes.char.enabled = false` still disables Flash's character mode.
 Configure Flash before flash-any: a later `require("flash").setup()` can replace the matcher.
-Calling flash-any setup again with `char = false` (or omitting it) restores the previous matcher
-if this plugin still owns it. The low-level `require("flash-any").char` callback remains available
+The low-level `require("flash-any").char` callback remains available
 for manual integration. In lazy.nvim, enabling `char` also requires loading the plugin at startup
 (`lazy = false`), so f works before the first s jump.
 
@@ -204,8 +207,8 @@ conversion changes; restart Neovim after updating source modules. After manual e
 require("flash-any").rebuild()
 ```
 
-This asynchronously rebuilds the latest setup's sources, retaining its Flash options
-and current query snapshots. Each setup configuration runs at most one build at a time;
+This asynchronously rebuilds setup's sources, retaining its Flash options
+and current query snapshots. At most one runtime dictionary build runs at a time;
 repeated calls during construction reuse that task without queuing another. If data
 changes during construction, call rebuild again after it finishes. Setup must include
 `sources`; a binary-only setup cannot be rebuilt. See the [source version contract](docs/sources.md#工厂--factory).

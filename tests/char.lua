@@ -11,39 +11,39 @@ local fixture = require("fixture")
 local plugin = require("flash-any")
 local Char = require("flash.plugins.char")
 local Pos = require("flash.search.pos")
+if arg[2] == "emoji" then
+	require("flash").setup({ modes = { char = { multi_line = false, jump_labels = false } } })
+	fixture.setup({ sources = { { data = { ["👩‍💻"] = "v" } } }, char = true })
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "👩‍💻ab" })
+	vim.api.nvim_win_set_cursor(0, { 1, #"👩‍💻a" })
+	vim.api.nvim_feedkeys("Tv", "xt", false)
+	assert(vim.deep_equal(vim.api.nvim_win_get_cursor(0), { 1, #"👩‍💻" }))
+	return
+end
 require("flash").setup({ modes = { char = { multi_line = false } } })
 fixture.setup({
 	char = true,
-	sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } },
+	sources = {
+		{
+			data = {
+				["中"] = { "vs", "va", "v" },
+				["国"] = "go",
+				["珠"] = { "vu", "vb" },
+				["㐀"] = "qq",
+				["甲"] = "v",
+				["乙"] = "v",
+				["丙"] = "v",
+				["终"] = "v",
+			},
+		},
+	},
 })
 
 local config = require("flash.config")
 ---@cast config { modes: { char: FlashAnyCharOptions } }
 assert(config.modes.char.matcher == plugin.char and config.modes.char.multi_line == false)
-fixture.setup({ sources = {}, char = true })
-fixture.setup({ sources = {}, char = false })
-assert(config.modes.char.matcher == nil, "repeated setup must restore Flash's original matcher")
-local custom = function()
-	return {}
-end
-require("flash").setup({ modes = { char = { matcher = custom, multi_line = false, jump_labels = false } } })
-fixture.setup({ sources = {}, char = true })
-assert(config.modes.char.matcher == plugin.char and config.modes.char.jump_labels == false)
-fixture.setup({ sources = {}, char = false })
-assert(config.modes.char.matcher == custom, "restore the original custom matcher")
-fixture.setup({ sources = {}, char = true })
-require("flash").setup({ modes = { char = { matcher = custom, multi_line = false } } })
-fixture.setup({ sources = {} })
-assert(config.modes.char.matcher == custom, "do not overwrite a newer external matcher")
-require("flash").setup({ modes = { char = { enabled = false, multi_line = false } } })
-fixture.setup({ sources = {}, char = true })
-assert(config.modes.char.enabled == false, "respect Flash's disabled character mode")
-fixture.setup({ sources = {}, char = false })
-require("flash").setup({ modes = { char = { multi_line = false } } })
-fixture.setup({
-	char = true,
-	sources = { { data = { ["中"] = "vs", ["国"] = "go", ["珠"] = "vu", ["㐀"] = "qq" } } },
-})
+assert(not pcall(plugin.setup, { sources = {}, char = false }))
+assert(config.modes.char.matcher == plugin.char, "repeated setup must leave Flash integration unchanged")
 
 local function reset(lines, pos)
 	if Char.state then
@@ -109,7 +109,7 @@ keys("fv", { 102, 0 }) -- Counts and repeats can find offscreen targets too.
 
 -- Instrument a real Flash state: drawing and nearby jumps must not touch far rows.
 local visited, allow_far = {}, false
-fixture.setup({ sources = { { data = { ["甲"] = "v", ["乙"] = "v", ["丙"] = "v", ["终"] = "v" } } } })
+
 lines = {}
 for _ = 1, 1000 do
 	lines[#lines + 1] = ""
@@ -159,7 +159,7 @@ require("flash").setup({
 		},
 	},
 })
-fixture.setup({ sources = { { data = { ["中"] = "va", ["珠"] = "vb" } } } })
+
 reset({ "a中珠" })
 vim.api.nvim_feedkeys("v" .. string.char(27), "t", false)
 local label_state = Char.jump("f")
@@ -168,12 +168,15 @@ assert(label_state.results[1].label == "a" or label_state.results[2].label == "a
 assert(vim.v.errmsg == "", vim.v.errmsg)
 -- Till motions must not land inside the preceding or matched grapheme.
 require("flash").setup({ modes = { char = { matcher = plugin.char, multi_line = false, jump_labels = false } } })
-fixture.setup({ sources = { { data = { ["中"] = "v" } } } })
+
 reset({ "xá中" })
 keys("tv", { 1, 1 })
 reset({ "x👩‍💻中" })
 keys("tv", { 1, 1 })
-fixture.setup({ sources = { { data = { ["👩‍💻"] = "v" } } } })
-reset({ "👩‍💻ab" }, { 1, #"👩‍💻a" })
-keys("Tv", { 1, #"👩‍💻" })
+
+local result = vim.system(
+	{ vim.v.progpath, "--clean", "-l", "tests/char.lua", arg[1] or ".dev/flash.nvim", "emoji" },
+	{ text = true }
+):wait()
+assert(result.code == 0, result.stderr)
 print("real Flash char integration tests passed")

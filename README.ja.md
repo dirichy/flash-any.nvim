@@ -71,6 +71,8 @@ vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() en
 
 C モジュールが未ビルド、またはロードできない場合は make の実行を案内します。
 setup は辞書バイナリがなければ生成し、以降はキャッシュを再利用します。
+setup は Neovim セッションごとに一度だけ成功でき、二度目はエラーになります。
+同期初期化の失敗は修正して再試行できます。辞書更新や非同期ビルドの再試行には rebuild() を使います。
 Flash の labels、search、jump などのオプションも setup に渡せます。
 `jump(opts)`、`remote(opts)`、`search(opts)` は単発の Flash オプションを setup にマージし、
 設定済みの辞書を使います。sources、binary、char は setup でのみ指定できます。
@@ -154,8 +156,7 @@ require("flash-any").setup({ sources = { "latin", "pinyin" }, char = true })
 オペレーターは Flash が管理します。既存の multi_line、jump_labels、キー設定を保持し、
 Flash の `modes.char.enabled = false` も尊重します。Flash を先に設定してください。
 後から Flash の setup を実行すると matcher が置き換わる場合があります。
-flash-any を再設定して char を false にするか省略すると、本プラグインの matcher が
-残っている場合に以前の matcher を復元します。手動接続用の char コールバックも利用できます。
+手動接続用の char コールバックも利用できます。
 lazy.nvim では `lazy = false` を設定し、最初の s より前に f を使えるようにしてください。
 
 

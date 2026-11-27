@@ -76,24 +76,16 @@ assert(romaji.data ~= source.data and romaji.data["い"][1] == "i")
 assert(require("flash-any.tables.japan").codes["あ"][1] == "a")
 print("ok - a source can declare a differently named table with its own cache")
 
-local captured
-package.loaded.flash = {
-	jump = function(opts)
-		captured = opts
-	end,
-}
-local plugin = require("flash-any")
+local native = require("flash-any.native")
 local function run(text, pattern, specs)
 	local path = root .. "/test.bin"
 	require("flash-any.build").binary({ sources = specs, output = path })
-	plugin.setup({ binary = path })
-	plugin.jump()
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { text })
-	return captured.matcher(0, {
+	return native.get(0, {
 		pattern = function()
 			return pattern
 		end,
-	}, { from = { 1, 0 }, to = { 1, 0 } })
+	}, { from = { 1, 0 }, to = { 1, 0 } }, native.load(path))
 end
 assert(#run("あい", "ai", { "japan" }) == 1)
 assert(#run("あい", "word", { "japan" }) == 0)

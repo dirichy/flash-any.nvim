@@ -11,6 +11,14 @@ assert(input["中国"][1] == "country" and normalized["きゃ"][1] == "kya")
 print("ok - normalize isolates caller-owned arrays")
 assert(tables.metadata(normalized).max_chars == 2, "plain maps retain phrase lengths")
 
+local bound = tables.lazy({}, function()
+	return { "old" }
+end)
+assert(bound["甲"][1] == "old")
+assert(not pcall(tables.lazy, bound, function()
+	return { "new" }
+end))
+assert(bound["乙"][1] == "old", "rejected rebinding must preserve the original loader")
 local lazy = tables.lazy({ ["甲"] = { "a" } }, function(char)
 	if char == "乙" then
 		return { "b" }

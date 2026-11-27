@@ -103,8 +103,8 @@ readings for their individual characters or unlisted contextual pronunciations.
 | `letter` | Complete codes, ignorecase/smartcase, optional grapheme-head lookup |
 
 When renaming, update the factory filename, codetable, minimal.lua source name,
-READMEs and demo. **Restart Neovim** after factory/table changes; calling setup again
-does not clear Lua require caches. Use `:checkhealth flash-any` for environment
+READMEs and demo. **Restart Neovim** after factory/table changes; setup succeeds only once per session. Use rebuild() for data changes; a restart
+also reloads Lua modules. Use `:checkhealth flash-any` for environment
 checks and the [reference](sources.md) for caches and explicit binary rebuilding.
 
 Modules may return `factory, version`, as in `end, 1` above. Versions are finite numbers
@@ -112,7 +112,7 @@ or nonempty strings; omission means `0`, preserving old factory-only modules. Bu
 version whenever dictionaries, conversions or other build dependencies change. Package
 files are no longer scanned for updates. Keep module-level code limited to declarations;
 perform data loading and conversion inside the factory. After manual edits, bump the
-version and restart, or call `require("flash-any").rebuild()` to rebuild the latest
+version and restart, or call `require("flash-any").rebuild()` to rebuild
 setup's sources asynchronously.
 
 ## 3. Existing files, converters and groups

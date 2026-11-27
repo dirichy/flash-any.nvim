@@ -81,6 +81,8 @@ local root = vim.fn.tempname()
 vim.fn.mkdir(root, "p")
 local old_path = root .. "/old.bin"
 build.binary({ sources = { { data = { ["中"] = "x" } } }, output = old_path })
+local input = root .. "/dictionary.tsv"
+plugin.setup({ sources = { { file = input, format = "tsv" } }, binary = old_path })
 local async, scan, loop = build.async, native.get, State.loop
 for _, commit in ipairs({ false, true }) do
 	local complete, enter
@@ -93,8 +95,11 @@ for _, commit in ipairs({ false, true }) do
 	rawset(State, "loop", function(_, opts)
 		enter = opts.actions["<CR>"]
 	end)
-	plugin.setup({ binary = old_path })
-	plugin.setup({ sources = { { data = { ["国"] = "x" } } }, binary = root .. "/" .. tostring(commit) .. ".bin" })
+	vim.fn.writefile({ "中\tx" }, input)
+	plugin.rebuild()
+	assert(complete)()
+	vim.fn.writefile({ "国\tx" }, input)
+	plugin.rebuild()
 	local dictionaries, scanned = {}, 0
 	rawset(native, "get", function(win, current, range, dictionary)
 		scanned = scanned + 1

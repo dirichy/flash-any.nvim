@@ -60,6 +60,7 @@ end
 ---@param loader FlashAnyTableLoader
 ---@return FlashAnyTable
 function M.lazy(data, loader)
+	assert(not loaders[data], "a lazy loader is already attached to this table")
 	loaders[data] = loader
 	offsets[data], readers[data] = nil, nil
 	return setmetatable(data, {
