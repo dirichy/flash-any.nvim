@@ -187,6 +187,8 @@ require("flash-any").setup({
 
 Use `binary = "/path/flash-any.bin"` to specify a fixed output path. If the file is
 missing, it is built from sources; specifying only binary loads an existing file.
+Tables are read completely during construction; runtime matching uses the binary.
+For Lua/TSV companions, Lua entries take precedence.
 Failed builds retain the old output, and existing searches continue using their
 snapshot.
 

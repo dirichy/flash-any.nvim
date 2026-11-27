@@ -71,7 +71,7 @@ end
 local builtins = {}
 for _, name in ipairs({'pinyin', 'tiger', 'wubi86', 'unicode', 'nerdfont'}) do
   local source = require('flash-any.source').resolve({name})[2]
-  local data = require('flash-any.table').materialize(source.data)
+  local data = source.data
   local stats = {entries = 0, single_scalar = 0, compound_grapheme = 0, words = 0}
   for key in pairs(data) do
     stats.entries = stats.entries + 1

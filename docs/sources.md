@@ -364,11 +364,19 @@ acceptance belongs to the chosen matcher, not a shared requirement for all rules
 fallback 覆盖默认规则，包括 `fallback = false`。`append_space_below` 在
 主构建器应用，工厂不要重复补空格。独立 source 使用一份完整 TSV；用户显式提供
 Lua 覆盖项或 extra 时仍保持优先。每次构建读取完整数据，不依赖先前搜索命中过什么字。
+`table.load`、`table.from_files` 和 `source.resolve` 的 data 均为完整的普通 map；
+不存在按需查询、缺失缓存、prefixes/max_chars 元数据或 materialize 步骤。
+Lua 中的空数组也会覆盖 TSV，并继续屏蔽后续 fallback。
+
 
 Named factories supply defaults. Explicit data/files and matcher/fallback
 options override them. Padding is applied by the host, not repeated by factories.
 Optional sources use a single complete TSV. Explicit Lua overrides/extras win. Compilation
 reads the complete table, independently of previous searches.
+Table loading and source resolution return complete plain maps. No lazy lookup, miss
+cache, prefixes/max_chars metadata or materialization API remains. Empty Lua code
+arrays override TSV too, preserving their ability to block later fallback sources.
+
 
 ```text
 中<TAB>zhong

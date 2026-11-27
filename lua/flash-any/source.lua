@@ -3,7 +3,7 @@ local tables = require("flash-any.table")
 
 ---@class FlashAnySourceDefinition
 ---@field codetable? string Table name under flash-any.tables; mutually exclusive with data.
----@field data? FlashAnyTable Prepared data; may have a lazy __index.
+---@field data? FlashAnyTable Complete plain map, normalized before compilation.
 ---@field file? string Weighted dictionary path; mutually exclusive with codetable/data.
 ---@field format? string
 ---@field columns? string[]
@@ -42,6 +42,8 @@ function M.load(name, opts)
 		assert(source.data == nil, "codetable and data are mutually exclusive: " .. name)
 		source.data = tables.load(source.codetable, { groups = source.groups })
 		source.codetable = nil
+	elseif source.data then
+		source.data = tables.normalize(source.data, source.groups)
 	end
 	assert(
 		source.matcher == nil
@@ -131,19 +133,9 @@ function M.resolve(values)
 		if not value.name and type(value.codes) == "table" then
 			value = { data = value }
 		end
-		if
-			value.name
-			or value.matcher
-			or value.data
-			or value.lua
-			or value.tsv
-			or value.file
-			or value.converter
-			or value.loader
-		then
+		if value.name or value.matcher or value.data or value.lua or value.tsv or value.file or value.converter then
 			---@cast value FlashAnySourceConfig
 			assert(value.fallback == nil or type(value.fallback) == "boolean", "fallback must be a boolean")
-			assert(rawget(value, "loader") == nil, "custom loaders are not supported; provide a complete code table")
 			assert(
 				not value.converter or (value.file and not value.lua and not value.data),
 				"converter requires an external file"

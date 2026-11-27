@@ -1,6 +1,7 @@
 # 性能记录 / Performance records
 
 本文按实现演进保留历史数据。旧Cursor、Lua匹配器及其12个实验脚本已经清理；
+TSV二分查找、prefix continuation 和常用字缓存测量脚本也已随生产查表层删除。
 早期章节中的脚本路径和命令仅描述当时测量，不能在当前版本直接执行。
 当前可用的测试入口见[scripts说明](../scripts/README.md)，当前扫描架构见末尾
 “v13局部模数与8字节节点”。`tests/reference/`仍供差分测试使用，不是运行时后端。
@@ -11,7 +12,8 @@ GNU make4.3要求属于历史实现。Python仍可用于独立性能实验。早
 状态也仅描述旧实现；当前 C 版在输入变化时重新扫描缓存原始行，不依赖前缀闭合约定。
 
 Historical results and commands describe their original implementation. Obsolete
-Cursor/Lua experiment scripts have been removed. See [current tools](../scripts/README.md)
+Cursor/Lua experiment scripts, TSV binary-search and common-cache drivers have been
+removed. Historical measurements are retained, not rerun as current APIs. See [current tools](../scripts/README.md)
 for supported entry points and the final v13 DAT section for the current scanner.
 Historical v11 phrase experiments require --source-root pointing to v11 C sources.
 Native builds now use Neovim Lua, bundled headers and a C compiler; older Python

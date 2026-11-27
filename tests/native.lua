@@ -62,7 +62,7 @@ local function compare(lines, queries, specs)
 		if name and require("flash-any.source").load(name).file then
 			local resolved = require("flash-any.source").resolve({ spec })[2]
 			local data = {}
-			for glyph, codes in pairs(require("flash-any.table").materialize(resolved.data)) do
+			for glyph, codes in pairs(resolved.data) do
 				local spellings = {}
 				for _, code in ipairs(codes) do
 					vim.list_extend(spellings, resolved.groups and resolved.groups[code] or { code })

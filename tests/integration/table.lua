@@ -1,6 +1,6 @@
 -- Source packages contain one complete TSV each; no common Lua or punctuation modules.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
-local tables, registry = require("flash-any.table"), require("flash-any.source")
+local registry = require("flash-any.source")
 local names = { "pinyin", "japanese", "tiger", "nerdfont" }
 local available = registry.available()
 for _, name in ipairs({ "wubi86", "unicode" }) do
@@ -13,7 +13,7 @@ for _, name in ipairs(names) do
 	assert(#vim.api.nvim_get_runtime_file("lua/flash-any/tables/" .. name .. ".lua", false) == 0)
 	local source = registry.load(name)
 	assert(source == registry.load(name))
-	assert(next(tables.materialize(registry.resolve({ name })[2].data)))
+	assert(next(registry.resolve({ name })[2].data))
 end
 -- A table entry must not be silently discarded because of its Unicode block.
 for name, text in pairs({ pinyin = "𰻝", tiger = "⺀", nerdfont = "⚡" }) do

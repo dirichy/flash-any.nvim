@@ -26,6 +26,7 @@ local tests = {
 	"group_sequences",
 	"selection",
 	"table",
+	"table_files",
 	"build",
 	"health",
 	"text",
@@ -35,7 +36,6 @@ local tests = {
 	"letter",
 	"literal",
 	"latin",
-	"tsv",
 	"utf8",
 	"reference_cursor",
 }

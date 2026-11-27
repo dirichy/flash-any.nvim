@@ -1,5 +1,7 @@
 -- Optional real-data suite; scripts/check_dictionaries.py prepares independent models.
 vim.opt.runtimepath:prepend(vim.uv.cwd())
+package.path = vim.uv.cwd() .. "/tests/?.lua;" .. package.path
+local grapheme = require("reference.grapheme")
 local function json(path)
 	return vim.json.decode(table.concat(vim.fn.readfile(path), "\n"))
 end
@@ -45,16 +47,24 @@ for _, case in ipairs(json(path)) do
 		})
 		local output = root .. "/" .. case.name .. ".bin"
 		local _, entries = build.binary({ sources = { opts }, output = output })
-		if #case.samples == 0 then
-			assert(entries == 127, "word-only table must retain only ASCII literals")
+		local total = vim.tbl_count(expected)
+		for byte = 1, 127 do
+			if not expected[string.char(byte)] then
+				total = total + 1
+			end
 		end
+		assert(entries == total, "binary must retain every input key and built-in ASCII literals")
 		local book = require("flash-any.native").load(output)
 		for index, sample in ipairs(case.samples) do
 			local query = convert({ sample[2] })[1]
+			local last = 0
+			grapheme.each(sample[1], function(first)
+				last = first
+			end)
 			local matches = book:scan(0, 0, index, 1, 1, { sample[1] }, query, nil)
 			local found = false
 			for _, match in ipairs(matches) do
-				found = found or (match.pos[1] == 1 and match.pos[2] == 0 and match.end_pos[2] == 0)
+				found = found or (match.pos[1] == 1 and match.pos[2] == 0 and match.end_pos[2] == last)
 			end
 			assert(found, "native mismatch: " .. sample[1] .. " / " .. sample[2])
 		end

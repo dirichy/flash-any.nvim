@@ -351,13 +351,12 @@ function M.table(opts)
 	}))
 	local all = vim.tbl_keys(rows)
 	table.sort(all)
-	local multi, maximum = 0, 1
+	local multi = 0
 	for _, key in ipairs(all) do
 		local count = grapheme.len(key)
 		if count > 1 then
 			multi = multi + 1
 		end
-		maximum = math.max(maximum, count)
 	end
 	local keys = all
 	if opts.common then
@@ -370,15 +369,10 @@ function M.table(opts)
 		table.sort(keys)
 	end
 
-	local common, prefixes = 0, {}
+	local common = 0
 	for _, key in ipairs(keys) do
 		if rows[key] then
 			common = common + 1
-			grapheme.each(key, function(_, offset)
-				if offset < #key then
-					prefixes[key:sub(1, offset)] = true
-				end
-			end)
 		end
 	end
 	local lua = assert(io.open(vim.fn.expand(opts.lua), "wb"))
@@ -390,13 +384,7 @@ function M.table(opts)
 			lua:write(string.format("    [%s] = {%s},\n", quote(key), table.concat(vim.tbl_map(quote, codes), ", ")))
 		end
 	end
-	lua:write("  },\n  prefixes = {\n")
-	local prefix_keys = vim.tbl_keys(prefixes)
-	table.sort(prefix_keys)
-	for _, key in ipairs(prefix_keys) do
-		lua:write(string.format("    [%s] = true,\n", quote(key)))
-	end
-	lua:write(("  },\n  max_chars = %d,\n"):format(maximum))
+	lua:write("  },\n")
 	lua:write("}\n")
 	lua:close()
 
@@ -507,7 +495,7 @@ function M.binary(opts)
 				aliases[name] = group_ids[identity]
 			end
 		end
-		local data = mode ~= 0 and source.data and tables.materialize(source.data) or {}
+		local data = mode ~= 0 and source.data or {}
 		if mode == 0 then
 			for byte = 1, 127 do
 				local key = string.char(byte)

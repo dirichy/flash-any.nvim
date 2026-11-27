@@ -74,9 +74,9 @@ def prepare(case, path):
     model = reference(raw.decode('utf-8-sig'), case)
     expected = CACHE / (case['name'] + '-expected.json')
     expected.write_text(json.dumps(model, ensure_ascii=False), encoding='utf-8')
-    # Single Unicode scalars are unambiguously single graphemes; do not use our
-    # grapheme implementation to decide which native samples ought to match.
-    pairs = [(key, code) for key, codes in sorted(model.items()) if len(key) == 1 for code in codes if key != code]
+    # Sample complete keys, including phrases; exclude identity matches that could
+    # succeed through the built-in literal rule without a dictionary entry.
+    pairs = [(key, code) for key, codes in sorted(model.items()) for code in codes if key != code]
     stride = max(1, len(pairs) // 100)
     samples = pairs[::stride][:100]
     samples += [(key, code) for key, code in pairs if ',' in code or code.startswith('#')][:5]

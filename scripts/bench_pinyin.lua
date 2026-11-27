@@ -51,9 +51,9 @@ local function book(mode, fuzzy, unicode, matcher)
 end
 
 if task == "build" then
-	local registry, tables = require("flash-any.source"), require("flash-any.table")
+	local registry = require("flash-any.source")
 	local source = registry.resolve({ { name = "pinyin" } })[2]
-	local original = tables.materialize(source.data)
+	local original = assert(source.data)
 	local spelling_set, examples = {}, {}
 	for text, codes in pairs(original) do
 		for _, code in ipairs(codes) do

@@ -24,7 +24,7 @@ local loaders = setmetatable({}, { __mode = "k" })
 ---@field scope? ReferenceScopeTable
 ---@type table<ReferenceTable, ReferenceTableMetadata>
 local metadata = setmetatable({}, { __mode = "k" })
--- Complete-file readers are owned alongside lazy caches; only build.binary uses them.
+-- Complete-file readers belong to the oracle; differential tests enumerate them.
 ---@type table<ReferenceTable, fun(): ReferenceTable>
 local readers = setmetatable({}, { __mode = "k" })
 local defaults = { max_chars = 1 }
@@ -241,9 +241,9 @@ function M.load(name, opts)
 		end
 	end
 	local path = files[1]
-	M.lazy(common, require("flash-any.tsv").loader(path, { decode = decode }))
+	M.lazy(common, require("reference.tsv").loader(path, { decode = decode }))
 	readers[common] = function()
-		return require("flash-any.tsv").read(path, decode)
+		return require("reference.tsv").read(path, decode)
 	end
 	return common
 end
@@ -257,10 +257,10 @@ function M.from_files(lua_path, tsv_path)
 	if not tsv_path then
 		return common
 	end
-	local lookup = require("flash-any.tsv").loader(tsv_path, { decode = csv })
+	local lookup = require("reference.tsv").loader(tsv_path, { decode = csv })
 	M.lazy(common, lookup)
 	readers[common] = function()
-		return require("flash-any.tsv").read(tsv_path, csv)
+		return require("reference.tsv").read(tsv_path, csv)
 	end
 	return common
 end

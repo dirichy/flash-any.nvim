@@ -17,7 +17,6 @@ maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
 | --- | --- |
 | `check_dictionaries.py [--download] [--nvim PATH]` | 固定版本真实码表全量对照与 C 匹配；默认离线，首次下载需 --download；编码派生测试还需 iconv / pinned upstream dictionary checks, optional download, iconv for derived encodings |
 | `bench_scan.py BASELINE --samples 9` | 索引版与当前单趟C扫描对照；BASELINE须包含原版完整lua目录和native.so |
-| `bench_cached.py --samples 9` | 原Lua常用字缓存、测试参考实现、当前C后端对照；原Lua版本从git读取 |
 | `bench_cache.py --root BASELINE --samples 9` | 历史索引版的文本/结果缓存对照；需要索引版快照，不能使用当前单趟版 |
 | `bench_merge.py BASELINE --samples 9` | 合表前后原生后端对照；需要合表前可运行快照 |
 | `check_trie.c ORIGINAL_V11.bin CURRENT.bin` | 编译后逐条校验全部key和编码，并独立检查每节点模数的最小性；输入为无编码组的受信任fixture / complete DAT and local-modulus verification |
@@ -34,9 +33,8 @@ maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
 | `bench_lua_matcher.py --samples 9` | 历史v11 checkout上临时C模块调用单字素Lua matcher的成本对照；加`--multiple`比较多个matcher分别跨界和Lua内部批量分派，不增加生产接口 |
 | `bench_native.lua` | 单进程Lua参考实现或C扫描测量；独立进程对照优先使用上面的Python入口 |
 | `bench_binary_load.lua` | 单进程源数据或二进制加载测量 |
-| `bench_tsv.lua` | 构建工具使用的TSV查询测量 |
 
-`bench_merge.lua`、`bench_cached.lua`和`bench_cache.lua`是上述独立进程测试的驱动。
+`bench_merge.lua`、`bench_scan.lua`和`bench_cache.lua`是上述独立进程测试的驱动。
 `bench_marisa.cc`仅是可选查询对照，不是生产依赖。具体命令和条件见各脚本头部、
 `--help`及[性能记录](../docs/benchmarks.md)。
 
@@ -60,12 +58,14 @@ deterministic fixture encoding between experiments and is not runtime code.
 
 ## 保留与清理 / Retained references
 
-旧Cursor、紧密码点字符串、预建边界、Lua matcher临时分配实验脚本已删除。
+旧Cursor、紧密码点字符串、预建边界、Lua matcher临时分配、TSV二分查找和
+常用字缓存实验脚本已删除；旧Python码表导出/排序工具也已删除，统一使用 build.table。
 `tests/reference/`有差分测试和Lua/C对照消费者，因此保留为测试参考实现；
 生产运行时不会加载它。历史数字保留在文档中，历史命令不代表当前API。
 
 Obsolete Cursor, packed-codepoint, boundary-index and Lua matcher allocation
-experiments were removed. The frozen Lua implementation remains under tests as
+experiments, TSV binary-search/common-cache benchmarks and obsolete Python table
+export/sort tools were removed. Use build.table for exports. The frozen Lua implementation remains under tests as
 an oracle consumed by differential tests and benchmarks, outside production loading.
 
 Source-specific table generators now live with their optional source packages;

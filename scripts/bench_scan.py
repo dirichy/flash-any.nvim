@@ -39,8 +39,8 @@ for rows in (1, 40):
                     order.reverse()
                 for version in order:
                     process = subprocess.run([
-                        'nvim', '--clean', '-l', str(ROOT / 'scripts/bench_cached.lua'),
-                        str(versions[version]), str(out / (case + '.bin')), 'binary', case, phase, str(rows)
+                        'nvim', '--clean', '-l', str(ROOT / 'scripts/bench_scan.lua'),
+                        str(versions[version]), str(out / (case + '.bin')), case, phase, str(rows)
                     ], env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
                     records.append(dict(version=version, process=sample, **json.loads(process.stdout.strip())))
             group = [r for r in records if (r['rows'], r['case'], r['phase']) == (rows, case, phase)]

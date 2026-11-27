@@ -6,8 +6,8 @@
 
 Each original file is checked in auto and explicit format modes; TSV also checks the tab alias.
 An independent Python reader compares every key and encoding array, not just counts.
-C matching uses single-scalar samples spread across the source, plus comma/hash-code samples.
-The reports include 1,105 native checks across all 13 cases; these are samples, not exhaustive C queries.
+C matching samples complete keys, including phrases, spread across the source, plus comma/hash-code samples.
+Reports include 1,231 native checks across all 13 cases; these are samples, not exhaustive C queries.
 
 | 用例 / Case | 固定版本源文件 / Pinned source | 文本键 / Keys | 编码关系 / Pairs | C 抽样 / Samples |
 | --- | --- | ---: | ---: | ---: |
@@ -20,20 +20,20 @@ The reports include 1,105 native checks across all 13 cases; these are samples, 
 | rime-luna | [rime/rime-luna-pinyin](https://github.com/rime/rime-luna-pinyin/blob/56b934b099dfbeab842320f13aa8b461a6ab3e42/luna_pinyin.dict.yaml) | 62,073 | 70,732 | 100 |
 | rime-terra | [rime/rime-terra-pinyin](https://github.com/rime/rime-terra-pinyin/blob/723e51bc266cf9464530c1ddedb856aa18e3da34/terra_pinyin.dict.yaml) | 91,061 | 99,329 | 100 |
 | space-bpmf | [openvanilla/McBopomofo](https://github.com/openvanilla/McBopomofo/blob/745e8641a95d958532f0820c3ee679c2a585d8e3/Source/Data/BPMFBase.txt) | 21,786 | 26,535 | 100 |
-| tsv-mozc | [google/mozc](https://github.com/google/mozc/blob/c4ed4683fb400b240e81d0a3895d024e3e21325e/src/data/dictionary_oss/dictionary00.txt) | 94,366 | 95,140 | 0 |
-| tsv-mozc-suffix | [google/mozc](https://github.com/google/mozc/blob/c4ed4683fb400b240e81d0a3895d024e3e21325e/src/data/dictionary_oss/suffix.txt) | 1,077 | 1,077 | 16 |
+| tsv-mozc | [google/mozc](https://github.com/google/mozc/blob/c4ed4683fb400b240e81d0a3895d024e3e21325e/src/data/dictionary_oss/dictionary00.txt) | 94,366 | 95,140 | 100 |
+| tsv-mozc-suffix | [google/mozc](https://github.com/google/mozc/blob/c4ed4683fb400b240e81d0a3895d024e3e21325e/src/data/dictionary_oss/suffix.txt) | 1,077 | 1,077 | 42 |
 
 ## 范围与限制 / Scope and limits
 
 - 表中数量是完整文件去重后的文本键和编码关系，包含词组，不等于单字素数量。
-- Mozc dictionary00 的 94,366 个键全部是多字素条目，验证全部过滤，生成的表仅保留 ASCII 字面匹配；另用官方 suffix 表验证正向匹配。
+- Mozc dictionary00 的 94,366 个键全部是多字素条目，验证全部保留，并对完整词组抽样匹配；成本列不作为可选后缀的排名权重。
 - Mozc、转写表中的非 ASCII 编码由测试用 converter 转成 ASCII 后验证 C 匹配；这不表示运行时直接接受任意 Unicode 编码。
 - Rime 验证显式条目，不调用 Rime 的预设词库或造码规则；递归导入另由 tests/formats.lua 测试覆盖。
 - 转码用例由系统 iconv 从原始 CSV 内容生成，不冒充新的上游文件。GB18030 的版本映射以宿主 iconv 为准。
 
 The tested files cover Rime, Fcitx, IBus, CSV, ordinary TSV and whitespace tables.
 Native samples exclude identity mappings that could pass through ASCII literal matching alone.
-Non-ASCII codes use a build-time test converter. Word filtering and explicitly encoded entries
+Non-ASCII codes use a build-time test converter. Complete phrase retention and matching
 are tested; this does not claim full input-method-engine or arbitrary YAML compatibility.
 
 ## 本轮修复 / Fixes found by real data

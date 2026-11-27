@@ -45,7 +45,6 @@ for _, method in ipairs({ plugin.jump, plugin.remote, plugin.search }) do
 end
 plugin.jump()
 assert(jump.matcher == matcher and jump.labels == "abc" and jump.search.wrap == false and jump.search.forward == nil)
-assert(package.loaded["flash-any.cursor"] == nil and package.loaded["flash-any.match"] == nil)
 local cache = vim.fn.tempname()
 local cache_home, notify = vim.env.XDG_CACHE_HOME, vim.notify
 vim.env.XDG_CACHE_HOME = cache

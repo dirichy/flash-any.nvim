@@ -22,7 +22,7 @@ if arg[1] == "file-build" or arg[1] == "file-cached" then
 	end))
 	if arg[1] == "file-cached" then
 		assert(package.loaded["flash-any.build"], "external dependencies should be checked")
-		for _, module in ipairs({ "grapheme", "grapheme_data", "table", "source" }) do
+		for _, module in ipairs({ "table", "source", "grapheme" }) do
 			assert(package.loaded["flash-any." .. module] == nil, "cached file loaded " .. module)
 		end
 	end
@@ -46,7 +46,7 @@ assert(#options.matcher(0, {
 		return "xy"
 	end,
 }, { from = { 1, 0 }, to = { 1, 0 } }) == 1)
-for _, module in ipairs({ "cursor", "match", "source", "table", "grapheme", "grapheme_data", "tsv" }) do
+for _, module in ipairs({ "build", "source", "table", "grapheme" }) do
 	assert(package.loaded["flash-any." .. module] == nil, "runtime loaded build/legacy module: " .. module)
 end
 assert(package.loaded["reference.match"] == nil)

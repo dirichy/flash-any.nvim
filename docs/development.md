@@ -4,14 +4,12 @@
 
 setup 只允许成功初始化一次，重复或重入时在触及构建与 Flash 前报错。同步初始化
 失败可重试；配置和 char 接入都成功后才发布默认状态。异步构建失败不重开 setup，
-由 rebuild 重试。jump/remote/search/char/rebuild 和构建工具均可重复调用。table.lazy
-只允许对同一张表绑定一次 loader，重复绑定在修改任何缓存前报错。
+由 rebuild 重试。jump/remote/search/char/rebuild 和构建工具均可重复调用。
 
 Setup commits once; duplicate/reentrant calls fail before touching builds or Flash.
 Synchronous failures can be retried; options publish only after preparation and char
 integration succeed. Background failures retry through rebuild. Runtime operations and
-build tools remain repeatable. table.lazy binds once per table and rejects replacement
-before altering its caches.
+build tools remain repeatable.
 
 运行时只有 C 后端。只有 `setup` 接收 `sources` 或 `binary`；
 缺失二进制时自动构建，码表工厂和转换仅在构建阶段执行。不提供 Lua matcher、输入/文本 Cursor 或按需 loader 扩展。
@@ -34,8 +32,21 @@ Fallback merges by exact text key; empty lists also block later fallback codes f
 
 ## 模块 / Modules
 
-- `build.lua`、`source.lua`、`table.lua`、`tsv.lua`：构建时读取完整数据、
-  转换、校验、过滤和合并。Lua Unicode 分段器用于构建及测试参考。
+码表入口统一返回完整的 `text -> string[]` 普通 map，不附加 metatable、prefixes、
+max_chars、offset 或命中/缺失缓存。Lua 覆盖 TSV，extra 最后覆盖；空数组保留为已识别
+条目，仍会阻止后续 fallback。`source.resolve` 保证工厂（含 prepared）与直接输入
+都已规范化；`build.binary` 直接枚举 data，不再 materialize。Lua/TSV 导出只生成 codes，
+多字素数量仅用于完成通知，不生成未被运行层消费的前缀或最大长度。
+
+Table inputs become complete plain `text -> string[]` maps, with no lookup metatable,
+prefix/length metadata or offset/miss cache. Lua overrides TSV, then extra wins. Empty
+arrays remain recognized and suppress fallback. Source resolution normalizes factories,
+prepared data and direct inputs; the binary compiler iterates data directly. Lua exports
+contain only codes. Grapheme counts remain solely for build completion messages.
+
+
+- `build.lua`、`source.lua`、`table.lua`：构建时一次读全输入，输出普通 Lua map，
+  转换、校验和合并后直接交给二进制编译器；没有 TSV 查询引擎或 lazy/reader 间接层。
 - `src/text.h`：严格UTF8解码及Unicode17扩展字素分段，只保留当前分段状态；没有
   文本索引数组、Cursor方法或Lua逐字素回调。
 - `src/binary.c`：二进制序列化、共享编码组、索引构建、完整校验、文件读取与原子写入。
@@ -56,7 +67,8 @@ Cached external files load only the dependency-reading portion of the builder,
 without grapheme/source modules. Build-time grapheme counting and enumeration call
 the same C decoder and boundary rules used by scanning. The Lua grapheme module
 is a thin adapter; the old Lua algorithm lives only in tests/reference as an
-independent oracle. Bundled Unicode input data lives under scripts/data.
+independent oracle. Its canonical TSV reader is also test-owned and eagerly reads a
+map; it does not import the production parser or a production lookup engine. Bundled Unicode input data lives under scripts/data.
 Explicit binaries and cached built-in sources load without Lua builders or scanners. Fresh-process tests
 cover missing/broken native modules, external make, automatic dictionary compilation
 and persistent-cache reuse. Loading/setup never invokes a compiler.

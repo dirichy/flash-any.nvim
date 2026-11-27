@@ -33,10 +33,7 @@ end
 
 -- Build a private external plugin fixture instead of shipping example sources.
 vim.fn.mkdir(root .. "/lua/flash-any/tables", "p")
-vim.fn.writefile(
-	{ 'return { codes = { ["あ"] = { "a" } }, prefixes = {}, max_chars = 2 }' },
-	root .. "/lua/flash-any/tables/japan.lua"
-)
+vim.fn.writefile({ 'return { codes = { ["あ"] = { "a" } } }' }, root .. "/lua/flash-any/tables/japan.lua")
 vim.fn.writefile({ "あ\ta", "い\ti" }, root .. "/lua/flash-any/tables/japan.tsv")
 write("japan", {
 	'return function() return { codetable = "japan", matcher = "full_code" } end',
@@ -47,11 +44,11 @@ local definition = require("flash-any.sources.japan")()
 assert(definition.codetable == "japan" and definition.data == nil)
 assert(package.loaded["flash-any.tables.japan"] == nil)
 local source = registry.load("japan")
-assert(source.codetable == nil and tables.metadata(source.data).max_chars == 2)
+assert(source.codetable == nil and getmetatable(source.data) == nil)
 assert(source == registry.load("japan"))
-assert(source.data["あ"][1] == "a" and rawget(source.data, "い") == nil)
+assert(source.data["あ"][1] == "a" and rawget(source.data, "い")[1] == "i")
 assert(source.data["い"][1] == "i")
-assert(source.data["う"] == nil and rawget(source.data, "う") == false)
+assert(source.data["う"] == nil and rawget(source.data, "う") == nil)
 local padded = registry.load("japan", { append_space_below = 2 })
 assert(padded ~= source and padded.data["あ"][1] == "a ")
 assert(padded.data["い"][1] == "i " and source.data["い"][1] == "i")
@@ -68,7 +65,7 @@ assert(source.data["あ"][1] == "a" and source.data["い"][1] == "i")
 local clustered = tables.load("japan", { extra = { ["á"] = "accent", ["👩‍💻"] = "dev" } })
 assert(clustered["á"][1] == "accent" and clustered["👩‍💻"][1] == "dev")
 assert(source.data["á"] == nil and source.data["👩‍💻"] == nil)
-print("ok - external tables share lazy loading, conversion and cache ownership rules")
+print("ok - external tables load complete private maps with conversion and override rules")
 
 write("romaji", { 'return function() return { codetable = "japan" } end' })
 local romaji = registry.load("romaji")
