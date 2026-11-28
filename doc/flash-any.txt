@@ -1,9 +1,13 @@
 *flash-any.txt*  按字素编码进行 Flash 跳转 / C-based grapheme matching
 
-main 分支正在迁移，暂不稳定；API 和配置可能变化，不兼容旧接口。
-旧版请使用 master，试用新版需显式选择 main；更新后重启 Nvim，C 模块按需自动编译。
-Migration in progress: main is unstable and does not preserve the legacy API.
-Use master for the legacy version, or explicitly select main to try the C migration.
+main 使用 C 匹配核心，配置 API 与旧版不兼容；旧版请使用 master。
+更新后重启 Nvim，C 模块按需自动编译。
+The main branch uses the C matching core and a configuration API incompatible with
+the legacy version on master. Restart Nvim after updates; C builds are automatic.
+
+README 中说明或默认配置中出现的 API 与选项属于稳定公开接口；其余为内部接口。
+APIs and options documented in the README or present in the default configuration
+are stable public interfaces. Everything else is internal, without compatibility guarantees.
 
 The core provides Unicode literal matching and the optional Latin source. Chinese
 pinyin and Tiger codes are provided by
@@ -35,11 +39,11 @@ setup 在 C 模块缺失、源码更新或加载失败时直接后台启动编�
 更新插件后重启 Neovim；Windows 若无法替换 DLL，先关闭其他使用插件的实例。
 
 按 s，输入编码，再按标签跳转。zhongguo 或 zg 匹配“中国”，可和 ASCII 连续混输。
-配置相应 source 后可使用对应编码。每个码表键恰好一个 Unicode17 完整字素，例如
-👩‍💻 或 á；不支持“中国”这种多字素码表键。不做 Unicode 归一化。
+配置相应 source 后可使用对应编码。码表键支持 Unicode17 完整字素（如 👩‍💻、á）
+及词组（如“中国”），匹配从字素边界开始和结束，不跨行。不做 Unicode 归一化。
 
-The matching core is C-only. Each dictionary key is one complete grapheme; input
-can match across successive graphemes. No runtime Lua matchers or Cursor API.
+Dictionary keys can be complete graphemes or phrases, matching only at grapheme
+boundaries within a line. No Unicode normalization or runtime Lua matcher extension.
 
 ===============================================================================
 2. 构建与配置                                              *flash-any-setup*
@@ -57,8 +61,9 @@ can match across successive graphemes. No runtime Lua matchers or Cursor API.
 setup 在码表二进制缺失时后台构建，已有文件
 直接加载；搜索过程仍由 C 完成。缓存位于 stdpath("cache")/flash-any/，按 sources
 配置及 C 格式/Unicode 版本区分。外部词典、Rime 导入、lua/tsv 和 converter
-按路径、大小、修改时间跟踪。lua/flash-any 下安装的 Lua/TSV 每进程检查一次，
-插件更新后重启 Nvim。大小及修改时间均未变的编辑、命名空间外的 Lua 间接依赖需手动重建。
+按路径、大小、修改时间跟踪。具名 source 按工厂返回的版本号使缓存失效；作者更新
+依赖时需推进版本号。插件更新后重启 Nvim。大小及修改时间均未变的编辑、未声明的
+Lua 间接依赖需手动重建。
 
 可选 binary 指定固定产物路径；文件缺失时根据 sources 构建。仅提供 binary 则
 加载现有文件。构建时应用双拼、模糊音、补空格、scope、顺序和 fallback。
@@ -70,9 +75,14 @@ remains available during the first compilation. Source configurations use separa
 
 跳转：                                                       *flash-any-jump*
 
-jump() / jump(nil) 使用 setup 的配置；jump(opts) 使用独立完整配置，必须含 sources 或 binary，
-不继承 setup 字段。返回 Flash state。其他 Flash 跳转选项直接传递，matcher 与
-labeler 由插件管理。
+jump() / jump(nil) 使用 setup 的配置；jump(opts) 将单次 Flash 选项合并到 setup，
+复用其码表，返回 Flash state。sources、binary、char 只能在 setup 中配置。
+setup 和 jump/remote/search 均拒绝自定义 matcher、labeler；用 labels 调整跳转标签。
+source 内的 matcher 字符串仍用于选择内置匹配规则。
+
+Jump/remote/search merge per-call Flash options with setup and reuse its dictionary.
+Configure sources, binary and char only in setup. Custom matcher and labeler overrides
+are rejected in setup and individual calls; labels remain configurable.
 
 首码跳转：                                                   *flash-any-char*
 
@@ -90,7 +100,7 @@ fz 匹配编码以 z 开头的字符及字面 z；小鹤双拼 fv 匹配“中�
 
 远程操作：                                                 *flash-any-remote*
 
-remote() 复用 setup 配置，remote(opts) 使用完整独立配置并须包含 sources 或 binary。 >lua
+remote() 复用 setup 配置；remote(opts) 合并单次 Flash 选项并复用同一码表。 >lua
     vim.keymap.set("o", "r", function() require("flash-any").remote() end)
 <
 yr 后输入 zg、标签、iw，可复制远处单词并返回；dr 用于删除。Flash 负责远程操作。
@@ -203,7 +213,7 @@ matcher 仅接受以上字符串，不接受函数。码表编码必须是非空
 
 输入及 Lua 输出必填；其他位置可用 - 占位。format 为 auto/rime/tsv/tab/csv/space/fcitx/ibus，
 encoding 默认 utf-8。TSV 每行一对文本和编码，多编码重复写行，逗号原样保留。生成器合并重复
-编码，保留并报告多字素条目；file 接入自动过滤词组，Lua/data 则需要手动过滤。
+编码，保留并报告多字素条目；file 与 Lua/data 均支持词组，无需手动过滤。
 导入的编码不能含 Tab 或换行，直接 Lua data 则可使用其他 ASCII 字节。
 
 虎码默认配置：
@@ -218,16 +228,16 @@ append_space_below 不支持。完整规则见 docs/sources.md。
 
 二进制格式：                                                *flash-any-binary*
 
-build.binary 生成 FANYBIN v8。码点分页数组、多码点字素 hash 和带 matcher 标记的
-编码列表合在同一文件。hash 命中校验原文，NUL 不作结束符。升级格式需重建。
+build.binary 将 sources 编译到指定 output。二进制格式属于内部实现，布局见
+开发文档 docs/development.md。旧格式的显式 binary 需重新导出，自动缓存按版本重建。
 
 第三方码表可直接配置，无需 Lua 伴随文件：
 
     { file = "/path/table.dict.yaml", matcher = "full_code" }
 
 支持 Rime、TSV、CSV、空白分隔、Fcitx、IBus。format 默认 auto，columns 可指定列序。
-TSV 每行一对字素和编码，多编码重复写行；逗号原样保留，无需排序。
-file 接入自动过滤多字素词组并报告数量；Lua/data 键仍须为单个完整字素。
+TSV 每行一对文本和编码，多编码重复写行；逗号原样保留，无需排序。
+file 和 Lua/data 均保留完整字素与词组。
 matcher 标识为 full_code、initial、prefix 或 letter；不支持自定义 matcher。
 可选 converter = "/path/converter.lua"；文件返回 function(codes, text)，构建时
 每个文本条目调用一次，接收完整编码数组和原文字素/词组。返回新数组，nil/空数组

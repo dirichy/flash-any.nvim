@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-> **Migration in progress — currently unstable.** `main` uses the C matching core and a new configuration API.
+> `main` uses the C matching core and a configuration API incompatible with the legacy version.
 > For the previous version, see the [master branch README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md).
 
 Jump with Latin variants, Chinese pinyin, Japanese romaji, Korean keyboard strokes, icon names or custom encodings.
@@ -95,6 +95,13 @@ Other Flash jump options, such as `labels`, `search` and `jump`,
 can still be passed to setup. `jump(opts)`, `remote(opts)` and `search(opts)` merge
 single-call Flash options with setup and reuse its dictionary. Configure `sources`,
 `binary` and `char` only in setup; runtime calls never build another dictionary.
+
+`matcher` and `labeler` are managed by flash-any and cannot be overridden in setup
+or individual calls; use `labels` to configure jump labels.
+
+APIs and options documented in the README or present in the default configuration
+are stable public interfaces. Anything else is internal and may change without
+compatibility guarantees.
 
 ## Usage
 

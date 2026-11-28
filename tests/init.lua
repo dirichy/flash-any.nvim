@@ -19,6 +19,12 @@ assert(not pcall(plugin.setup, {}))
 assert(not pcall(plugin.setup, { binary = path, char = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, clear_search_register = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, sources = "pinyin" }))
+for _, key in ipairs({ "matcher", "labeler" }) do
+	for _, value in ipairs({ false, function() end }) do
+		local ok, err = pcall(plugin.setup, { binary = path, [key] = value })
+		assert(not ok and tostring(err):find("custom " .. key, 1, true), tostring(err))
+	end
+end
 plugin.setup({ binary = path, labels = "abc", search = { wrap = false } })
 assert(not pcall(plugin.rebuild), "binary-only setup cannot reconstruct sources")
 plugin.jump()
@@ -43,6 +49,10 @@ for _, method in ipairs({ plugin.jump, plugin.remote, plugin.search }) do
 		local ok, err = pcall(method, opts)
 		local expected = opts.matcher and "custom matchers" or "setup()"
 		assert(not ok and tostring(err):find(expected, 1, true), tostring(err))
+	end
+	for _, value in ipairs({ false, function() end }) do
+		local ok, err = pcall(method, { labeler = value })
+		assert(not ok and tostring(err):find("custom labelers", 1, true), tostring(err))
 	end
 end
 plugin.jump()

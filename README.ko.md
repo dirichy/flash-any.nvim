@@ -2,7 +2,7 @@
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-> **마이그레이션 중이며, 현재는 불안정합니다.** `main`은 C 매칭 코어와 새로운 설정 API를 사용합니다.
+> `main`은 C 매칭 코어를 사용하며 설정 API는 이전 버전과 호환되지 않습니다.
 > 이전 버전은 [master 브랜치 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.old.md)를 참고하세요.
 
 라틴 문자 변형, 중국어 병음, 일본어 로마자, 한글 두벌식 키 입력, 아이콘 이름 또는 사용자 정의 코드로 이동합니다.
@@ -92,6 +92,12 @@ setup은 Neovim 세션마다 한 번만 성공할 수 있으며, 두 번째 호�
 `labels`, `search`, `jump` 같은 Flash 옵션도 setup에 전달할 수 있습니다.
 `jump(opts)`, `remote(opts)`, `search(opts)`는 일회성 Flash 옵션을 setup에 병합하고
 설정된 사전을 재사용합니다. sources, binary, char는 setup에서만 설정할 수 있습니다.
+
+`matcher`와 `labeler`는 flash-any가 관리하며 setup이나 개별 호출에서 덮어쓸 수 없습니다.
+점프 레이블은 `labels`로 설정하세요.
+
+README에 설명되어 있거나 기본 설정에 포함된 API와 옵션은 안정적인 공개 인터페이스입니다.
+그 외에는 내부 인터페이스이며 호환성을 보장하지 않고 변경될 수 있습니다.
 
 ## 사용법
 
@@ -217,7 +223,7 @@ require("flash-any").setup({
 `binary = "/path/flash-any.bin"`으로 고정 출력 경로를 지정할 수 있습니다.
 파일이 없으면 sources로 생성하며, binary만 지정하면 기존 파일을 로드합니다.
 생성 실패 시 기존 출력을 유지하고 진행 중인 검색은 원래 스냅샷을 계속 사용합니다.
-첫 컴파일은 setup에서 동기적으로 수행합니다. 현재 v14 형식에는 오래된 명시적 binary의 재생성이 필요하며
+사전이 없으면 setup이 백그라운드에서 생성하며 기다리는 동안 기존 사전이나 문자 그대로의 검색을 사용합니다. 현재 v14 형식에는 오래된 명시적 binary의 재생성이 필요하며
 자동 캐시는 스스로 갱신됩니다. 업데이트 후 Neovim을 다시 시작하면 C 모듈도 필요에 따라 다시 빌드합니다.
 `require("flash-any.build").binary()`는 명시적 내보내기와 개발에도 사용할 수 있습니다.
 

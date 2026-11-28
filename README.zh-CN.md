@@ -2,7 +2,7 @@
 
 [English](README.md) · [日本語](README.ja.md) · [한국어](README.ko.md)
 
-> **正在迁移，暂不稳定。** `main` 分支使用 C 匹配核心和新版配置 API。
+> `main` 使用 C 匹配核心，配置 API 与旧版不兼容。
 > 旧版请查看 [master 分支 README](https://github.com/dirichy/flash-any.nvim/blob/master/README.zh-CN.old.md)。
 
 用拉丁字母变体、中文拼音、日语罗马音、韩文键位、图标名或自定义编码进行 Flash 跳转。
@@ -83,12 +83,17 @@ require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-setup 会缓存
-码表，后续启动直接复用。每个 Neovim 会话只能成功 setup 一次；重复调用会报错，
+setup 会缓存码表，后续启动直接复用。每个 Neovim 会话只能成功 setup 一次；重复调用会报错，
 保留原配置。同步初始化失败后可修正重试；setup 已成功返回后，即使后台构建失败，
 也通过 `rebuild()` 更新码表或重试。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
 `jump(opts)`、`remote(opts)`、`search(opts)` 将单次 Flash 选项合并到 setup 配置，
 复用其中的码表。`sources`、`binary`、`char` 只能在 setup 配置，运行时入口不构建新码表。
+
+`matcher` 和 `labeler` 由 flash-any 管理，setup 和单次调用均不允许覆盖；
+需要调整跳转标签时配置 `labels`。
+
+README 中说明或默认配置中出现的 API 与选项属于稳定公开接口；其余均为内部接口，
+可能变更，不承诺兼容性。
 
 ## 用法
 

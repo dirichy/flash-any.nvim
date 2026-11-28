@@ -2,6 +2,18 @@
 
 ## 边界 / Boundaries
 
+README 中说明或默认配置中出现的 API 与选项属于稳定公开接口；其余为内部接口，
+不承诺外部兼容性。模块返回表中的跨模块函数不因此自动成为公开 API。
+APIs and options documented in the README or present in the default configuration
+are stable public interfaces. Everything else is internal, with no compatibility
+guarantees; exporting a function for another module does not make it public.
+
+setup 与 jump/remote/search 都拒绝自定义 matcher 和 labeler；允许用 labels 调整标签，
+source 的 matcher 字符串仍用于选择内置匹配规则。具名 source 的专有选项继续透传工厂。
+Setup and jump/remote/search reject custom matchers and labelers. Labels remain
+configurable, source matcher strings still select built-in rules, and named-source
+options continue to pass through to their factories.
+
 setup 只允许成功初始化一次，重复或重入时在触及构建与 Flash 前报错。同步初始化
 失败可重试；配置和 char 接入都成功后才发布默认状态。异步构建失败不重开 setup，
 由 rebuild 重试。jump/remote/search/char/rebuild 和构建工具均可重复调用。

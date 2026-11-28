@@ -59,6 +59,7 @@ local function build_opts(opts)
 		"sources must be a list"
 	)
 	assert(opts.matcher == nil, "custom matchers are not supported; configure code tables in build.binary()")
+	assert(opts.labeler == nil, "custom labelers are not supported; configure labels instead")
 	assert(opts.binary == nil or type(opts.binary) == "string", "binary must be a path")
 	assert(opts.sources ~= nil or opts.binary ~= nil, "provide sources or a compiled binary")
 	local native = require("flash-any.native")
@@ -169,6 +170,7 @@ local function get_opts(opts)
 		"configure sources, binary and char in setup()"
 	)
 	assert(opts.matcher == nil, "custom matchers are not supported")
+	assert(opts.labeler == nil, "custom labelers are not supported; configure labels instead")
 	local merged = vim.tbl_deep_extend("force", config, opts)
 	if not ready then
 		-- Let Flash select its native search and labeler for this entire invocation.
