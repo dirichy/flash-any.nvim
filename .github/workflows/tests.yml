@@ -8,7 +8,18 @@ permissions:
   contents: read
 jobs:
   core:
-    runs-on: ubuntu-24.04
+    name: Core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      NVIM_LOG_FILE: ${{ runner.temp }}/flash-any.log
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -20,10 +31,12 @@ jobs:
         with:
           neovim: true
           version: v0.11.0
-      - name: Build and test without optional sources
+      - name: Build C core
+        run: nvim --clean -l lua/flash-any/compiler.lua
+      - name: Test core without optional sources
+        run: nvim --clean -l tests/run.lua
+      - name: Test Flash integration
         run: |
-          nvim --clean -l lua/flash-any/compiler.lua
-          nvim --clean -l tests/run.lua
           nvim --clean -l tests/flash.lua .dev/flash.nvim
           nvim --clean -l tests/char.lua .dev/flash.nvim
           nvim --clean -l tests/search.lua .dev/flash.nvim
