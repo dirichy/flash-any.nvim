@@ -57,7 +57,10 @@ local original = native.load(nil, files)
 assert(#matches(original, "中国", "firstguo") == 1)
 write("table.lua", { "return {['中']='updated'}" })
 assert(#matches(native.load(nil, files), "中国", "updatedguo") == 1, "Lua table edits reused stale binary")
+local modified = assert(vim.uv.fs_stat(tsv_path)).mtime.sec
 write("complete.tsv", { "国\tnew" })
+-- Rapid same-sized writes need not advance the filesystem timestamp.
+assert(vim.uv.fs_utime(tsv_path, modified + 1, modified + 1))
 assert(#matches(native.load(nil, files), "中国", "updatednew") == 1, "companion TSV edits reused stale binary")
 assert(#matches(original, "中国", "firstguo") == 1, "file edits invalidated a live snapshot")
 -- Warm file-based setup reads metadata only and does not execute the Lua dictionary.
