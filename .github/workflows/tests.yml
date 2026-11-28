@@ -31,6 +31,13 @@ jobs:
         with:
           neovim: true
           version: v0.11.0
+      - name: Use full temporary paths on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        # Neovim 0.11 globbing fails on 8.3 paths: neovim/neovim#25019.
+        run: |
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
       - name: Build C core
         id: build
         run: nvim --clean -l lua/flash-any/compiler.lua

@@ -3,7 +3,7 @@
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local registry = require("flash-any.source")
 local tables = require("flash-any.table")
-local root = vim.fs.normalize(vim.fn.tempname())
+local root = vim.fn.tempname()
 vim.fn.mkdir(root .. "/lua/flash-any/sources", "p")
 local function write(name, lines)
 	vim.fn.writefile(lines, root .. "/lua/flash-any/sources/" .. name .. ".lua")

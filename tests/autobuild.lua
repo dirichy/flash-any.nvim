@@ -27,7 +27,7 @@ if arg[1] then
 		end),
 		"async dictionary did not become ready"
 	)
-	local paths = vim.fn.glob(vim.fs.normalize(vim.fn.stdpath("cache")) .. "/flash-any/*.bin", false, true)
+	local paths = vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true)
 	assert(
 		#paths == (arg[1] == "first" and 1 or arg[1] == "updated" and 3 or 2),
 		vim.inspect({
@@ -56,7 +56,7 @@ if arg[1] then
 	require("flash-any.native").load(nil, { { data = { ["中"] = "z", ["国"] = "y" } } })
 	assert(calls == 1, "changed configuration did not build its own package")
 	assert(vim.wait(10000, function()
-		return #vim.fn.glob(vim.fs.normalize(vim.fn.stdpath("cache")) .. "/flash-any/*.bin", false, true) == 2
+		return #vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2
 	end))
 	local path = vim.fn.stdpath("cache") .. "/nested/custom.bin"
 	require("flash-any.native").load(path, specs)
@@ -67,12 +67,12 @@ if arg[1] then
 	require("flash-any.native").load(path)
 	assert(calls == 2)
 	assert(not pcall(require("flash-any.native").load, nil, { { data = { ["中国"] = "\0" } } }))
-	assert(#vim.fn.glob(vim.fs.normalize(vim.fn.stdpath("cache")) .. "/flash-any/*.bin", false, true) == 2)
+	assert(#vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true) == 2)
 	return
 end
 
 -- A fresh installation compiles automatically; later starts reuse the native core and dictionaries.
-local temporary = vim.fs.normalize(vim.fn.tempname())
+local temporary = vim.fn.tempname()
 local plugin_root = temporary .. "/plugin"
 vim.fn.mkdir(plugin_root, "p")
 for _, pattern in ipairs({ "lua/**/*", "src/*", "vendor/**/*" }) do
