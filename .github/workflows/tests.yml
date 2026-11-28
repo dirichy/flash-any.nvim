@@ -19,7 +19,7 @@ jobs:
       run:
         shell: bash
     env:
-      NVIM_LOG_FILE: ${{ runner.temp }}/flash-any.log
+      NVIM_LOG_FILE: ${{ github.workspace }}/nvim.log
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
