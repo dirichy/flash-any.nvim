@@ -342,6 +342,9 @@ static int scan(lua_State *L) {
   return push_results(L, result, character, mode ? mode[0] : 0, lines);
 }
 
+#ifdef _WIN32
+__declspec(dllexport)
+#endif
 int luaopen_flash_any_native(lua_State *L) {
   static const luaL_Reg methods[] = {
       {"new_state", new_state}, {"has", has_lines}, {"scan", scan}, {NULL, NULL}};

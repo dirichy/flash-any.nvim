@@ -18,7 +18,6 @@ on:
       - lua/**
       - src/**
       - vendor/**
-      - Makefile
 
 permissions:
   contents: read
@@ -47,7 +46,7 @@ jobs:
           source-owner: ${{ vars.FLASH_ANY_SOURCE_OWNER || github.repository_owner }}
       - name: Check automatic build and matching
         run: |
-          make
+          nvim --clean -l lua/flash-any/compiler.lua
           nvim --clean -l tests/run.lua
           nvim --clean -l tests/demo.lua
           nvim --clean -l tests/source_guide.lua

@@ -22,7 +22,7 @@ jobs:
           version: v0.11.0
       - name: Build and test without optional sources
         run: |
-          make
+          nvim --clean -l lua/flash-any/compiler.lua
           nvim --clean -l tests/run.lua
           nvim --clean -l tests/flash.lua .dev/flash.nvim
           nvim --clean -l tests/char.lua .dev/flash.nvim

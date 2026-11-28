@@ -17,9 +17,15 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
 
 ## 安装与配置
 
-需要 Neovim **0.11+**、flash.nvim，以及首次构建和升级时使用的 make 和 C 工具链
-（GCC 或 Clang）。
-公共 Lua/C 头文件已随插件提供。Linux 与 macOS 已验证；Windows 暂不支持。
+需要 Neovim **0.11+**、flash.nvim 和 C 编译器（GCC 或 Clang）。
+Windows 使用与 Neovim 架构一致的原生 MinGW-w64 GCC：将 `gcc` 加入 PATH，或用
+`CC` 指定编译器可执行文件路径。公开 Lua/C 头文件已内置；Windows 链接 Neovim
+可执行文件旁的 `lua51.dll`。不需要 make，也不需要配置构建钩子。
+
+setup 会在 C 模块缺失、源码更新或加载失败时自动后台编译，直接启动编译器，
+不另开 Neovim。首次编译期间使用 Flash 原生匹配，后续启动复用编译产物。
+插件更新后重启 Neovim。Windows 如果无法替换 DLL，需先关闭其他已加载插件的
+Neovim 实例再重试。
 
 核心内置 Unicode 字面匹配（即原 flash.nvim 的字面匹配功能）和可选的 `latin` source。`sources = {}` 只启用字面匹配，
 `sources = { "latin" }` 可匹配拉丁字母变体。其他码表支持由外部插件提供：
@@ -45,7 +51,6 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
     "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
-  build = "make",
   opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
@@ -71,16 +76,14 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
 `dirichy/flash-any-tiger.nvim` 并把 pinyin 换成 tiger；内置 latin 不需要另装插件。
 终端显示 Nerd Font 图标需要使用对应字体。
 
-其他管理器可配置安装/更新钩子，在插件目录执行 `make`：vim-plug 使用
-`{'do': 'make'}`，packer.nvim 使用 `run = "make"`。没有构建钩子时，安装及
-更新后手动在插件目录执行 `make`，然后加载依赖并调用：
+其他管理器同样无需构建钩子，加载依赖后调用：
 
 ```lua
 require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-插件直接加载预先构建的 C 模块，缺失或加载失败时提示执行 `make`。setup 会缓存
+setup 会缓存
 码表，后续启动直接复用。每个 Neovim 会话只能成功 setup 一次；重复调用会报错，
 保留原配置。同步初始化失败后可修正重试；setup 已成功返回后，即使后台构建失败，
 也通过 `rebuild()` 更新码表或重试。其他 Flash 跳转选项，例如 `labels`、`search`、`jump`，仍可传给 setup。
@@ -272,7 +275,7 @@ require("flash-any").rebuild()
 
 `require("flash-any.build").binary()` 仍可用于显式导出及开发工具。
 当前 v14 格式需要重新导出旧的显式 binary；自动缓存会重建。
-更新后运行 make，并重启 Neovim 加载新模块。
+更新后重启 Neovim，C 模块会按需自动重新编译。
 
 | source | 内容 / 默认规则 |
 | --- | --- |
@@ -340,10 +343,18 @@ utf-8。TSV 每行一对文本和编码，多个编码分行重复写入；逗�
 ## 开发与测量
 
 [当前实现及验证](docs/development.md) · [性能对照](docs/benchmarks.md)。
-运行 `make` 即可编译 C 模块，`make clean` 清理动态库。Makefile 使用兼容
-GNU make 3.81 的语法，不调用 Neovim；可覆盖 `CC`、`CPPFLAGS`、`CFLAGS` 和
-`LDFLAGS`。Unicode 头文件 `src/grapheme_data.h` 随源码提交，只有维护者更新数据
-时才需要生成。clangd 直接使用 `compile_flags.txt`，无需生成编译数据库。
+C 编译统一由 `lua/flash-any/compiler.lua` 管理。在当前 Neovim 中执行
+`:lua require("flash-any.compiler").build()` 可强制重建并等待完成。Windows 需先关闭
+已加载 DLL 的实例，再从仓库根目录执行：
+
+```sh
+nvim --clean -l lua/flash-any/compiler.lua
+```
+
+`CC` 指定编译器可执行文件；`CPPFLAGS`、`CFLAGS`（默认 `-O3`）和 `LDFLAGS`
+按空白分隔为参数，不进行 shell 引号解析或展开。Unicode 头文件
+`src/grapheme_data.h` 随源码提交，只有更新 Unicode 数据时才需生成。
+clangd 直接使用 `compile_flags.txt`。
 
 ## 许可
 

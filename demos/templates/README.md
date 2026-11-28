@@ -21,7 +21,7 @@ Search and jump using this code table with
 
 ## Install
 
-Requires Neovim 0.11+, make and a C compiler. Add this to your lazy.nvim configuration:
+Requires Neovim 0.11+ and a C compiler. The C module builds automatically. Add this to your lazy.nvim configuration:
 
 ```lua
 {
@@ -29,7 +29,6 @@ Requires Neovim 0.11+, make and a C compiler. Add this to your lazy.nvim configu
   branch = "main",
   version = false,
   dependencies = { "folke/flash.nvim", "OWNER/TABLE" },
-  build = "make",
   opts = { sources = { "SOURCE" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },

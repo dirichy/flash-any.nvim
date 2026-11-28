@@ -11,7 +11,7 @@ case "$scene" in
 esac
 
 mkdir -p demos/output
-for tool in nvim make vhs ttyd ffmpeg ffprobe python3 fc-match fc-query; do
+for tool in nvim vhs ttyd ffmpeg ffprobe python3 fc-match fc-query; do
   command -v "$tool" >/dev/null || { printf 'Install %s before recording.\n' "$tool" >&2; exit 1; }
 done
 font_family=$(python3 -c 'from pathlib import Path; print(next(line.split(chr(34))[1] for line in Path("demos/common/style.tape").read_text().splitlines() if line.startswith("Set FontFamily ")))')
@@ -29,7 +29,7 @@ done
 
 # Empty old evidence so an interrupted recording cannot reuse a previous success.
 : > "demos/output/$verification"
-make
+nvim --clean -l lua/flash-any/compiler.lua
 if test "$scene" = char; then
   vhs demos/char.tape
 else

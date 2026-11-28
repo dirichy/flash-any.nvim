@@ -79,8 +79,8 @@ without grapheme/source modules. Build-time grapheme counting and enumeration ca
 the same C decoder and boundary rules used by scanning. The Lua grapheme module
 is a thin adapter. Bundled Unicode input data lives under scripts/data.
 Explicit binaries and cached built-in sources load without Lua builders or scanners. Fresh-process tests
-cover missing/broken native modules, external make, automatic dictionary compilation
-and persistent-cache reuse. Loading/setup never invokes a compiler.
+cover automatic native compilation/repair, Flash fallback, dictionary compilation
+and persistent-cache reuse. Native compilation directly launches the compiler; dictionary compilation uses a Neovim worker.
 
 Review C时，可先读`text.h`的`decode`/`grapheme_break`，再沿`scan.c`的
 `scan_line → scan_grapheme → match_codes → emit/request`阅读。二进制读写单独看
@@ -105,21 +105,42 @@ and caches alive. Format production C with
 
 ## 构建 / Build
 
-用户需要make和C工具链（GCC或Clang）；`make`直接编译C，不调用Neovim、Python、
-pkg-config或系统LuaJIT开发包。Makefile使用GNU make 3.81兼容语法，支持CC、
-CPPFLAGS、CFLAGS和LDFLAGS覆盖。`vendor/luajit`内置未修改的公开Lua/C头文件，
-符号从宿主Neovim解析，不链接第二份LuaJIT。Linux已验证，macOS的
-bundle/dynamic_lookup路径待实机验证。
+C 编译统一归 `lua/flash-any/compiler.lua`，只需要 Neovim 和 C 编译器，不依赖 make、
+Python、pkg-config 或系统 LuaJIT 开发包。平台分支只处理共享库参数和 Windows 的
+`lua51.dll` 路径，源文件列表和公共参数共用。`CC` 指定一个编译器可执行文件；
+`CPPFLAGS`、`CFLAGS`（默认 `-O3`）、`LDFLAGS` 按空白拆为参数，不做 shell 解析。
+Windows 需要与 Neovim 架构一致的原生 MinGW-w64 GCC；Unix 使用 GCC 或 Clang。
+`vendor/luajit` 内置公开 Lua/C 头文件，Windows 链接当前 Neovim 旁的 `lua51.dll`。
 
-Unicode数据的来源是`scripts/data/grapheme_data.lua`，生成的`src/grapheme_data.h`随源码提交。
-维护者更新数据后运行`nvim --clean -l scripts/generate_grapheme.lua`并提交两份数据；
-安装构建不会运行生成器。`compile_flags.txt`为clangd提供静态编译参数，无需生成
-compile_commands.json；旧的编译数据库可以删除。
+`compiler.load(callback)` 在产物缺失、C 源文件/头文件/构建模块 mtime 新于产物，或
+动态库加载失败时自动编译。同一进程的并发请求共享一个编译器任务。直接用 `vim.system`
+启动编译器，不创建 Neovim 子进程。输出先写入唯一临时文件，成功后替换产物；失败
+清理临时文件并保留旧产物。不传 callback 的工具调用等待同一个任务完成。
+模块加载后本进程不再检查源码或热重载，插件更新后重启。
+Windows 其他进程持有旧 DLL 时替换可能失败，报错要求关闭这些实例再重试。
+独立 Neovim 进程各自构建临时文件，不实现跨进程锁。
 
-native.lua直接加载native.so，不检查源码mtime、不调用编译器；缺失或加载失败时提示
-在插件目录执行make。插件管理器或用户负责安装/更新时运行make。Makefile是编译参数
-和平台分支的唯一来源；编译到临时文件后原子替换native.so，避免影响已加载的进程。
-Lua-owned userdata持有码表快照和匹配结果，状态表持有原始行。
+`native.lua` 延迟加载 C。setup 使用异步入口；等待首次 C 编译时，jump/remote
+保留 Flash 默认 matcher 和 labeler，search/char 复用 Flash 原生搜索。C 就绪后后续
+调用切到 C；码表仍在构建时使用 C 字面快照。构建工具访问 modes/grapheme/write 时
+同步确保 C 可用。`compiler.build(callback)` 供显式强制重建；无 callback 时等待完成。
+
+Native compilation is owned by `compiler.lua`: source/header/builder mtimes determine
+freshness, load failures trigger repair, concurrent requests share one compiler process,
+and failed builds preserve existing outputs. First-compile matching uses Flash's native
+search. Setup does not wait; build tools and callback-free explicit builds wait for completion.
+There is no hot reload or cross-process build lock. Windows needs native MinGW-w64 GCC
+and links Neovim's own `lua51.dll`; loaded DLLs may require closing other Neovim instances.
+Environment flags are whitespace-separated arguments without shell interpretation.
+
+Windows 码表 IO 将 UTF-8 路径转为 UTF-16 后使用宽字符 API，临时文件排他创建，
+关闭后通过 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)` 替换目标，失败清理临时文件。
+Windows binary IO converts UTF-8 paths to UTF-16 and replaces completed temporary
+files with `MoveFileExW`; snapshots remain owned by Lua userdata.
+
+Unicode 数据在 `scripts/data/grapheme_data.lua`，生成的 `src/grapheme_data.h` 随源码
+提交；更新数据后运行 `nvim --clean -l scripts/generate_grapheme.lua`。
+clangd 使用 `compile_flags.txt`，无需生成编译数据库。
 
 native.load统一拥有码表缓存路径和构建：未指定binary时，按sources的稳定inspect
 表示、所选source版本、核心CACHE_VERSION和C导出的格式/Unicode版本计算SHA256，放入stdpath("cache")/flash-any/。
@@ -149,11 +170,8 @@ require 本身丢弃模块的第二返回值，因此核心不能用它读取版
 也不会并行或排队重建。任务完成或失败后才允许下次重建，无需结果代次或乱序保护。
 保留失败回退和按查询固定字典的机制。显式 binary 也可重建，但需要 sources。
 
-Make directly invokes the C compiler; GNU make 3.81 syntax is sufficient. Unicode
-headers are committed, and regeneration is a maintainer-only step. Bundled public
-Lua/C headers and compile_flags.txt keep builds and clangd independent of local
-LuaJIT development packages. Plugin managers or users run make on installation and
-updates; loading native.so never builds it and reports actionable load errors.
+The unified builder uses committed Unicode headers and bundled public Lua/C headers.
+No local LuaJIT development package is needed. clangd uses compile_flags.txt.
 The dictionary loader owns cache paths. Explicit file inputs retain metadata/Rime-import
 checks; named sources use the factory module's second return value, defaulting to zero.
 `factory.lua` loads declarations once per process and preserves both return values,
@@ -223,7 +241,7 @@ The 40-byte header and section order remain scalar pages, DAT, code pool and gro
 There are no text strings, hash slots, merged roots, vacancy reuse or region flags.
 The 23-bit parent limit supports up to 8,388,607 units. Bounds, labels, chains,
 terminals and groups are validated before use. Explicit binaries need regeneration
-for v14; automatic caches rebuild and Nvim must restart after make.
+for v14; automatic caches rebuild and Nvim must restart after updating.
 
 Group-tagged records contain a nonempty sequence of big-endian u16 IDs, terminated
 by one 0xFF byte at an ID boundary. A low byte of 0xFF remains valid. IDs range from
@@ -439,7 +457,7 @@ No external dictionaries or legacy Lua matcher are required. The old Lua matcher
 Cursor and lookup implementation, including their self-tests, have been removed.
 
 ```sh
-make -B
+nvim --clean -l lua/flash-any/compiler.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/run.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
@@ -449,26 +467,18 @@ NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_repeat.lua .d
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_async.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/search_input.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua
-make -B CFLAGS='-O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined'
+CFLAGS='-O1 -g -fsanitize=undefined -fno-sanitize-recover=undefined' nvim --clean -l lua/flash-any/compiler.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/text.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/binary.lua
-make -B
+nvim --clean -l lua/flash-any/compiler.lua
 lua-language-server --check=. --checklevel=Hint
 ```
 
-Linux已实测Neovim 0.11.0 + GNU make 3.81，以及系统Neovim 0.12.6 + make 4.4.1。
-旧版本工具安装在忽略的.dev目录，不替换系统工具；切换方法：
-
-```sh
-export PATH="$PWD/.dev/make-3.81/bin:$PWD/.dev/nvim-0.11.0/bin:$PATH"
-make clean
-make -j4
-nvim --clean -l tests/autobuild.lua
-```
-
-Both Neovim 0.11.0 / GNU make 3.81 and Neovim 0.12.6 / GNU make 4.4.1 passed
-the full test suite on Linux, including real Flash jump, char and remote integration.
-The `.dev` tool installations are local and are not distributed with the plugin.
+核心测试在 Linux 的 Neovim 0.11.0 与 0.12.6 上验证；历史 make 版本对照不再适用。
+测试使用隔离的插件副本，覆盖首次编译、失效重编译、损坏修复、失败保留旧产物、
+并发请求合并、主循环响应及首次 Flash 原生回退。
+The core suite covers native compilation and fallback in isolated plugin copies;
+run it with both the minimum supported and current Neovim versions.
 
 Flash checkout放在.dev/flash.nvim。`tests/text.lua`用官方Unicode测试数据校验C的
 字素边界与非法字节。demo生成与教程命令单独运行：
@@ -515,7 +525,7 @@ Lua 按每个编码的权重和原始顺序分配选键，默认首选空格、�
 | 0xA0–0xBF | 预留的小模式操作码，目前未使用 |
 | 0xC0–0xFF | 后续扩展保留 |
 
-格式 v7 的自动缓存会重建；显式旧 binary 需重新导出。make 后重启 Nvim 加载新模块。
+格式 v7 的自动缓存会重建；显式旧 binary 需重新导出。更新后重启 Nvim 加载新模块。
 
 Lua assigns suffixes at build time; weights and ranks are not serialized. A suffix
 record stores its matcher tag, parameter byte count, ASCII suffix and original code.
@@ -525,7 +535,7 @@ there is no global selector rejection set. Base codes are never expanded into al
 Matcher tags occupy 0x80–0x9F (currently five modes); 0xA0–0xBF is reserved for future
 pattern operators and 0xC0–0xFF for later extensions. All unassigned tags currently
 fail validation. Version 7 invalidates automatic caches; rebuild explicit old binaries
-and restart Nvim after make.
+and restart Nvim after updating.
 
 
 ## 共享音节与二进制 v8 / Shared syllables and binary v8
@@ -554,9 +564,9 @@ on demand, preserving all alternatives and next bytes without an input graph or
 cross-input match cache. Both full and double pinyin now share syllable groups.
 Factories generate groups and declare file paths; the core reads character data.
 
-v8 会使自动缓存重新构建；显式旧 binary 需重新导出，make 后重启 Nvim。
+v8 会使自动缓存重新构建；显式旧 binary 需重新导出，更新后重启 Nvim。
 Version 8 rebuilds automatic caches; regenerate explicit old binaries and restart
-Nvim after make. Previous format descriptions above document their original revisions.
+Nvim after updating. Previous format descriptions above document their original revisions.
 
 
 ## Source 外置与通用组 / External sources and shared groups
@@ -580,7 +590,7 @@ runtimepath plugins and have no compilation step. Local publication-ready direct
 are under .dev/source-packages; public source releases are not yet available.
 
 ```
-make
+nvim --clean -l lua/flash-any/compiler.lua
 nvim --clean -l tests/run.lua
 FLASH_ANY_SOURCE_PATH="$PWD/.dev/source-packages" nvim --clean -l tests/run.lua
 ```
@@ -604,7 +614,7 @@ these are developer/recording dependencies, not plugin install dependencies.
 
 输入按完整编码消费，大小写策略由 Lua 读取 Neovim 选项后交给 C；literal 同样
 遵循该策略。其他规则保持精确比较。自动缓存会重建，显式旧 binary 需重新导出；
-make 后重启 Neovim。
+更新后重启 Neovim。
 
 Version 10's `letter` matcher (internal ID 5, shared spelling ID 13) combines head
 codepoint matching and case policy. Whole graphemes retain their dictionary lookup;
@@ -615,7 +625,7 @@ lookup otherwise. There is no separate scan or cache.
 
 Input consumes full codes and follows the effective Neovim case policy, as literal
 does. Other rules remain exact. Automatic caches rebuild; regenerate explicit older
-binaries and restart Neovim after make.
+binaries and restart Neovim after updating.
 
 ## Unicode 字面匹配 / Unicode literal matching
 

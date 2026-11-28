@@ -17,9 +17,15 @@
 
 ## インストールと設定
 
-Neovim **0.11+**、flash.nvim、初回ビルドと更新時に使う make と C コンパイラ
-（GCC または Clang）が必要です。公開 Lua/C ヘッダーは同梱されています。
-Linux と macOS で検証済みです。Windows は現在サポートしていません。
+Neovim **0.11+**、flash.nvim、C コンパイラ（GCC または Clang）が必要です。
+Windows は Neovim と同じアーキテクチャのネイティブ MinGW-w64 GCC を使います。
+PATH 上の `gcc`、または環境変数 `CC` でコンパイラを指定します。Lua/C ヘッダーは同梱し、
+Windows は Neovim 本体の隣の `lua51.dll` にリンクします。make やビルドフックは不要です。
+
+setup は C モジュールが未ビルド、古い、またはロードできない場合に、コンパイラを直接
+バックグラウンドで実行します。別の Neovim は起動しません。初回ビルド中は Flash 本来の
+検索を使います。更新後は Neovim を再起動してください。Windows で DLL を置き換えられない
+場合は、プラグインを使用中のほかの Neovim を終了して再試行してください。
 
 コアには Unicode の文字そのものによる検索と、任意で有効にできる `latin` source が含まれます。
 `sources = {}` は文字そのものの検索のみ、`sources = { "latin" }` はラテン文字の変種も検索します。
@@ -46,7 +52,6 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
     "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
-  build = "make",
   opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
@@ -72,16 +77,13 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
 日本語だけなら latin と japanese を残せます。内蔵 latin に追加プラグインは不要です。
 アイコンの表示には端末で Nerd Font を使ってください。
 
-ほかのプラグインマネージャーでは、インストール・更新時にプラグインのディレクトリで
-`make` を実行するフックを設定します。vim-plug は `{'do': 'make'}`、packer.nvim は
-`run = "make"` です。フックがない場合は手動で make を実行し、依存をロードしてから設定します。
+ほかのプラグインマネージャーでもビルドフックは不要です。依存をロードしてから設定します。
 
 ```lua
 require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-C モジュールが未ビルド、またはロードできない場合は make の実行を案内します。
 setup は辞書バイナリがなければ生成し、以降はキャッシュを再利用します。
 setup は Neovim セッションごとに一度だけ成功でき、二度目はエラーになります。
 同期初期化の失敗は修正して再試行できます。辞書更新や非同期ビルドの再試行には rebuild() を使います。
@@ -209,7 +211,7 @@ require("flash-any").setup({
 から構築し、binary だけを指定した場合は既存ファイルを読みます。構築失敗時も旧出力を保持し、
 既存の検索は自分のスナップショットを使います。初回構築は setup 中に同期実行します。
 現在の v14 形式では古い明示的 binary の再生成が必要です。自動キャッシュは再構築されます。
-更新後は make を実行し、Neovim を再起動して新しいモジュールをロードしてください。
+更新後は Neovim を再起動してください。C モジュールは必要に応じて自動ビルドします。
 明示的な出力には `require("flash-any.build").binary()` も使えます。
 
 matcher は full_code、initial、prefix、letter の四種類です。通常の source はすべて
@@ -261,10 +263,11 @@ encoding は既定で utf-8 です。重複をまとめ、単語のキーを保�
 ## 開発と計測
 
 [実装と検証](docs/development.md) · [ベンチマーク](docs/benchmarks.md)。
-make で C モジュールを構築し、make clean で共有ライブラリを削除します。
-Makefile は GNU make 3.81 互換で、Neovim を呼びません。CC、CPPFLAGS、CFLAGS、LDFLAGS を
-変更できます。Unicode ヘッダーは同梱し、データ更新時のみ再生成します。
-clangd は compile_flags.txt を直接使います。
+C ビルドは `lua/flash-any/compiler.lua` に統一しています。
+`:lua require("flash-any.compiler").build()` で強制ビルドし、完了を待ちます。
+コマンドラインでは `nvim --clean -l lua/flash-any/compiler.lua` を実行します。
+`CC` はコンパイラ実行ファイル、`CPPFLAGS`、`CFLAGS`、`LDFLAGS` は空白区切りの引数です。
+shell の引用・展開は行いません。Unicode ヘッダーは同梱し、clangd は compile_flags.txt を使います。
 
 ## ライセンス
 

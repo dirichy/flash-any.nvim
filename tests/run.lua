@@ -9,6 +9,7 @@ if arg[1] == "child" then
 	return
 end
 local tests = {
+	"compiler",
 	"autobuild",
 	"build_async",
 	"rebuild",

@@ -17,9 +17,16 @@ The demo starts with `s` label jumps for Chinese, Korean and icons, then `fz` an
 
 ## Installation and setup
 
-Requires Neovim **0.11+**, flash.nvim, and make with a C toolchain (GCC or Clang)
-for the initial build and updates.
-Public Lua/C headers are bundled. Linux and macOS have been verified; Windows is not currently supported.
+Requires Neovim **0.11+**, flash.nvim, and a C compiler (GCC or Clang).
+Windows requires native MinGW-w64 GCC matching Neovim's architecture; put `gcc` on
+PATH or set `CC` to the compiler executable. Public Lua/C headers are bundled;
+Windows links against `lua51.dll` next to Neovim. No make or build hook is required.
+
+Setup automatically compiles a missing, outdated or unloadable C module in a background
+compiler process, without launching another Neovim. Flash's native matching remains
+available during the first compilation. Later startups reuse the compiled module.
+Restart Neovim after plugin updates. On Windows, close other Neovim instances using
+the plugin if they prevent replacing the DLL.
 
 The core includes Unicode literal matching (the literal matching functionality of flash.nvim)
 and the optional `latin` source. `sources = {}` enables literal matching alone;
@@ -46,7 +53,6 @@ A lazy.nvim configuration for the demo sources, including `f/F/t/T`:
     "dirichy/flash-any-korean.nvim",
     "dirichy/flash-any-nerdfont.nvim",
   },
-  build = "make",
   opts = { sources = { "latin", "pinyin", "japanese", "korean", "nerdfont" }, char = true },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
@@ -73,18 +79,14 @@ name. Tiger users can add dirichy/flash-any-tiger.nvim and select tiger instead 
 pinyin. The built-in latin source needs no extra plugin. Displaying icons requires
 a Nerd Font in your terminal.
 
-With other managers, configure an install/update hook to run `make` in the plugin
-directory. vim-plug uses `{'do': 'make'}` and packer.nvim uses `run = "make"`.
-Without a build hook, run `make` in the plugin directory after installation and updates,
-then load the dependencies and call:
+With any plugin manager, load the dependencies and call setup:
 
 ```lua
 require("flash-any").setup({ sources = {} })
 vim.keymap.set({ "n", "x", "o" }, "s", function() require("flash-any").jump() end)
 ```
 
-The plugin loads the prebuilt C module and asks you to run `make` if it is missing or
-cannot be loaded. Call setup once per Neovim session; a second call raises an error
+Call setup once per Neovim session; a second call raises an error
 without changing the existing configuration. A synchronous initialization failure may
 be corrected and retried. Once setup returns successfully, use `rebuild()` to refresh
 dictionaries, including retrying a failed background build. Setup caches the dictionary
@@ -296,7 +298,7 @@ changes during construction, call rebuild again after it finishes. Setup must in
 `sources`; a binary-only setup cannot be rebuilt. See the [source version contract](docs/sources.md#工厂--factory).
 
 The v14 format requires regenerating older explicit binaries; automatic caches rebuild.
-Run make after updating and restart Neovim to load the new native module.
+Restart Neovim after updating; the C module rebuilds automatically when needed.
 `require("flash-any.build").binary()` remains available for explicit exports and development tools.
 
 | Source | Contents / default behavior |
@@ -379,12 +381,18 @@ Matching text or queries containing NUL has undefined behavior.
 ## Development and measurement
 
 [Current implementation and validation](docs/development.md) · [Benchmarks](docs/benchmarks.md).
-Run `make` to compile the C module and `make clean` to remove the shared library.
-The Makefile uses GNU make 3.81-compatible syntax and does not invoke Neovim;
-`CC`, `CPPFLAGS`, `CFLAGS` and `LDFLAGS` can be overridden. The Unicode header
-`src/grapheme_data.h` is committed with the source and only needs to be generated
-when maintainers update the data. clangd uses `compile_flags.txt` directly;
-no compilation database needs to be generated.
+C compilation is owned by `lua/flash-any/compiler.lua`. To force a rebuild in an
+existing Neovim, run `:lua require("flash-any.compiler").build()`; this waits for the
+compiler to finish. On Windows, close instances that have loaded the DLL before rebuilding. From the repository root, use:
+
+```sh
+nvim --clean -l lua/flash-any/compiler.lua
+```
+
+`CC` selects a compiler executable. `CPPFLAGS`, `CFLAGS` (default `-O3`) and `LDFLAGS`
+accept whitespace-separated arguments without shell quoting or expansion.
+The Unicode header `src/grapheme_data.h` is committed with the source; regenerate it
+only when updating Unicode data. clangd uses `compile_flags.txt` directly.
 
 ## License
 

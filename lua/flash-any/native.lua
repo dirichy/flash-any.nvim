@@ -19,18 +19,27 @@ local M = {}
 ---@field open fun(path: string): FlashAnyNativeEngine
 ---@field write fun(keys: string[], codes: table[][], path: string, groups?: string[][])
 
-local file = assert(vim.api.nvim_get_runtime_file("lua/flash-any/native.lua", false)[1])
-local root = vim.fn.fnamemodify(file, ":h:h:h")
-local library = root .. "/lua/flash-any/native.so"
-local loader, load_error = package.loadlib(library, "luaopen_flash_any_native")
-assert(loader, "Unable to load flash-any C module; run make in " .. root .. ":\n" .. tostring(load_error))
----@type FlashAnyNativeModule
-local native = loader()
-M.modes = native.modes
+local compiler = require("flash-any.compiler")
+---@type FlashAnyNativeModule?
+local native
 ---@class FlashAnyGrapheme
 ---@field len fun(value: string): integer
 ---@field each fun(value: string, emit: fun(first: integer, after: integer, count: integer, last: integer), emit_codepoint?: fun(codepoint: integer, after: integer))
-M.grapheme = native.grapheme
+
+-- Build tools use these fields synchronously; setup uses load's asynchronous path.
+setmetatable(M, {
+	__index = function(_, key)
+		if key == "modes" or key == "grapheme" then
+			native = assert(compiler.load())
+			M.modes, M.grapheme = native.modes, native.grapheme
+			return rawget(M, key)
+		end
+	end,
+})
+
+function M.ready()
+	return native ~= nil
+end
 
 local stamp = require("flash-any.stamp")
 
@@ -48,6 +57,27 @@ local pending = {}
 ---@param force? boolean
 ---@return FlashAnyNativeEngine?
 function M.load(path, sources, ready, force)
+	if not native then
+		local core = compiler.load(ready and function(value, err)
+			if not value then
+				vim.notify("flash-any: " .. tostring(err), vim.log.levels.ERROR)
+				ready(nil, err)
+				return
+			end
+			native = value
+			local ok, engine = pcall(M.load, path, sources, ready, force)
+			if not ok then
+				vim.notify("flash-any: " .. tostring(engine), vim.log.levels.ERROR)
+				ready(nil, tostring(engine))
+			elseif engine then
+				ready(engine)
+			end
+		end or nil)
+		if not core then
+			return
+		end
+		native = core
+	end
 	if not path then
 		assert(sources, "provide sources or a compiled binary")
 		local inputs = { native.version, tostring(CACHE_VERSION) }
@@ -145,6 +175,7 @@ local literal
 ---A small literal-only snapshot for first-build searches; no source factories are loaded.
 ---@return FlashAnyNativeEngine
 function M.literal()
+	native = native or assert(compiler.load())
 	if not literal then
 		local keys, codes = {}, {}
 		for byte = 1, 127 do
@@ -165,6 +196,7 @@ end
 ---@param codes table[][]
 ---@param groups? string[][]
 function M.write(path, keys, codes, groups)
+	native = native or assert(compiler.load())
 	native.write(keys, codes, path, groups)
 end
 

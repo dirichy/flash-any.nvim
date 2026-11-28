@@ -8,7 +8,7 @@
 
 ## 1. 先让最小包跑起来
 
-需要 Neovim 0.11+、make、C 编译器，以及 flash-any.nvim 和 flash.nvim 的本地 checkout。
+需要 Neovim 0.11+、C 编译器，以及 flash-any.nvim 和 flash.nvim 的本地 checkout。
 以下命令用于 Linux/macOS。已有 checkout 时直接进入核心仓库；尚未下载时可以先执行：
 
 ```sh
@@ -35,7 +35,7 @@ cp demos/templates/source.gitignore "$FLASH_ANY_SOURCE_ROOT/.gitignore"
 printf '中\tzhong\n文\twen\n重\tzhong\n重\tchong\n' > "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/tables/mycodes.tsv"
 printf '中 文 重\n中文 with flash\n' > "$FLASH_ANY_SOURCE_ROOT/sample.txt"
 
-make -C "$FLASH_ANY_ROOT"
+nvim --clean -l "$FLASH_ANY_ROOT/lua/flash-any/compiler.lua"
 NVIM_LOG_FILE="$FLASH_ANY_SOURCE_ROOT/nvim.log" nvim --clean -l "$FLASH_ANY_SOURCE_ROOT/minimal.lua"
 ```
 
@@ -150,7 +150,6 @@ Rime、CSV、Fcitx、IBus、编码和权重等选项见[文件接入](sources.md
     "folke/flash.nvim",
     { dir = "/absolute/path/to/flash-any-mycodes.nvim" },
   },
-  build = "make",
   opts = { sources = { "mycodes" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
@@ -161,7 +160,7 @@ Rime、CSV、Fcitx、IBus、编码和权重等选项见[文件接入](sources.md
 source 必须在核心 setup 前加载。测试未发布的核心功能时，核心也应使用对应本地 checkout，
 而不是以为远端 `main` 已经包含工作区修改。第三方安装者的配置则使用真实的
 `"OWNER/flash-any-mycodes.nvim"` 依赖；**公开 README 不能保留作者的 dir、HOME 或 .dev 路径**。
-用户只运行核心的 `build = "make"`，source 不需要另一个安装构建步骤。
+核心自动编译 C 模块；核心和 source 都不需要安装构建钩子。
 
 ## 5. 一次补齐 README、许可和忽略规则
 
@@ -308,7 +307,7 @@ sh demos/record.sh table "$FLASH_ANY_SOURCE_ROOT/demo.lua"
 | source is not installed | factory 路径、source 名称、setup 前的 runtimepath；用 minimal.lua 重测 |
 | Tab、列序、Unicode 编码报错 | 真正的 Tab、text/code 顺序、文件格式；原始读音是否还缺 converter 或组定义 |
 | 工厂或 converter 找不到文件 | 工厂用 runtime 文件定位；demo 相对路径以配置目录为基准 |
-| 更新后仍是旧效果 | make 后重启；source Lua/TSV 也需重启；显式 binary 按参考重建 |
+| 更新后仍是旧效果 | 更新后重启，C 模块按需自动编译；source Lua/TSV 也需重启；显式 binary 按参考重建 |
 | 本地成功，CI 缺少 groups 等能力 | 对照两处核心 ref 的实际功能；发布新核心并触发新运行 |
 | demo 目标没有编码或字体 | text 单字素、mixed_text 单字覆盖、converter 输出及实际字体 |
 | GIF 本地存在，GitHub README 仍无图 | 确认 publish job、demos Release 附件及 README 的远端地址 |

@@ -4,6 +4,8 @@ nvim.log
 __pycache__/
 *.pyc
 /lua/flash-any/native.so
+/lua/flash-any/native.dll
+/lua/flash-any/native.*.tmp
 /build/
 /compile_commands.json
 

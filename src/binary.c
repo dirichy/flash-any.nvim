@@ -3,10 +3,49 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <wchar.h>
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 #include "native.h"
 #include "text.h"
+
+#ifdef _WIN32
+static wchar_t *wide_path(lua_State *L, const char *path, size_t extra) {
+  int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
+  if (!length) {
+    luaL_error(L, "invalid UTF-8 binary path");
+    return NULL;
+  }
+  wchar_t *wide = lua_newuserdata(L, ((size_t)length + extra) * sizeof(*wide));
+  if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, length)) {
+    luaL_error(L, "cannot convert binary path");
+    return NULL;
+  }
+  return wide;
+}
+
+static int make_temp_file(wchar_t *path, size_t length) {
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    memcpy(path + length, L".XXXXXX", sizeof(L".XXXXXX"));
+    errno_t error = _wmktemp_s(path, length + sizeof(L".XXXXXX") / sizeof(*path));
+    if (error) {
+      errno = error;
+      return -1;
+    }
+    int fd = _wopen(path, _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE);
+    if (fd >= 0 || errno != EEXIST) {
+      return fd;
+    }
+  }
+  return -1;
+}
+#endif
 
 static int is_group_mode(unsigned mode) {
   return (mode >= GROUP_FLAG + MATCH_FULL && mode <= GROUP_FLAG + MATCH_PREFIX) ||
@@ -592,29 +631,56 @@ int write_binary(lua_State *L) {
   /* All Lua allocations and format checks precede opening the temporary file. */
   load_data(L, data, (size_t)total, owner);
   lua_pop(L, 1);
+#ifdef _WIN32
+  const wchar_t *destination = wide_path(L, path, 0);
+  wchar_t *temporary = wide_path(L, path, sizeof(L".XXXXXX") / sizeof(wchar_t));
+  int fd = make_temp_file(temporary, wcslen(temporary));
+#else
   char *temporary = (char *)lua_newuserdata(L, path_size + sizeof(".XXXXXX"));
   memcpy(temporary, path, path_size);
   memcpy(temporary + path_size, ".XXXXXX", sizeof(".XXXXXX"));
   int fd = mkstemp(temporary);
+#endif
   if (fd < 0) {
     return luaL_error(L, "cannot create binary file: %s", strerror(errno));
   }
+#ifdef _WIN32
+  FILE *file = _fdopen(fd, "wb");
+#else
   FILE *file = fdopen(fd, "wb");
+#endif
   if (!file) {
     int failed = errno;
+#ifdef _WIN32
+    _close(fd);
+    _wunlink(temporary);
+#else
     close(fd);
     unlink(temporary);
+#endif
     return luaL_error(L, "cannot open binary output: %s", strerror(failed));
   }
   int failed = fwrite(data, 1, (size_t)total, file) != (size_t)total ? (errno ? errno : EIO) : 0;
   if (fclose(file) && !failed) {
     failed = errno;
   }
+#ifdef _WIN32
+  if (!failed && !MoveFileExW(temporary, destination, MOVEFILE_REPLACE_EXISTING)) {
+    DWORD error = GetLastError();
+    _wunlink(temporary);
+    return luaL_error(L, "cannot replace binary file (Windows error %d)", (int)error);
+  }
+#else
   if (!failed && rename(temporary, path)) {
     failed = errno;
   }
+#endif
   if (failed) {
+#ifdef _WIN32
+    _wunlink(temporary);
+#else
     unlink(temporary);
+#endif
     return luaL_error(L, "cannot write binary file: %s", strerror(failed));
   }
   return 0;
@@ -627,8 +693,14 @@ int open_binary(lua_State *L) {
   if (memchr(path, 0, path_size)) {
     return luaL_error(L, "invalid binary path");
   }
+#ifdef _WIN32
+  const wchar_t *filename = wide_path(L, path, 0);
+  struct _stat64 info;
+  if (_wstat64(filename, &info) || (info.st_mode & _S_IFMT) != _S_IFREG) {
+#else
   struct stat info;
   if (stat(path, &info) || !S_ISREG(info.st_mode)) {
+#endif
     return luaL_error(L, "cannot stat binary file: %s", path);
   }
   if (info.st_size < BINARY_HEADER || (uint64_t)info.st_size > UINT32_MAX) {
@@ -640,7 +712,11 @@ int open_binary(lua_State *L) {
    */
   unsigned char *data = (unsigned char *)lua_newuserdata(L, size);
   int owner = lua_gettop(L);
+#ifdef _WIN32
+  FILE *file = _wfopen(filename, L"rb");
+#else
   FILE *file = fopen(path, "rb");
+#endif
   if (!file) {
     return luaL_error(L, "cannot open binary file: %s", strerror(errno));
   }

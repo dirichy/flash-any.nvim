@@ -22,13 +22,17 @@ function M.check()
 		})
 	end
 
-	local native_ok, native_error = pcall(require, "flash-any.native")
+	local native_ok, native_error = pcall(function()
+		return require("flash-any.compiler").load()
+	end)
 	if native_ok then
 		vim.health.ok("C matching core is available")
 	else
+		local windows = vim.fn.has("win32") == 1
 		vim.health.error("Unable to load the C matching core: " .. tostring(native_error), {
-			"Install make and a C toolchain (GCC or Clang); CC may select the compiler",
-			"Configure the plugin manager's build hook to run make, or run make in the plugin directory",
+			windows and "Install a native MinGW-w64 C compiler; CC may select the compiler"
+				or "Install a C toolchain (GCC or Clang); CC may select the compiler",
+			"Restart Neovim after installing the compiler, or run :lua require('flash-any.compiler').build()",
 		})
 	end
 

@@ -19,7 +19,7 @@
 
 ## 安装
 
-需要 Neovim 0.11+、make 和 C 编译器。在 lazy.nvim 配置中添加：
+需要 Neovim 0.11+ 和 C 编译器，C 模块自动编译。在 lazy.nvim 配置中添加：
 
 ```lua
 {
@@ -27,7 +27,6 @@
   branch = "main",
   version = false,
   dependencies = { "folke/flash.nvim", "OWNER/TABLE" },
-  build = "make",
   opts = { sources = { "SOURCE" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },

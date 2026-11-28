@@ -98,7 +98,7 @@ Requires Neovim, VHS, ttyd, Chromium/Chrome, FFmpeg/ffprobe, Python 3, fontconfi
 JetBrainsMono Nerd Font Mono, Noto CJK, and Noto Color Emoji. Run from the repository
 root. Set `FLASH_NVIM_PATH` and `TOKYONIGHT_PATH` to override local plugin paths.
 Initial setup automatically builds the native core and missing dictionaries using
-make and a C toolchain. Python remains a recording-tool dependency only.
+a C toolchain directly. Python remains a recording-tool dependency only.
 The isolated configuration never loads personal dotfiles. Local recording does not publish.
 
 ## 第三方码表 / Third-party tables

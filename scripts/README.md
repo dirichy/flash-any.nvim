@@ -3,15 +3,18 @@
 Unicode 原始属性数据位于 `scripts/data/grapheme_data.lua`，不作为插件 Lua 模块加载。
 Unicode source properties live in `scripts/data/grapheme_data.lua`, outside runtime modules.
 
-从仓库根目录执行。运行 `make` 编译 C 模块，Makefile 使用兼容 GNU make 3.81
-的语法，构建仅需要 make 和 C 工具链。Python 性能脚本使用 Linux CPU affinity，
-不是用户安装依赖。维护者更新 Unicode 数据后运行
-`nvim --clean -l scripts/generate_grapheme.lua`，提交生成的 `src/grapheme_data.h`。
+从仓库根目录执行。C 模块首次使用时自动编译；强制重建可执行
+`nvim --clean -l lua/flash-any/compiler.lua`，或在 Neovim 中调用
+`require("flash-any.compiler").build()`。构建直接启动 C 编译器，不需要 make。
+Windows 使用原生 MinGW-w64 GCC，链接 Neovim 旁的 `lua51.dll`；`CC` 指定编译器。
+Python 性能脚本使用 Linux CPU affinity，不是插件安装依赖。Unicode 原始数据更新后，
+运行 `nvim --clean -l scripts/generate_grapheme.lua` 并提交生成的头文件。
 
-Run from the repository root. `make` directly invokes the C compiler and uses
-GNU make 3.81-compatible syntax. Python benchmark runners use Linux CPU affinity;
-Python is not a plugin build dependency. Unicode header regeneration is a
-maintainer-only step (`nvim --clean -l scripts/generate_grapheme.lua`).
+Run from the repository root. Native modules compile automatically; force a rebuild
+with `nvim --clean -l lua/flash-any/compiler.lua` or `require("flash-any.compiler").build()`
+in Neovim. Builds directly launch the C compiler; make is not required. Windows uses
+native MinGW-w64 GCC and Neovim's `lua51.dll`. Python benchmarks require Linux CPU
+affinity. Unicode header regeneration is maintainer-only.
 
 | 入口 / Entry | 用途 / Purpose |
 | --- | --- |

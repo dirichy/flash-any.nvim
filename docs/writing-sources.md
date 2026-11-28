@@ -9,7 +9,7 @@ replace its dictionary and names with yours.
 
 ## 1. Run a minimal package first
 
-You need Neovim 0.11+, make, a C compiler, and local checkouts of flash-any.nvim and
+You need Neovim 0.11+, a C compiler, and local checkouts of flash-any.nvim and
 flash.nvim. The commands below target Linux/macOS. Enter your existing core checkout,
 or download the dependencies first:
 
@@ -38,7 +38,7 @@ cp demos/templates/source.gitignore "$FLASH_ANY_SOURCE_ROOT/.gitignore"
 printf '中\tzhong\n文\twen\n重\tzhong\n重\tchong\n' > "$FLASH_ANY_SOURCE_ROOT/lua/flash-any/tables/mycodes.tsv"
 printf '中 文 重\n中文 with flash\n' > "$FLASH_ANY_SOURCE_ROOT/sample.txt"
 
-make -C "$FLASH_ANY_ROOT"
+nvim --clean -l "$FLASH_ANY_ROOT/lua/flash-any/compiler.lua"
 NVIM_LOG_FILE="$FLASH_ANY_SOURCE_ROOT/nvim.log" nvim --clean -l "$FLASH_ANY_SOURCE_ROOT/minimal.lua"
 ```
 
@@ -168,7 +168,6 @@ During development, lazy.nvim can load a local source:
     "folke/flash.nvim",
     { dir = "/absolute/path/to/flash-any-mycodes.nvim" },
   },
-  build = "make",
   opts = { sources = { "mycodes" } },
   keys = {
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
@@ -179,8 +178,7 @@ During development, lazy.nvim can load a local source:
 Load the source before core setup. When testing unpublished core features, also use
 the corresponding local core checkout; remote main does not contain unpushed edits.
 Public installation examples use the real `"OWNER/flash-any-mycodes.nvim"` dependency.
-**Do not leave the author's dir, HOME or .dev paths in public READMEs.** Only the
-core has a build = make hook; the source needs no separate installation build.
+**Do not leave the author's dir, HOME or .dev paths in public READMEs.** The core compiles its C module automatically; neither package needs an installation build hook.
 
 ## 5. Complete READMEs, licenses and ignore rules
 

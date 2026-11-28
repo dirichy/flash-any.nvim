@@ -42,7 +42,7 @@ else:
     (OUT / 'build.jsonl').write_text(build_output)
 print(OUT, flush=True)
 print(build_output, flush=True)
-subprocess.run(['make', '-B'], cwd=ROOT, env=env, check=True)
+subprocess.run(['nvim', '--clean', '-l', 'lua/flash-any/compiler.lua'], cwd=ROOT, env=env, check=True)
 cflags = subprocess.check_output(['pkg-config','--cflags','luajit'],text=True).split()
 libs = subprocess.check_output(['pkg-config','--libs','luajit'],text=True).split()
 flags = ['-O3','-Wall','-Wextra','-Werror',*cflags,'-I',str(ROOT / 'src')]

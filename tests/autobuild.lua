@@ -1,11 +1,6 @@
 local root = assert(vim.uv.cwd())
 if arg[1] then
 	vim.opt.runtimepath:prepend(arg[2])
-	if arg[1] == "missing" or arg[1] == "invalid" then
-		local ok, err = pcall(require, "flash-any.native")
-		assert(not ok and tostring(err):find("run make in " .. arg[2], 1, true), tostring(err))
-		return
-	end
 	local options
 	package.loaded.flash = {
 		jump = function(opts)
@@ -20,6 +15,10 @@ if arg[1] then
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "中国" })
 	assert(
 		vim.wait(10000, function()
+			plugin.jump()
+			if not options.matcher then
+				return false
+			end
 			return #options.matcher(0, {
 				pattern = function()
 					return "xy"
@@ -65,31 +64,24 @@ if arg[1] then
 	return
 end
 
--- A fresh installation must report missing/broken native modules without building.
--- After an external make, setup owns only dictionary construction and cache reuse.
+-- A fresh installation compiles automatically; later starts reuse the native core and dictionaries.
 local temporary = vim.fn.tempname()
 local plugin_root = temporary .. "/plugin"
 vim.fn.mkdir(plugin_root, "p")
-for _, pattern in ipairs({ "Makefile", "lua/**/*", "src/*", "vendor/**/*" }) do
+for _, pattern in ipairs({ "lua/**/*", "src/*", "vendor/**/*" }) do
 	for _, path in ipairs(vim.fn.globpath(root, pattern, false, true)) do
 		local target = plugin_root .. path:sub(#root + 1)
 		if vim.fn.isdirectory(path) == 1 then
 			vim.fn.mkdir(target, "p")
-		elseif not path:match("%.so$") then
+		elseif not path:match("%.so$") and not path:match("%.dll$") then
 			vim.fn.mkdir(vim.fn.fnamemodify(target, ":h"), "p")
 			assert(vim.uv.fs_copyfile(path, target))
 		end
 	end
 end
-assert(not vim.uv.fs_stat(plugin_root .. "/lua/flash-any/native.so"))
+local library_path = plugin_root .. "/lua/flash-any/native." .. (vim.fn.has("win32") == 1 and "dll" or "so")
 local native_mtime
-for _, phase in ipairs({ "missing", "invalid", "first", "cached", "updated" }) do
-	if phase == "invalid" then
-		assert(vim.fn.writefile({ "invalid shared library" }, plugin_root .. "/lua/flash-any/native.so") == 0)
-	elseif phase == "first" then
-		local result = vim.system({ "make", "-B" }, { cwd = plugin_root, text = true }):wait()
-		assert(result.code == 0, result.stderr)
-	end
+for _, phase in ipairs({ "first", "cached", "updated" }) do
 	if phase == "updated" then
 		-- Lua compilation changes bump the core cache revision without changing the wire format.
 		local path = plugin_root .. "/lua/flash-any/native.lua"
@@ -108,13 +100,9 @@ for _, phase in ipairs({ "missing", "invalid", "first", "cached", "updated" }) d
 	)
 		:wait()
 	assert(process.code == 0, (process.stderr or "") .. (process.stdout or ""))
-	if phase == "missing" then
-		assert(not vim.uv.fs_stat(plugin_root .. "/lua/flash-any/native.so"))
-	elseif phase ~= "invalid" then
-		local library = assert(vim.uv.fs_stat(plugin_root .. "/lua/flash-any/native.so"))
-		assert(not native_mtime or vim.deep_equal(native_mtime, library.mtime), "setup rebuilt the native core")
-		native_mtime = library.mtime
-	end
+	local library = assert(vim.uv.fs_stat(library_path))
+	assert(not native_mtime or vim.deep_equal(native_mtime, library.mtime), "setup rebuilt the native core")
+	native_mtime = library.mtime
 end
 vim.fn.delete(temporary, "rf")
-print("external native build, automatic dictionary build and persistent-cache reuse tests passed")
+print("automatic native build, dictionary build and persistent-cache reuse tests passed")

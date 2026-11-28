@@ -1,6 +1,13 @@
 local flash = require("flash")
 local M = {}
 
+-- Our scanners receive whole-line ranges; Flash also filters by column.
+local function flash_scan(win, state, range)
+	local search = require("flash.search").new(win, state)
+	local Pos = require("flash.search.pos")
+	return search:get({ from = Pos({ range.from[1], 0 }), to = Pos({ range.to[1], math.huge }) }), search
+end
+
 vim.api.nvim_create_user_command("FlashAnyBuildTable", function(command)
 	local args = command.fargs
 	require("flash-any.build").command({
@@ -145,8 +152,12 @@ end
 ---@return table
 local function get_opts(opts)
 	local config = assert(default_opts, "call setup before using flash-any")
-	if opts == nil then
+	local ready = require("flash-any.native").ready()
+	if opts == nil and ready then
 		return config
+	end
+	if opts == nil then
+		opts = {}
 	end
 	assert(type(opts) == "table", "Flash options must be a table")
 	assert(
@@ -158,7 +169,12 @@ local function get_opts(opts)
 		"configure sources, binary and char in setup()"
 	)
 	assert(opts.matcher == nil, "custom matchers are not supported")
-	return vim.tbl_deep_extend("force", config, opts) --[[@as table]]
+	local merged = vim.tbl_deep_extend("force", config, opts)
+	if not ready then
+		-- Let Flash select its native search and labeler for this entire invocation.
+		merged.matcher, merged.labeler = nil, nil
+	end
+	return merged --[[@as table]]
 end
 
 ---@param opts? table Single-call Flash options merged with setup.
@@ -185,7 +201,7 @@ function M.search(opts)
 	local clear = config.clear_search_register ~= false
 	config.clear_search_register = nil
 	local Search = require("flash-any.search")
-	local scan = config.matcher
+	local scan = config.matcher or flash_scan
 	local get, finish = Search.new(scan)
 	config = vim.tbl_deep_extend("force", config, {
 		labels = "",
@@ -239,6 +255,13 @@ end
 ---@return Flash.Match[]
 function M.char(win, state, range)
 	assert(default_char, "call setup before using the char matcher")
+	if not require("flash-any.native").ready() then
+		local matches, search = flash_scan(win, state, range)
+		state:get_matcher(win).find = function(_, opts)
+			return search:find(opts) --[[@as Flash.Match]]
+		end
+		return matches
+	end
 	return require("flash-any.matcher").get(win, state, range, default_char, require("flash.plugins.char").motion)
 end
 

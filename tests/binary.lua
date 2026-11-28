@@ -20,6 +20,21 @@ local function read(file)
 	return bytes
 end
 local first = read(path)
+-- Native IO must handle UTF-8 paths and replace files while old snapshots remain live.
+do
+	local directory = root .. "/中文 path 😀"
+	assert(vim.fn.mkdir(directory, "p") == 1)
+	local file = directory .. "/码表.bin"
+	native.write(file, { "中" }, { { { native.modes.full_code, "old" } } })
+	local old = native.load(file)
+	native.write(file, { "中" }, { { { native.modes.full_code, "new" } } })
+	assert(#old:new_state():scan(0, 1, 0, 1, 1, { "中" }, "old", nil) == 1)
+	assert(#native.load(file):new_state():scan(0, 1, 0, 1, 1, { "中" }, "new", nil) == 1)
+	assert(not pcall(native.write, file .. "\0", {}, {}))
+	assert(not pcall(native.load, file .. "\0"))
+	assert(vim.uv.fs_unlink(file))
+	assert(vim.uv.fs_rmdir(directory))
+end
 local function u32(bytes, offset)
 	local a, b, c, d = bytes:byte(offset + 1, offset + 4)
 	return a + b * 256 + c * 65536 + d * 16777216
