@@ -28,7 +28,14 @@ if arg[1] then
 		"async dictionary did not become ready"
 	)
 	local paths = vim.fn.glob(vim.fn.stdpath("cache") .. "/flash-any/*.bin", false, true)
-	assert(#paths == (arg[1] == "first" and 1 or arg[1] == "updated" and 3 or 2))
+	assert(
+		#paths == (arg[1] == "first" and 1 or arg[1] == "updated" and 3 or 2),
+		vim.inspect({
+			phase = arg[1],
+			cache = vim.fn.stdpath("cache"),
+			paths = paths,
+		})
+	)
 	if arg[1] == "updated" then
 		return
 	end

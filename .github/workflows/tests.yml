@@ -32,10 +32,12 @@ jobs:
           neovim: true
           version: v0.11.0
       - name: Build C core
+        id: build
         run: nvim --clean -l lua/flash-any/compiler.lua
       - name: Test core without optional sources
         run: nvim --clean -l tests/run.lua
       - name: Test Flash integration
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           nvim --clean -l tests/flash.lua .dev/flash.nvim
           nvim --clean -l tests/char.lua .dev/flash.nvim

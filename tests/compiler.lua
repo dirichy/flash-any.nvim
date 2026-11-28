@@ -60,6 +60,7 @@ if arg[1] then
 		return vim.uv.fs_stat(arg[1] .. "/literal.bin") ~= nil
 	end))
 	local previous = assert(vim.uv.fs_stat(compiler.library))
+	local bytes = vim.fn.readfile(compiler.library, "b")
 	local cc, flags = vim.env.CC, vim.env.CFLAGS
 	for _, missing in ipairs({ false, true }) do
 		vim.env.CC = missing and "flash-any-missing-compiler" or cc
@@ -72,7 +73,9 @@ if arg[1] then
 			return failure ~= nil
 		end))
 		assert(failure:find(missing and "cannot start C compiler" or "C compilation failed", 1, true), failure)
-		assert(vim.deep_equal(previous, vim.uv.fs_stat(compiler.library)), "failed build replaced the old module")
+		local after = assert(vim.uv.fs_stat(compiler.library))
+		assert(vim.deep_equal(previous.mtime, after.mtime), "failed build changed the module's modification time")
+		assert(vim.deep_equal(bytes, vim.fn.readfile(compiler.library, "b")), "failed build changed the old module")
 		assert(#vim.fn.glob(compiler.library .. ".*.tmp", false, true) == 0)
 	end
 	return

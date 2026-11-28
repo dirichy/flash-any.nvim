@@ -31,6 +31,7 @@ local paths = {}
 for _, test in ipairs(tests) do
 	paths[#paths + 1] = "tests/" .. test .. ".lua"
 end
+local failed = {}
 for _, path in ipairs(paths) do
 	local result = vim.system(
 		{ vim.v.progpath, "--clean", "-l", "tests/run.lua", "child", path },
@@ -39,6 +40,9 @@ for _, path in ipairs(paths) do
 		:wait()
 	io.stdout:write(result.stdout or "")
 	io.stderr:write(result.stderr or "")
-	assert(result.code == 0, "failed: " .. path)
+	if result.code ~= 0 then
+		failed[#failed + 1] = path
+	end
 end
+assert(#failed == 0, "failed: " .. table.concat(failed, ", "))
 print("all requested tests passed")
