@@ -8,6 +8,8 @@ flash-any-intro	flash-any.txt	/*flash-any-intro*
 flash-any-jump	flash-any.txt	/*flash-any-jump*
 flash-any-matchers	flash-any.txt	/*flash-any-matchers*
 flash-any-remote	flash-any.txt	/*flash-any-remote*
+flash-any-search	flash-any.txt	/*flash-any-search*
+flash-any-search_repeat	flash-any.txt	/*flash-any-search_repeat*
 flash-any-setup	flash-any.txt	/*flash-any-setup*
 flash-any-sources	flash-any.txt	/*flash-any-sources*
 flash-any.txt	flash-any.txt	/*flash-any.txt*

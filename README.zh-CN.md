@@ -51,6 +51,18 @@ Demo 先用 `s` 跳转中文、韩文和图标，再展示多 source 共享首�
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
     { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
+    { "n", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "n" or "<Cmd>lua require('flash-any').search_repeat('n')<CR>"
+    end },
+    { "N", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "N" or "<Cmd>lua require('flash-any').search_repeat('N')<CR>"
+    end },
+    { "gn", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gn" or "<Cmd>lua require('flash-any').search_repeat('gn')<CR>"
+    end },
+    { "gN", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gN" or "<Cmd>lua require('flash-any').search_repeat('gN')<CR>"
+    end },
   },
 }
 ```
@@ -116,13 +128,13 @@ ASCII 字面文本和内置 latin 码表遵循 Neovim 的 `ignorecase`、`smartc
 
 ### 搜索模式
 
-`search()` 使用相同的 sources，在当前缓冲区向前寻找最近匹配，末尾回绕，
+`search()` 使用相同的 sources，在当前缓冲区向前寻找最近匹配，默认遵循 `'wrapscan'` 回绕，
 包含屏幕外结果。输入时预览，Enter 确认，Esc 恢复原位置；Backspace 删除输入。
 没有标签，也不会在只剩一个结果时提前结束。
 预览和高亮分批异步计算，输入变化会取消旧任务；Enter 会同步完成尚未结束的当前查询。
 每批约 2 毫秒后让出事件循环，但单个超长行的匹配无法中断，仍可能造成短暂停顿。
 
-插件只提供 `search()` API，不注册默认键位。上面的 lazy.nvim 示例将 `<leader>/`
+插件提供搜索 API，不注册默认键位。上面的 lazy.nvim 示例将 `<leader>/`
 映射到搜索；可自行修改或删除该项。其他插件管理器可在 setup 后映射：
 
 ```lua
@@ -130,9 +142,72 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 例如拼音配置下输入 `zhongwen` 可定位“中文”。ASCII 标点按字面匹配，不解释正则。
-`search(opts)` 只接受 Flash 选项，例如 `search({ search = { forward = false, wrap = false } })`。
+`search(opts)` 接受 Flash 选项，例如 `search({ search = { forward = false, wrap = false } })`，
+以及下面的 `clear_search_register`。
 这些选项仅覆盖本次调用，码表始终复用 setup 配置。
-这是独立搜索入口，不替换原生 `/`，也不更新 `/` 寄存器或原生 `n`/`N`。
+
+#### 重复搜索与原生按键
+
+Enter 确认非空查询时，即使没有找到结果，也会记住查询、方向和回绕设置，
+并默认清空原生搜索寄存器 `@/`。Esc 取消或空输入 Enter 不改变搜索记录。
+`search_repeat(key, opts)` 重复搜索，`key` 可为 `"n"`、`"N"`、`"gn"`、`"gN"`：
+`n/N` 沿上次方向或反方向跳转，`gn/gN` 固定向前或向后选中匹配。
+支持次数、可视选区和操作符，例如 `2n`、`dn`、`dgn`、`cgn` 后按 `.`。
+每次从当前缓冲区、当前光标重新查找；重复查找同步执行。
+没有确认过我们的查询时交回原生命令，包括原生的无记录报错和替换模式回退。
+
+以下是可选的推荐映射；只需 `n/N` 时可删去另外两个键：
+
+```lua
+for _, key in ipairs({ "n", "N", "gn", "gN" }) do
+  vim.keymap.set({ "n", "x", "o" }, key, function()
+    if vim.fn.getreg("/") ~= "" then
+      return key
+    end
+    return ("<Cmd>lua require('flash-any').search_repeat(%q)<CR>"):format(key)
+  end, { expr = true })
+end
+```
+
+规则只有一个：`@/` 非空走原生，否则重复我们的查询。原生 `/ ? * # g* g#`
+或其他插件重新写入 `@/` 后，这些映射自动走原生分支，无需监听按键或模式切换。
+`search_repeat()` 内部也遵守该规则，保证操作符通过 `.` 重放时仍使用最新的搜索归属。
+映射不自动安装或卸载；已有自定义映射可按相同规则组合。
+
+`clear_search_register` 默认 `true`，可以全局关闭，并由单次调用覆盖：
+
+```lua
+require("flash-any").setup({ sources = { "latin" }, clear_search_register = false })
+require("flash-any").search({ clear_search_register = true }) -- 仅本次清空
+-- 或保持默认 setup，仅本次保留原生模式：
+require("flash-any").search({ clear_search_register = false })
+```
+
+关闭清空后，非空的原生 `@/` 仍优先，所以上述映射会继续使用原生搜索。
+这适合只使用独立搜索入口，或自行设计分派规则的配置。
+
+喜欢无论上次使用 `/` 还是 `?`，始终用 `n` 向前、`N` 向后，可用下面的映射替换
+上面对应的两项。`opts.forward` 显式指定绝对方向，不改变记录的搜索方向：
+
+```lua
+for _, key in ipairs({ "n", "N" }) do
+  local forward = key == "n"
+  vim.keymap.set({ "n", "x", "o" }, key, function()
+    if vim.fn.getreg("/") ~= "" then
+      return (vim.v.searchforward == 1) == forward and "n" or "N"
+    end
+    return ("<Cmd>lua require('flash-any').search_repeat(%q, { forward = %s })<CR>")
+      :format(key, tostring(forward))
+  end, { expr = true })
+end
+```
+
+**设计限制：** `@/` 和我们的上次查询都是会话全局状态，跨缓冲区延续。
+清空会移除 `@/` 中的旧原生模式（不删除原生历史），也会影响它的高亮、`Ctrl-R /` 和空模式命令；
+原生某些空模式搜索仍可能回退到上次 `:s` 模式。
+我们的查询不是原生正则，不写入原生搜索历史，也不接管 `/ ? * #`。
+原生 `/<Enter>`、`:s//…/`、搜索计数和持续高亮不会理解我们的查询；
+`gn/gN` 也只有配置上述映射后才支持我们的匹配。
 
 ### 字符模式 f/F/t/T
 

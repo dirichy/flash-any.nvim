@@ -52,6 +52,18 @@ A lazy.nvim configuration for the demo sources, including `f/F/t/T`:
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
     { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
+    { "n", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "n" or "<Cmd>lua require('flash-any').search_repeat('n')<CR>"
+    end },
+    { "N", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "N" or "<Cmd>lua require('flash-any').search_repeat('N')<CR>"
+    end },
+    { "gn", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gn" or "<Cmd>lua require('flash-any').search_repeat('gn')<CR>"
+    end },
+    { "gN", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gN" or "<Cmd>lua require('flash-any').search_repeat('gN')<CR>"
+    end },
   },
 }
 ```
@@ -126,14 +138,14 @@ Keep English input active; `rk → 가` and `Rk → 까` stay distinct regardles
 ### Search mode
 
 `search()` uses the same sources to find the next match in the current buffer,
-wrapping at the end and including offscreen results. Typing previews the target;
+following `'wrapscan'` by default and including offscreen results. Typing previews the target;
 Enter confirms, Esc restores the original position, and Backspace edits the query.
 There are no labels or automatic confirmation when only one match remains.
 Preview and highlighting run asynchronously in batches; editing cancels the old query.
 Enter finishes any pending work synchronously. Batches yield after about 2 ms, but
 matching a single very long line cannot be interrupted and may still pause input.
 
-The plugin provides the `search()` API without registering default mappings.
+The plugin provides search APIs without registering default mappings.
 The lazy.nvim example above maps `<leader>/` to search; change or remove that entry
 as needed. With other plugin managers, add a mapping after setup:
 
@@ -144,8 +156,76 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 For example, with pinyin configured, `zhongwen` finds 中文. ASCII punctuation is
 literal, with no regex syntax. `search(opts)` accepts Flash options, for example
 `search({ search = { forward = false, wrap = false } })`. These options override setup
-for this call while retaining its dictionary. This separate entry point leaves
-native `/`, its search register, and native `n`/`N` unchanged.
+for this call while retaining its dictionary. It also accepts `clear_search_register`, below.
+
+#### Repeating searches with native keys
+
+Confirming a nonempty query with Enter remembers its query, direction and wrapping
+options, even when no match exists, and clears the native search register `@/` by
+default. Esc and Enter with empty input preserve the previous search.
+`search_repeat(key, opts)` accepts `"n"`, `"N"`, `"gn"` or `"gN"`. `n/N` move in the
+remembered direction or its opposite; `gn/gN` select a match forward or backward,
+independently of that direction. Counts, Visual selections and operators work,
+including `2n`, `dn`, `dgn` and `cgn` followed by `.`. Each repeat searches the
+current buffer from the current cursor synchronously. Without a confirmed Flash Any
+query, it delegates to native commands, retaining their errors and substitute fallback.
+
+These optional mappings use native searches whenever `@/` is nonempty; otherwise,
+they repeat Flash Any's query. Remove `gn/gN` if you only want `n/N`:
+
+```lua
+for _, key in ipairs({ "n", "N", "gn", "gN" }) do
+  vim.keymap.set({ "n", "x", "o" }, key, function()
+    if vim.fn.getreg("/") ~= "" then
+      return key
+    end
+    return ("<Cmd>lua require('flash-any').search_repeat(%q)<CR>"):format(key)
+  end, { expr = true })
+end
+```
+
+Native `/ ? * # g* g#`, or another plugin writing `@/`, reclaim the mappings
+without key or mode listeners. `search_repeat()` checks the same register too,
+so operator redo with `.` follows the latest search owner. No mappings are
+installed or removed automatically; incorporate the same rule into custom maps.
+
+`clear_search_register` defaults to `true`. Disable it in setup, or override it for
+one search:
+
+```lua
+require("flash-any").setup({ sources = { "latin" }, clear_search_register = false })
+require("flash-any").search({ clear_search_register = true }) -- clear for this call
+-- Alternatively, keep the default setup and preserve the native pattern once:
+require("flash-any").search({ clear_search_register = false })
+```
+
+When clearing is disabled, a nonempty native register still wins in these mappings.
+This suits standalone searches or configurations with their own dispatch rules.
+
+To make `n` always search forward and `N` backward after either `/` or `?`, replace
+those two mappings with the following. `opts.forward` overrides the absolute
+direction without changing the remembered direction:
+
+```lua
+for _, key in ipairs({ "n", "N" }) do
+  local forward = key == "n"
+  vim.keymap.set({ "n", "x", "o" }, key, function()
+    if vim.fn.getreg("/") ~= "" then
+      return (vim.v.searchforward == 1) == forward and "n" or "N"
+    end
+    return ("<Cmd>lua require('flash-any').search_repeat(%q, { forward = %s })<CR>")
+      :format(key, tostring(forward))
+  end, { expr = true })
+end
+```
+
+**Limitations:** `@/` and the remembered Flash Any query are session-wide, across
+buffers. Clearing removes the previous pattern from `@/` (without deleting native history) and affects its highlights,
+`Ctrl-R /` and empty-pattern commands; some native empty-pattern searches may fall
+back to the last `:s` pattern. Flash Any queries are not native regexes, do not enter
+native search history, and do not replace `/ ? * #`. Native `/<Enter>`, `:s//…/`,
+search counts and persistent highlights do not understand these queries. Native
+`gn/gN` only support Flash Any matches through the optional mappings above.
 
 ### Character motions f/F/t/T
 

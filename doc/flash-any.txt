@@ -91,6 +91,48 @@ remote() 复用 setup 配置，remote(opts) 使用完整独立配置并须包含
 <
 yr 后输入 zg、标签、iw，可复制远处单词并返回；dr 用于删除。Flash 负责远程操作。
 
+搜索与重复：                                               *flash-any-search*
+                                                        *flash-any-search_repeat*
+
+search(opts) 合并 setup 配置，复用其码表。在当前 buffer 增量预览屏幕内外匹配，
+Enter 确认，Esc 恢复位置；空输入 Enter 不重复上次查询。默认遵循 'wrapscan'，
+search.forward / search.wrap 可覆盖方向与回绕。匹配按字面和码表解释，不是原生正则。
+
+clear_search_register 默认为 true，可在 setup 或 search(opts) 中指定布尔值。
+确认非空查询时，即使无匹配，也会保存查询、方向、回绕设置，并默认清空 @/。
+Esc 或空输入 Enter 保留原搜索状态。单次调用选项优先于 setup： >lua
+    require("flash-any").search({ clear_search_register = false })
+<
+search_repeat(key, opts) 接受 "n"、"N"、"gn"、"gN"。@/ 非空时执行原生命令；
+否则同步重新匹配当前 buffer。n/N 沿记录方向或反方向移动，gn/gN 固定向前/后
+选择匹配，支持次数、Visual 模式、操作符和点重复。opts.forward 可显式指定绝对
+方向，不修改记录的方向。没有确认过我们的查询时交回原生命令，保留原生的报错和回退。
+
+Search APIs never install mappings. Optional expression maps dispatch on @/:
+native when nonempty, Flash Any otherwise. Native / ? * # g* g# or plugins
+writing @/ reclaim the keys without listeners. Example: >lua
+    for _, key in ipairs({ "n", "N", "gn", "gN" }) do
+      vim.keymap.set({ "n", "x", "o" }, key, function()
+        if vim.fn.getreg("/") ~= "" then
+          return key
+        end
+        return ("<Cmd>lua require('flash-any').search_repeat(%q)<CR>"):format(key)
+      end, { expr = true })
+    end
+<
+clear_search_register=false preserves the native register; a nonempty native
+pattern therefore still wins in these mappings. Per-call values override setup.
+See README.md / README.zh-CN.md for n-always-forward and N-always-backward maps.
+
+限制：@/ 和上次 Flash Any 查询都是会话全局状态。清空丢弃旧原生模式并影响其高亮、
+Ctrl-R / 和空模式命令；原生仍可能回退到上次 :s 模式。不会写入原生搜索历史，也不
+替换 / ? * #。原生 /<Enter>、:s//.../、搜索计数和持续高亮不理解我们的查询。
+gn/gN 只有配置相应映射后才支持我们的匹配。重复搜索为同步查找。
+
+Clearing @/ discards the previous native pattern. Flash Any queries do not power
+native search history, persistent highlights, search counts or substitutions.
+Both saved queries and @/ are session-wide. Repeats run synchronously.
+
 ===============================================================================
 3. 码表                                                    *flash-any-sources*
 

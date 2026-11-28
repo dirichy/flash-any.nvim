@@ -366,6 +366,24 @@ before committing the target.
 同步完成当前协程，再从原位置提交跳转。
 这是主线程协作式异步，单行 C 匹配不能中断；不提供线程并行或严格的延迟上限。
 
+`search.lua` also owns the last confirmed query and its scan configuration, not the
+old state, buffer or result list. Each repeat constructs a fresh state and uses the
+shared matcher synchronously. Explicit `search.wrap` is retained; otherwise repeats
+read the current `'wrapscan'`. There are no installed mappings or input listeners.
+The native register is the dispatch boundary, including on operator redo because
+`.` replays a mapping's `<Cmd>` without rerunning its expression callback.
+
+For `gn/gN`, the shared matcher resolves the target and count first. A single
+position-bounded regex then delegates selection and operator semantics to native
+`gn/gN`; it never expands code-table alternatives. The register, direction,
+highlight flag and wrapping option are restored synchronously, including on errors.
+
+上次查询和重复查找也由 `search.lua` 管理，不保留旧 state、buffer 或结果列表。
+重复操作新建 state、同步复用 matcher；显式 wrap 保留，否则读取当前 'wrapscan'。
+不安装映射或监听器。@/ 决定搜索归属，API 内也检查，以覆盖绕过表达式映射的点重复。
+gn/gN 先由 matcher 按次数确定目标，再用单个位置范围模式交给原生命令选择和执行
+操作符，不展开字库。寄存器、方向、高亮标记和回绕选项在成功或出错后同步恢复。
+
 Local measurement (2026-11-18, separate clean Neovim processes per mode/scenario):
 100,000 ASCII lines, roughly 4 MB, built-in literal matching, one run per case.
 The synchronous baseline uses the same shared matcher and native scanner.
@@ -426,6 +444,8 @@ NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/run.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/flash.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/char.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_repeat.lua
+NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_repeat.lua .dev/flash.nvim preserve
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean -l tests/search_async.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/search_input.lua
 NVIM_LOG_FILE=/tmp/flash-any-test.log nvim --clean --headless -u tests/remote.lua

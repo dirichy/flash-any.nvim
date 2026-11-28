@@ -44,6 +44,10 @@ local function build_opts(opts)
 	opts = vim.deepcopy(opts)
 	assert(opts.char == nil or type(opts.char) == "boolean", "char must be a boolean")
 	assert(
+		opts.clear_search_register == nil or type(opts.clear_search_register) == "boolean",
+		"clear_search_register must be a boolean"
+	)
+	assert(
 		opts.sources == nil or (type(opts.sources) == "table" and vim.islist(opts.sources)),
 		"sources must be a list"
 	)
@@ -146,6 +150,10 @@ local function get_opts(opts)
 	end
 	assert(type(opts) == "table", "Flash options must be a table")
 	assert(
+		opts.clear_search_register == nil or type(opts.clear_search_register) == "boolean",
+		"clear_search_register must be a boolean"
+	)
+	assert(
 		opts.sources == nil and opts.binary == nil and opts.char == nil,
 		"configure sources, binary and char in setup()"
 	)
@@ -169,12 +177,16 @@ function M.remote(opts)
 end
 
 ---Incrementally search the current buffer without jump labels.
----@param opts? table Single-call Flash options merged with setup.
+---@param opts? table Flash options and clear_search_register, merged with setup.
 ---@return Flash.State
 function M.search(opts)
 	local config = get_opts(opts)
 	config = vim.deepcopy(config)
-	local get, finish = require("flash-any.search").new(config.matcher)
+	local clear = config.clear_search_register ~= false
+	config.clear_search_register = nil
+	local Search = require("flash-any.search")
+	local scan = config.matcher
+	local get, finish = Search.new(scan)
 	config = vim.tbl_deep_extend("force", config, {
 		labels = "",
 		multi_line = true,
@@ -182,6 +194,10 @@ function M.search(opts)
 		jump = { autojump = false, history = false, register = false },
 		highlight = { backdrop = false },
 	}) --[[@as table]]
+	local wrap = config.search.wrap
+	if config.search.wrap == nil then
+		config.search.wrap = vim.o.wrapscan
+	end
 	config.matcher = get
 	local state = require("flash.state").new(config)
 	state:loop({
@@ -191,6 +207,12 @@ function M.search(opts)
 				-- use the search origin; an empty/failed query restores it too.
 				local target = finish(current)
 				current:restore()
+				if not current.pattern:empty() then
+					Search.remember(current, scan, wrap)
+					if clear then
+						vim.fn.setreg("/", "")
+					end
+				end
 				if target then
 					current:jump(target)
 				end
@@ -199,6 +221,15 @@ function M.search(opts)
 		},
 	})
 	return state
+end
+
+---Repeat the native search when its register is nonempty, otherwise Flash Any's.
+---@param key "n"|"N"|"gn"|"gN"
+---@param opts? {forward?: boolean} Override the absolute direction.
+---@return Flash.Match?
+function M.search_repeat(key, opts)
+	assert(default_opts, "call setup before using flash-any")
+	return require("flash-any.search").repeat_search(key, opts)
 end
 
 ---Use as flash.nvim's modes.char.matcher; Flash owns keys, repeats and labels.

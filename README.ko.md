@@ -53,6 +53,18 @@ Linux와 macOS에서 검증했으며 Windows는 현재 지원하지 않습니다
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
     { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
+    { "n", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "n" or "<Cmd>lua require('flash-any').search_repeat('n')<CR>"
+    end },
+    { "N", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "N" or "<Cmd>lua require('flash-any').search_repeat('N')<CR>"
+    end },
+    { "gn", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gn" or "<Cmd>lua require('flash-any').search_repeat('gn')<CR>"
+    end },
+    { "gN", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gN" or "<Cmd>lua require('flash-any').search_repeat('gN')<CR>"
+    end },
   },
 }
 ```
@@ -126,7 +138,7 @@ latin을 활성화하면 `e → é / é`, `o → ø`, `ae → æ`, `ss → ß` 
 ### 검색 모드
 
 `search()`는 같은 source로 현재 버퍼의 다음 결과를 찾으며 화면 밖도 검색합니다.
-끝에 도달하면 처음으로 돌아갑니다. 입력 중 대상을 미리 보고, Enter로 확정하고,
+기본 순환은 `'wrapscan'`을 따릅니다. 입력 중 대상을 미리 보고, Enter로 확정하고,
 Esc로 원래 위치에 돌아가며, Backspace로 입력을 지웁니다.
 레이블이 없고 결과가 하나만 남아도 자동 확정하지 않습니다.
 
@@ -143,9 +155,15 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 병음을 설정하면 `zhongwen`으로 中文을 검색할 수 있습니다. ASCII 문장 부호는 그대로 검색하며
-정규식 문법은 없습니다. `search(opts)`는 Flash 옵션만 받고 setup의 사전을 재사용합니다.
+정규식 문법은 없습니다. `search(opts)`는 Flash 옵션과 `clear_search_register`를 받고 setup의 사전을 재사용합니다.
 `search.forward`와 `search.wrap`으로 방향과 순환을 조절합니다.
-이 API는 기본 `/`, 검색 레지스터, 기본 `n`/`N` 동작을 바꾸지 않습니다.
+비어 있지 않은 검색을 Enter로 확정하면 결과가 없어도 검색을 기억하고 기본적으로 `@/`를 비웁니다.
+setup 또는 `search({ clear_search_register = false })`로 비우기를 끌 수 있습니다.
+Esc와 빈 입력의 Enter는 이전 검색을 유지합니다. 기본 순환은 `'wrapscan'`을 따릅니다.
+`search_repeat("n")` / `"N"` / `"gn"` / `"gN"`를 원하는 키에 연결할 수 있습니다.
+API는 `@/`가 비어 있지 않으면 기본 검색을, 비어 있으면 Flash Any를 반복합니다. 매핑은 자동 등록하지 않습니다.
+이전 기본 검색 패턴은 사라지며 기본 검색 기록, 지속 강조 및 치환에는 연결되지 않습니다.
+매핑, 고정 방향 예제와 자세한 제한은 [English README](README.md#repeating-searches-with-native-keys)를 참고하세요.
 
 ### 문자 이동 f/F/t/T
 

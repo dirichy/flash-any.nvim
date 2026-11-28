@@ -17,6 +17,7 @@ build.binary({ sources = { { data = { ["中"] = "zhong", ["国"] = "guo" }, matc
 assert(not pcall(plugin.jump) and not pcall(plugin.remote) and not pcall(plugin.search))
 assert(not pcall(plugin.setup, {}))
 assert(not pcall(plugin.setup, { binary = path, char = "yes" }))
+assert(not pcall(plugin.setup, { binary = path, clear_search_register = "yes" }))
 assert(not pcall(plugin.setup, { binary = path, sources = "pinyin" }))
 plugin.setup({ binary = path, labels = "abc", search = { wrap = false } })
 assert(not pcall(plugin.rebuild), "binary-only setup cannot reconstruct sources")

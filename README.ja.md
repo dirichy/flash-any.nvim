@@ -52,6 +52,18 @@ Linux と macOS で検証済みです。Windows は現在サポートしてい�
     { "s", mode = { "n", "x", "o" }, function() require("flash-any").jump() end },
     { "r", mode = "o", function() require("flash-any").remote() end },
     { "<leader>/", function() require("flash-any").search() end, desc = "Flash Any search" },
+    { "n", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "n" or "<Cmd>lua require('flash-any').search_repeat('n')<CR>"
+    end },
+    { "N", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "N" or "<Cmd>lua require('flash-any').search_repeat('N')<CR>"
+    end },
+    { "gn", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gn" or "<Cmd>lua require('flash-any').search_repeat('gn')<CR>"
+    end },
+    { "gN", mode = { "n", "x", "o" }, expr = true, function()
+      return vim.fn.getreg("/") ~= "" and "gN" or "<Cmd>lua require('flash-any').search_repeat('gN')<CR>"
+    end },
   },
 }
 ```
@@ -123,7 +135,7 @@ latin では `e → é / é`、`o → ø`、`ae → æ`、`ss → ß` などを
 ### 検索モード
 
 `search()` は同じ sources を使い、現在のバッファで次の一致へ移動します。
-画面外も対象とし、末尾で先頭へ戻ります。入力中に位置をプレビューし、Enter で確定、
+画面外も対象とし、既定では `'wrapscan'` に従って折り返します。入力中に位置をプレビューし、Enter で確定、
 Esc で元の位置へ戻り、Backspace で入力を削除します。ラベルや単一結果の自動確定はありません。
 プレビューとハイライトは非同期で分割処理し、入力変更で古い処理を中止します。
 Enter は未完了の検索を同期的に完了します。約 2 ms ごとに処理を譲りますが、
@@ -138,9 +150,15 @@ vim.keymap.set("n", "<leader>/", function() require("flash-any").search() end, {
 ```
 
 拼音設定なら `zhongwen` で「中文」を検索できます。ASCII 記号は文字どおりに扱い、
-正規表現は解釈しません。`search(opts)` は Flash オプションのみ受け付け、setup の辞書を使います。
+正規表現は解釈しません。`search(opts)` は Flash オプションと `clear_search_register` を受け付け、setup の辞書を使います。
 方向と折り返しは `search.forward`、`search.wrap` で変更できます。
-標準の `/`、検索レジスター、`n`/`N` は変更しません。
+非空の検索を Enter で確定すると、結果がなくても検索を記憶し、既定で `@/` を空にします。
+setup または `search({ clear_search_register = false })` で無効にできます。
+Esc と空入力の Enter は以前の検索を保持します。既定の折り返しは `'wrapscan'` に従います。
+`search_repeat("n")` / `"N"` / `"gn"` / `"gN"` と任意のマッピングで検索を繰り返せます。
+API は `@/` が非空なら標準検索、空なら Flash Any を使います。マッピングは自動登録しません。
+古い標準検索は破棄され、標準の検索履歴・継続ハイライト・置換には接続しません。
+マッピングと方向固定の例、詳細な制限は [English README](README.md#repeating-searches-with-native-keys) を参照してください。
 
 ### f/F/t/T の文字移動
 
