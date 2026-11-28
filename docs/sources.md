@@ -221,10 +221,15 @@ This is independent of pinyin or any particular writing system.
 { file = "/path/table.dict.yaml", converter = "/path/converter.lua", matcher = "full_code" }
 ```
 
-converter 文件返回函数，接收一个文本条目合并去重后的全部编码，返回新的编码数组：
+converter 文件返回 `function(codes, text)`，每个文本条目调用一次。`codes` 是该条目的
+完整编码数组（文件读取时合并去重），`text` 是原文字素或词组；返回新的编码数组。
+只接收 `codes` 的旧函数仍可使用，Lua 会忽略第二个参数：
 
 ```lua
-return function(codes)
+return function(codes, text)
+  if text == "略过的词条" then
+    return nil
+  end
   local result = {}
   for _, code in ipairs(codes) do
     result[#result + 1] = code:lower()
@@ -243,8 +248,11 @@ end
 见下文工厂约定。显式 binary 存在时直接加载，缺失时才自动构建；`rebuild()` 可强制
 重新构建 setup 中配置的 sources（包括显式 binary）。
 
-The optional converter file returns a function accepting all deduplicated encodings
-for one text entry. Return an array of ASCII codes or valid group references/sequences,
+The optional converter file returns `function(codes, text)`, called once per text
+entry. `codes` contains its complete encoding array (merged and deduplicated by the
+file reader); `text` is the original grapheme or phrase. Existing single-argument
+functions still work because Lua ignores the extra argument.
+Return an array of ASCII codes or valid group references/sequences,
 or nil/empty to omit that entry. For example, with the groups above it can convert
 すし to す し. It runs only during compilation; raw input encodings may be Unicode.
 It does not parse file formats or transform runtime queries. Automatic cache keys
@@ -320,6 +328,22 @@ complete TSV or standalone Lua table under `flash-any/tables`. It can call `tabl
 extra = map})` for build-time transformations. Custom factory options pass through;
 a name-only specification supplies an empty options table. No callbacks run during
 searches.
+
+`table.load` 的 `convert(codes, text)` 与文件 converter 使用相同的调用和返回约定。
+先将 Lua 条目覆盖 TSV，再对每个合并后的文本调用一次转换；被覆盖的 TSV 编码不再转换。
+nil 或空数组删除整个条目，不重新露出 TSV，也不阻止后续 fallback。
+`extra` 在转换完成后覆盖，不参与转换。没有转换器时，显式空数组仍表示已识别的空条目，
+保留屏蔽 fallback 的作用。输入编码数组是副本，转换器可原地修改，不影响缓存的 Lua 表；
+ASCII/组引用校验在转换之后执行，因此原始读音可以是 Unicode。
+
+`table.load` uses the same `convert(codes, text)` contract as file converters.
+Lua entries override TSV before conversion; each merged text entry is converted
+once, with no calls for shadowed TSV codes. Nil or an empty array removes the
+entry entirely, without exposing TSV or blocking later fallback sources. Extra
+entries override after conversion and are not converted. Without a converter,
+explicit empty code arrays remain recognized and block fallback. Input arrays
+are copies, so in-place edits cannot mutate cached Lua tables. ASCII/group
+validation follows conversion, allowing Unicode raw readings.
 
 ```lua
 require("flash-any").setup({

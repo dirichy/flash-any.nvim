@@ -44,7 +44,7 @@ end
 local stamp = require("flash-any.stamp")
 
 -- Bump when Lua compilation changes without a native format/version change.
-local CACHE_VERSION = 1
+local CACHE_VERSION = 2
 local warned_data = false
 local DATA_WARNING_LIMIT = 200
 

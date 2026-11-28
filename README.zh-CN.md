@@ -314,8 +314,9 @@ sources = {
 ```
 
 第三方可直接提供 Rime、TSV、CSV、空白分隔、Fcitx 或 IBus 码表，
-无需排序、Lua 常用字表或 source 模块。Tab 分隔的码表每行一个编码，多个编码分行重复写入。可选 `converter` 指向返回编码转换函数的 Lua 文件，
-只在构建时执行。[接入与 converter 说明](docs/sources.md) ·
+无需排序、Lua 常用字表或 source 模块。Tab 分隔的码表每行一个编码，多个编码分行重复写入。可选 `converter` 指向返回 `function(codes, text)` 的 Lua 文件，
+构建时每个文本条目调用一次，接收完整编码数组与原文，返回编码数组；nil/空数组删除条目。
+仅接收 codes 的旧函数仍可使用。[接入与 converter 说明](docs/sources.md) ·
 [第三方录制及 README 模板](demos/README.md#第三方码表--third-party-tables)。
 
 `data` 接受单编码字符串或编码数组；编码可以是不含 NUL 的非空 ASCII，或有效的组引用/序列。

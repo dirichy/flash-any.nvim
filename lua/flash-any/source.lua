@@ -91,7 +91,7 @@ end
 ---@field columns? string[] Column labels including text and code.
 ---@field encoding? string
 ---@field header? boolean Skip the first CSV record.
----@field converter? string Lua file returning fun(codes: string[]): string[]?; external file only.
+---@field converter? string Lua file returning fun(codes: string[], text: string): string[]?; external file only.
 ---@field selection? FlashAnySelection|false Optional suffixes ranked by file weights.
 ---@field groups? table<string, string[]> Shared spelling alternatives keyed by code.
 ---@field append_space_below? integer

@@ -33,13 +33,18 @@ Fallback merges by exact text key; empty lists also block later fallback codes f
 ## 模块 / Modules
 
 码表入口统一返回完整的 `text -> string[]` 普通 map，不附加 metatable、prefixes、
-max_chars、offset 或命中/缺失缓存。Lua 覆盖 TSV，extra 最后覆盖；空数组保留为已识别
-条目，仍会阻止后续 fallback。`source.resolve` 保证工厂（含 prepared）与直接输入
+max_chars、offset 或命中/缺失缓存。Lua 覆盖 TSV，再由 normalize 对每个文本执行一次
+convert(codes, text)，最后校验 ASCII/组引用；输入编码数组先复制，避免转换污染模块缓存。
+file converter 也复用同一路径。nil/空转换结果删除条目，extra 最后覆盖且不转换。
+没有转换器时，原始空数组保留为已识别条目，仍会阻止后续 fallback。`source.resolve` 保证工厂（含 prepared）与直接输入
 都已规范化；`build.binary` 直接枚举 data，不再 materialize。Lua/TSV 导出只生成 codes，
 多字素数量仅用于完成通知，不生成未被运行层消费的前缀或最大长度。
 
 Table inputs become complete plain `text -> string[]` maps, with no lookup metatable,
-prefix/length metadata or offset/miss cache. Lua overrides TSV, then extra wins. Empty
+prefix/length metadata or offset/miss cache. Lua overrides TSV, then normalization
+copies inputs, calls convert(codes, text) once per entry, and validates ASCII/group
+outputs. File converters share that path. Nil/empty conversion results remove entries;
+extra entries override last without conversion. Without a converter, explicit empty
 arrays remain recognized and suppress fallback. Source resolution normalizes factories,
 prepared data and direct inputs; the binary compiler iterates data directly. Lua exports
 contain only codes. Grapheme counts remain solely for build completion messages.
@@ -423,7 +428,7 @@ buffer construction and dictionary setup. They are local observations, not a lat
 每项测试应能说明它防止的具体问题：用户可能执行的操作、文件或运行时安全、
 明确的性能退化，或容易写错的算法规则。不要按函数、分支或字段逐一配套断言，
 也不要验证普通 Lua table 的读写行为。优先检查操作产生的匹配结果或错误；
-converter 接收整组还是单行等扩展接口约定，可以直接检查其输出。
+converter 的完整编码列表、text 参数及过滤约定，可以直接检查调用和输出。
 相同风险已有覆盖时合并用例，不为每个配置组合复制一次完整流程。
 
 异步构建测试负责首次构建时编辑器仍能响应、等待通知和查询快照；重建测试负责

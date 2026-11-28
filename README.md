@@ -344,8 +344,9 @@ sources = {
 Third-party projects can directly provide Rime, TSV, CSV, whitespace-separated,
 Fcitx or IBus tables, without sorting, a Lua common-character table or a source
 module. Tab-separated tables use one code per row; repeat rows for multiple codes.
-An optional `converter` points to a Lua file returning a code conversion function
-that runs only at build time. See [integration and converters](docs/sources.md) ·
+An optional `converter` points to a Lua file returning `function(codes, text)`, called
+once per text entry at build time with its complete code array and original text.
+Return a code array, or nil/an empty array to omit the entry; single-argument functions still work. See [integration and converters](docs/sources.md) ·
 [third-party recording and README templates](demos/README.md#第三方码表--third-party-tables).
 
 `data` accepts a single code string or an array of codes; codes must be nonempty

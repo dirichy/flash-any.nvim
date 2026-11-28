@@ -94,7 +94,7 @@ for _, phase in ipairs({ "first", "cached", "updated" }) do
 		local path = plugin_root .. "/lua/flash-any/native.lua"
 		local content = vim.fn.readfile(path)
 		for i, line in ipairs(content) do
-			content[i] = line:gsub("local CACHE_VERSION = 1", "local CACHE_VERSION = 2")
+			content[i] = line:gsub("local CACHE_VERSION = 2", "local CACHE_VERSION = 3")
 		end
 		assert(vim.fn.writefile(content, path) == 0)
 	end

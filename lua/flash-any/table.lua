@@ -66,11 +66,12 @@ function M.append_space(data, below, groups)
 	return ret, padded_groups
 end
 
----Copy a complete map and normalize single encodings to arrays.
+---Copy raw codes before conversion, then validate the resulting complete map.
 ---@param map FlashAnyTableInput
 ---@param groups? table<string, string[]>
+---@param convert? fun(codes: string[], text: string): string[]?
 ---@return FlashAnyTable
-function M.normalize(map, groups)
+function M.normalize(map, groups, convert)
 	local values = type(map.codes) == "table" and map.codes or map
 	---@cast values FlashAnyTableMap
 	local ret = {}
@@ -80,18 +81,37 @@ function M.normalize(map, groups)
 			codes = { codes }
 		end
 		assert(type(codes) == "table" and vim.islist(codes), "codes must be a string or array: " .. text)
-		local copy = {}
-		for i, code in ipairs(codes) do
+		---@type string[]?
+		local converted = codes
+		if convert then
+			local input = {}
+			for i, code in ipairs(codes) do
+				assert(
+					type(code) == "string" and code ~= "" and not code:find("%z"),
+					"input codes must be nonempty strings without NUL: " .. text
+				)
+				input[i] = code
+			end
+			converted = convert(input, text)
 			assert(
-				type(code) == "string"
-					and code ~= ""
-					and not code:find("%z")
-					and (not code:find("[\128-\255]") or M.group_sequence(code, groups) ~= nil),
-				"codes must be nonempty ASCII strings or known group references without NUL: " .. text
+				converted == nil or (type(converted) == "table" and vim.islist(converted)),
+				"converter must return a code array or nil"
 			)
-			copy[i] = code
 		end
-		ret[text] = copy
+		if converted and (not convert or #converted > 0) then
+			local result = {}
+			for i, code in ipairs(converted) do
+				assert(
+					type(code) == "string"
+						and code ~= ""
+						and not code:find("%z")
+						and (not code:find("[\128-\255]") or M.group_sequence(code, groups) ~= nil),
+					"codes must be nonempty ASCII strings or known group references without NUL: " .. text
+				)
+				result[i] = code
+			end
+			ret[text] = result
+		end
 	end
 	return ret
 end
@@ -110,25 +130,15 @@ function M.from_file(path, opts)
 		assert(type(convert) == "function", "converter file must return a function")
 	end
 	local rows, ranks = require("flash-any.reader").read(path, opts)
-	for char, codes in pairs(rows) do
-		if convert then
-			local converted = convert(codes)
-			assert(
-				converted == nil or (type(converted) == "table" and vim.islist(converted)),
-				"converter must return a code array or nil"
-			)
-			rows[char] = converted and #converted > 0 and converted or nil
-		end
-	end
-	return M.normalize(rows, opts.groups), ranks
+	return M.normalize(rows, opts.groups, convert), ranks
 end
 
 ---@class FlashAnyTableOptions
----@field convert? fun(codes: string[]): string[]?
+---@field convert? fun(codes: string[], text: string): string[]?
 ---@field extra? FlashAnyTableMap Added after conversion; overrides existing entries.
 ---@field groups? table<string, string[]> Group names recognized while loading codes.
 
----Read complete named TSV/Lua data, with converted Lua overrides and extra entries last.
+---Merge Lua over TSV, convert once per text entry, and apply extra entries last.
 ---@param name string
 ---@param opts? FlashAnyTableOptions
 ---@return FlashAnyTable
@@ -139,37 +149,19 @@ function M.load(name, opts)
 	local groups, convert = opts and opts.groups, opts and opts.convert
 	local data = tsv and require("flash-any.reader").read(tsv, { format = "tsv" }) or {}
 	if lua then
-		local overrides = M.normalize(require("flash-any.tables." .. name), groups)
-		if convert then
-			-- Preserve the TSV row conversion contract; Lua overrides convert their whole list.
-			for text, codes in pairs(data) do
-				local converted = {}
-				for _, code in ipairs(codes) do
-					vim.list_extend(converted, convert({ code }) or {})
-				end
-				data[text] = converted
-			end
-			for text, codes in pairs(overrides) do
-				overrides[text] = convert(codes)
-			end
-		end
-		for text, codes in pairs(overrides) do
+		local overrides = require("flash-any.tables." .. name)
+		local values = type(overrides.codes) == "table" and overrides.codes or overrides
+		for text, codes in pairs(values) do
 			data[text] = codes
 		end
-	else
-		data = M.normalize(data, groups)
-		if convert then
-			for text, codes in pairs(data) do
-				data[text] = convert(codes) or {}
-			end
-		end
 	end
+	data = M.normalize(data, groups, convert)
 	if opts and opts.extra then
 		for text, codes in pairs(M.normalize(opts.extra, groups)) do
 			data[text] = codes
 		end
 	end
-	return M.normalize(data, groups)
+	return data
 end
 
 ---Read both complete files; every Lua key, including an empty code list, overrides TSV.

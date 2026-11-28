@@ -138,8 +138,10 @@ Fcitx, IBus, encodings and weights.
 
 - **ASCII codes are already correct:** read the table directly, without a converter.
 - **Readings need conversion or segmentation:** use file with converter; the factory
-  supplies the converter's absolute path. It receives one text entry's deduplicated
-  code array and returns ASCII codes or valid group-reference/sequence strings.
+  supplies the converter's absolute path. Its `function(codes, text)` receives one
+  text entry's deduplicated code array and original grapheme/phrase, and returns
+  ASCII codes or valid group-reference/sequence strings. It is called once per text;
+  existing single-argument functions still work.
   Returning nil or an empty array omits that entry. Conversion runs only at build
   time, without buffer context or XML parsing. Maintainers must first extract
   unsupported source formats into supported tables; installation should not download

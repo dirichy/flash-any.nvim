@@ -229,8 +229,11 @@ build.binary 生成 FANYBIN v8。码点分页数组、多码点字素 hash 和�
 TSV 每行一对字素和编码，多编码重复写行；逗号原样保留，无需排序。
 file 接入自动过滤多字素词组并报告数量；Lua/data 键仍须为单个完整字素。
 matcher 标识为 full_code、initial、prefix 或 letter；不支持自定义 matcher。
-可选 converter = "/path/converter.lua"；文件返回 function(codes)，在构建时
-接收一个字素的全部编码，返回新数组，nil/空数组略过该字素。扫描不执行 converter。
+可选 converter = "/path/converter.lua"；文件返回 function(codes, text)，构建时
+每个文本条目调用一次，接收完整编码数组和原文字素/词组。返回新数组，nil/空数组
+删除条目并允许后续 fallback；仅接收 codes 的旧函数仍可使用。扫描不执行 converter。
+Converter functions receive (codes, text) once per text entry at build time; return
+an array, or nil/empty to omit the entry. Existing single-argument functions still work.
 自动缓存按元数据跟踪依赖；不为计算内容哈希读取整个码表。显式 binary 仅在缺失时构建。
 第三方接入、录制和 README 模板见 docs/sources.md 与 demos/README.md。
 

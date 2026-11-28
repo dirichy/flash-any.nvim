@@ -251,8 +251,9 @@ sources = {
 외부 프로젝트의 Rime, TSV, CSV, 공백 구분, Fcitx, IBus 파일을 그대로 사용할 수 있습니다.
 정렬, Lua 상용 글자 테이블 또는 source 모듈이 필요하지 않습니다.
 TSV 한 행에는 텍스트와 코드 하나를 넣고, 코드가 여러 개면 텍스트를 반복합니다.
-코드의 쉼표는 구분자가 아닌 실제 문자입니다. 선택적인 converter는 Lua 파일이 반환하는 변환 함수이며
-빌드 시에만 실행합니다. [연결과 converter](docs/sources.md),
+코드의 쉼표는 구분자가 아닌 실제 문자입니다. 선택적인 converter는 Lua 파일이 반환하는 `function(codes, text)`입니다.
+빌드 시 텍스트 항목마다 한 번 호출하며 전체 코드 배열과 원문을 받습니다.
+코드 배열을 반환하고 nil 또는 빈 배열이면 항목을 제외합니다. codes만 받는 기존 함수도 사용할 수 있습니다. [연결과 converter](docs/sources.md),
 [녹화와 README 템플릿](demos/README.md#第三方码表--third-party-tables)을 참고하세요.
 
 data는 단일 코드 문자열 또는 배열을 받습니다. 코드는 비어 있지 않은 NUL 없는 ASCII 문자열이거나,
