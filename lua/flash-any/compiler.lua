@@ -1,7 +1,8 @@
 local M = {}
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
 local windows = vim.fn.has("win32") == 1
-M.library = root .. "/lua/flash-any/native." .. (windows and "dll" or "so")
+local library = "lua/flash-any/native." .. (windows and "dll" or "so")
+M.library = root .. "/" .. library
 local sources = { "src/native.c", "src/binary.c", "src/scan.c", "src/trie.c" }
 local inputs = vim.list_extend(vim.deepcopy(sources), {
 	"src/native.h",
@@ -54,7 +55,9 @@ function M.build(done)
 		callbacks[#callbacks + 1] = done
 		return
 	end
-	local temporary = M.library .. "." .. vim.fn.getpid() .. "." .. tostring(vim.uv.hrtime()) .. ".tmp"
+	-- MinGW's linker cannot reliably encode absolute Unicode output paths.
+	local output = library .. "." .. vim.fn.getpid() .. "." .. tostring(vim.uv.hrtime()) .. ".tmp"
+	local temporary = root .. "/" .. output
 	local command = { vim.env.CC or (windows and "gcc" or "cc") }
 	-- Environment flags are whitespace-separated arguments, never shell commands.
 	vim.list_extend(command, vim.split(vim.env.CPPFLAGS or "", "%s+", { trimempty = true }))
@@ -76,7 +79,7 @@ function M.build(done)
 		)
 	end
 	vim.list_extend(command, vim.split(vim.env.LDFLAGS or "", "%s+", { trimempty = true }))
-	vim.list_extend(command, { "-o", temporary })
+	vim.list_extend(command, { "-o", output })
 	callbacks = { done }
 	local function finish(err)
 		vim.uv.fs_unlink(temporary)
