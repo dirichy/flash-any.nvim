@@ -25,7 +25,7 @@ if arg[1] == "child" then
 	end
 	return
 end
-local root = vim.fn.tempname()
+local root = vim.fs.normalize(vim.fn.tempname())
 vim.fn.mkdir(root .. "/plugin/lua/flash-any/sources", "p")
 vim.fn.mkdir(root .. "/plugin/lua/flash-any/cached_source", "p")
 local factory = root .. "/plugin/lua/flash-any/sources/cached_source.lua"

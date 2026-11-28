@@ -3,7 +3,7 @@
 vim.opt.runtimepath:prepend(vim.uv.cwd())
 local build = require("flash-any.build")
 local tables = require("flash-any.table")
-local root = vim.fn.tempname()
+local root = vim.fs.normalize(vim.fn.tempname())
 vim.fn.mkdir(root, "p")
 local function write(name, text)
 	local path = root .. "/" .. name
