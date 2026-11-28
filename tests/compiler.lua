@@ -17,7 +17,7 @@ if arg[1] then
 	end
 	assert(not compiler.load(ready))
 	assert(not compiler.load(ready))
-	vim.opt.runtimepath:append(root .. "/.dev/flash.nvim")
+	vim.opt.runtimepath:append(vim.env.FLASH_NVIM_PATH or root .. "/.dev/flash.nvim")
 	local flash = require("flash")
 	rawset(flash, "jump", function(opts)
 		return require("flash.state").new(opts)
